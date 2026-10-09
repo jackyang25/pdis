@@ -4,7 +4,7 @@ import { useId, useRef } from "react";
 import { Expand, X } from "lucide-react";
 import type { ContentBlock } from "@/lib/api";
 import { Button } from "@/components/ui/button";
-import { documentBlockLocationLabel } from "@/lib/document-extraction";
+import { documentBlockLocationLabel, documentVisualLabel } from "@/lib/document-extraction";
 
 /** Let an enclosing overlay dismiss only the topmost native visual dialog. */
 export function closeDocumentVisualOnEscape(
@@ -25,8 +25,7 @@ export function DocumentVisual({ block }: { block: ContentBlock }) {
   const trigger = useRef<HTMLButtonElement>(null);
   const titleId = useId();
   if (!block.image) return null;
-  const scope = block.structural_meta.visual_scope;
-  const label = scope === "full_slide" ? "Slide visual" : scope === "full_page" ? "Page visual" : "Document image";
+  const label = documentVisualLabel(block);
   const location = documentBlockLocationLabel(block);
   const title = location ? `${label} · ${location}` : label;
   const source = `data:${block.image.media_type};base64,${block.image.data_base64}`;

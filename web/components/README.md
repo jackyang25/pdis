@@ -47,8 +47,13 @@ collections; tools supply a more specific next-step instruction where needed.
 for picker acceptance, drag/drop validation, format hints, and limitations.
 The default remains DOCX/PPTX. Screener opts into PDF text extraction; the panel
 does not branch on tool names. Parser-authored result limitations render through
-`DocumentExtractionNotice`, including after saved-result import.
-Warning descriptions remain navigation-neutral in `shared/document-extraction.json`.
+`DocumentExtractionNotice`, including after saved-result import, as a `CaveatNotice`: the
+warning's icon without its box, which `WarningNotice` keeps for facts that change what a
+result says.
+Warning text remains navigation-neutral in `shared/document-extraction.json`, which holds
+each code's `description` for a result and a one-line `summary` for a single passage. An
+Assistant citation shows the summary through `PassageExtractionNote`, because it names its
+document already and may open over a page with no Documents tab; models read the description.
 The notice supplies one navigation hint for the current view: Documents in results,
 or available source links in Scout checkpoints (`hasDocumentsTab={false}`). Missing
 visuals still direct readers to the original file, not to an uncaptured image.

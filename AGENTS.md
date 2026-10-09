@@ -105,22 +105,20 @@ web/ → api/ → services/ → shared/
   unit providers, not downstream conditionals.
 - A result view is read by someone who learned the previous tool, so ten things
   are the same everywhere and none of them is checkable by a type:
-  1. **`PriorityPanel` is the opening panel**, and `attribution` is always
-     `by <Tool>` — never a description of the ordering, which is what `orderNote`
-     is for. A tool may decline the panel only when its atom does not fit
-     `PriorityItem`; Screener is the one case, because a 40–60 word gate question has
-     nowhere to go in that shape and the panel would restate a list already flat.
-     Record the reason at the call site, as Screener does.
-  2. **The priority panel is three layers, and they stay apart.** The deterministic list
-     answers what qualifies and in what order; the `digest` says what that list amounts
-     to and may introduce nothing and re-rank nothing; `nominations` are items the
-     selector excluded, each citing a passage. A digest that named a new item, or a
-     nomination repeating a listed one, would make `orderNote` false — so the second is
-     enforced in `services/assistant/priorities.py`, not left to the prompt. Both are
-     derived on read and never stored: they describe a list the browser computes when a
-     result is opened, so a stored digest would outlive the list it summarises. One
-     prompt serves every tool, handed the authority sentence from the tool catalog and
-     the context tags the result carries; adding a tool changes neither.
+  1. **`PriorityPanel` is the opening panel of every tool that judges a document.** It
+     is an AI reading of the whole result and says so: a summary and a few points, the
+     selection and order the model's. The tool's own sections stay the authoritative,
+     code-ordered record; the card never edits, re-ranks or overturns them.
+  2. **A point points; it never copies.** Each point names findings by ID from a closed
+     list of the result's own IDs, and the card renders those findings from the tool's
+     `PriorityFinding` list — named with the same label helpers its page uses. A card
+     that rebuilt names, quotes or sentences would drift from the rows it points at, which
+     is what the per-tool selectors this replaced did. Code-derived text (a count, a chain
+     warning) is a verdict or a note, never a statement, so nothing code wrote is read as
+     a model's. The reading is derived on open and never stored, so it improves with the
+     prompt and needs no saved-result migration. One prompt serves every tool, handed the
+     tool's catalog sentence, one focus sentence and the context tags the result carries;
+     adding a tool is a lens, not a prompt or a route.
   3. **One count grammar per page:** `<title> <count>`, the count in muted
      tabular figures beside the heading. Not `Title · 7`, and never both on one
      screen. `SectionHeading` takes a node rather than a string so a caller does
@@ -166,12 +164,20 @@ web/ → api/ → services/ → shared/
      the strongest treatment — amber and an icon, as Scout's context-validation
      notice does — and provenance gets the weakest, at the foot of the card. A
      result whose review mostly could not be run must not read as a completed one.
+     Notices come in two weights from `ui/warning-notice`: `WarningNotice`, the amber
+     box, for a fact that changes what the result says (a run stopped short, a doubtful
+     document context); `CaveatNotice`, the same icon without the box, for a limit on
+     how far its words go (extracted PDF text, numbers held out of calibration). Boxes
+     come first. A caveat in the box reads as a failure.
 
 ## Documents and visuals
 
 - Chunker emits ordered, citable `ContentBlock`s with stable IDs. API routes
   pass the original filename stem as `doc_id`; temporary filenames must never
-  appear in block IDs.
+  appear in block IDs. Each block carries the `source_format` its parser read
+  (`formats.SourceFormat`), stamped once by the parser dispatch; a reader names a
+  passage's file type from that field and never infers it from a page or slide
+  number. A block saved before the field existed has none, and shows as unknown.
 - Document input capabilities live in `services/chunker/formats.py`.
   `DOCUMENT_SUFFIXES` defaults to DOCX/PPTX, which declare structure. Only
   Screener opts into `TEXT_EXTRACTION_SUFFIXES`, adding text-based PDF sources.
@@ -276,7 +282,7 @@ The run owns source `blocks[]` once, applicability resolutions and one
   are separate. Guideline-derived requirements are adaptations, never regulatory
   compliance or agency certification.
 - The shared result viewer selects a review without changing the run. Export and
-  Ask retain all reviews and one source collection. Priority digests are scoped to
+  Ask retain all reviews and one source collection. Priority readings are scoped to
   their rubric. Document consistency concerns contradictions within the document,
   never differences between authorities.
 - `assessment_status` and `consistency_status` are process facts outside verdicts.
@@ -628,13 +634,14 @@ supplied material answers and which it does not.
   one, run by both `pack` and `unpack` so a file that could not be read is never
   written. Those contracts sit outside every functional pipeline; nothing there runs
   during an analysis.
-- A tool's top-of-page priorities render through the shared `ui/priority-panel`,
-  which owns the container and decides nothing. What qualifies and in what order is
-  one selector per tool in `web/lib/*-priorities.ts`, so improving priorities is an
-  edit to that selector or to what it is handed - never to the panel, a page, or
-  another tool. Every selector returns the same `PriorityItem`, and each states how
-  its order was decided, because the AI glyph marks the wording as the model's and
-  says nothing about the ranking.
+- A tool's priority card renders through the shared `ui/priority-panel`, which owns the
+  container and decides nothing. Each tool's lens in `web/lib/*-priorities.ts` says which
+  findings its result holds, in the one `PriorityFinding` shape from `web/lib/priorities.ts`,
+  and one focus sentence; `services/assistant/priorities.py` reads them through
+  `POST /api/assistant/priorities`, which holds no tool table. Improving what a tool raises
+  is an edit to its focus or its lens - never to the panel, a page, the route, or another
+  tool. The card sits inside the page's `DocumentSourceProvider`, or its source triggers
+  open nothing.
 - A tool that keeps runs renders the run picker and reports its own limit. Which runs a
   tool holds is one store for all of them, and `run-history-coverage.test.ts` fails if a
   page records a run without offering a way to switch or remove one — removing is the only
@@ -652,7 +659,17 @@ supplied material answers and which it does not.
   inspect those result trees, parsed blocks, retained images, and URLs already
   cited by an analysis. Transient conversation attachments use the same block
   contract and remain user-supplied context; Ask never runs a new evidence
-  search.
+  search. When the workspace cannot answer, it may *offer* one: `offer_search` sends a
+  structured Searcher run on its own stream event, the chat renders it as a card, and the
+  card opens Searcher with those fields filled in for the reader to review and run. An offer
+  is data for the interface, never parsed out of answer text, and nothing runs until the
+  reader acts. Searcher owns what a search accepts and what each field means:
+  `services.searcher.SEARCH_TEXT_FIELDS` names and describes the text fields, the sources
+  are an enum of Searcher's registered keys and the entity types its vocabulary. The API
+  request (and so MCP) and the offer take their descriptions from there, adding only rules
+  of their own, and the browser's `search-fields.ts` mirrors the names and holds the one set
+  of labels the form and the card share. Searcher's page ticks an offered source only if
+  it is configured and reachable there, and otherwise keeps its defaults.
 - Ask's prompt carries a bounded map, never the workspace itself: a fixed prefix, the
   legends for held result types, and per result and per document a bounded number of
   lines. Every result subtree, source block and retained image is reached by exact ID
@@ -698,6 +715,16 @@ supplied material answers and which it does not.
 - Browser multipart uploads go directly to FastAPI. Keep all secrets server-side.
 - Bespoke identity icons live in `web/public/icons/pdis/` and are mapped through
   `web/components/ui/pdis-icon.tsx`; use Lucide for generic actions.
+- A citation - a pointer to the one source a claim rests on - is `ui/source-chip`, in one
+  neutral shape wherever a single source is named: an Assistant answer citing a passage or
+  a web page, and a passage list naming which document a passage is in. "In document"
+  opens a list and is not one; a source record is `SourceEntry`; categories and verdicts
+  are `Badge` and `VerdictPill`. `source-chip.test.ts` keeps it to those places. Every list
+  or panel of passages - the "In document" popover, the trace's passage list, an Assistant
+  citation - names a passage through `PassageSource`: its document when the passages span
+  more than one (always, in the chat), then its location, which never truncates. A panel
+  whose passages share one document names it as the title. An image block is named for
+  what it is (`documentVisualLabel`), never by its `[image]` placeholder.
 - A negative *result* — a critical gap, a contradiction, an unfavorable
   precedent — uses `--tone-danger`. `--destructive` is reserved for a system
   error. They are different claims and must not be interchanged.

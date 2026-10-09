@@ -2,7 +2,7 @@
 
 Stateless: the client sends a result or workspace bundle + conversation history each turn
 (consistent with the one-shot tools). The agent loop runs server-side. The UI
-receives text, activity, completion, and failure as separate SSE events.
+receives text, activity, offers, completion, and failure as separate SSE events.
 """
 
 from __future__ import annotations
@@ -23,8 +23,9 @@ from starlette.concurrency import run_in_threadpool
 
 from services.assistant import (
     Chunk,
-    PriorityItemInput,
+    PriorityFinding,
     PriorityRequest,
+    PriorityRequestTooLarge,
     answer_stream as assistant_answer_stream,
     limits,
     read_priorities,
@@ -37,9 +38,9 @@ from api.schemas import (
     AskRequest,
     AssistantContextResponse,
     ContentBlockOut,
-    PriorityDigestRequest,
-    PriorityDigestResponse,
-    PriorityNominationOut,
+    PriorityPointOut,
+    PriorityReadingRequest,
+    PriorityReadingResponse,
 )
 
 logger = logging.getLogger(__name__)
@@ -102,7 +103,10 @@ def sse(chunks: Iterator[Chunk]) -> Iterator[str]:
                 yield ": ping\n\n"
                 continue
             prefix = "" if chunk.kind == "text" else f"event: {chunk.kind}\n"
-            yield f"{prefix}data: {json.dumps(chunk.text)}\n\n"
+            # An offer is data for the interface, framed as its JSON object; text and
+            # activity are strings.
+            payload = chunk.data if chunk.kind == "offer" else chunk.text
+            yield f"{prefix}data: {json.dumps(payload)}\n\n"
     except Exception:
         # HTTP headers have already gone out. Send a failure event, not answer
         # text, and keep provider diagnostics (which may contain input) in logs.
@@ -116,61 +120,63 @@ def sse(chunks: Iterator[Chunk]) -> Iterator[str]:
     yield "event: done\ndata: {}\n\n"
 
 
-@router.post("/priority-digest", response_model=PriorityDigestResponse)
-async def priority_digest(request: PriorityDigestRequest) -> PriorityDigestResponse:
-    """Read one tool's selected priorities: what they amount to, and what they miss.
+@router.post("/priorities", response_model=PriorityReadingResponse)
+async def priorities(request: PriorityReadingRequest) -> PriorityReadingResponse:
+    """Read one result's findings: what it amounts to, and where to look first.
 
-    Not part of any result. The digest describes a list the browser derives when a result
-    is opened, so it is derived the same way and travels nowhere — no analysis version
-    moves, and an exported result is unchanged.
+    Not part of any result. It is read when a result is opened and travels nowhere — no
+    analysis version moves, and an exported result is unchanged.
 
     The route holds no tool table. Everything that differs between tools arrives in the
-    request: the authority sentence, the ordering rule, the items as rendered.
+    request: the authority sentence, the focus, and the findings as the page names them.
     """
     try:
         llm_client = get_openai_client()
     except MissingCredentialError as exc:
         raise HTTPException(status_code=500, detail=str(exc)) from exc
+    if not request.findings:
+        raise HTTPException(status_code=422, detail="a result with no findings has nothing to read")
 
     read = PriorityRequest(
         authority=request.authority.strip(),
-        order_note=request.order_note.strip(),
-        items=tuple(
-            PriorityItemInput(
+        focus=request.focus.strip(),
+        findings=tuple(
+            PriorityFinding(
                 id=item.id,
-                label=item.label,
-                qualifier=item.qualifier,
-                statement=item.statement,
-                recommendation=item.recommendation,
+                subject=item.subject,
+                group=item.group,
+                verdicts=tuple(item.verdicts),
+                statements=tuple(item.statements),
+                notes=tuple(item.notes),
+                quote=item.quote,
             )
-            for item in request.items
+            for item in request.findings
         ),
-        analysis=request.analysis,
-        block_ids=frozenset(request.block_ids),
         org=request.org,
         intervention_class=request.intervention_class,
         indication=request.indication,
     )
     try:
         result = await run_in_threadpool(read_priorities, read, llm_client=llm_client)
+    except PriorityRequestTooLarge as exc:
+        raise HTTPException(status_code=413, detail=str(exc)) from exc
     except Exception as exc:  # noqa: BLE001
         # Everything, not just ValueError. A provider rejecting the request raises its own
         # SDK error, which slipped past a ValueError handler and became a 500 with the
-        # reason only in the server log — so the panel showed a skeleton, then nothing,
-        # and no surface said why. A digest is an addition to a panel that already works,
-        # so this stays a 502 the client can degrade around, but the reason travels with it.
-        logger.warning("Priority digest failed: %s", exc, exc_info=True)
+        # reason only in the server log. The card is complete without a reading, so this
+        # stays a 502 the client can degrade around, and the reason travels with it.
+        logger.warning("Priority reading failed: %s", exc, exc_info=True)
         raise HTTPException(status_code=502, detail=str(exc)) from exc
 
-    return PriorityDigestResponse(
-        digest=result.digest,
-        nominations=[
-            PriorityNominationOut(
-                label=item.label,
-                statement=item.statement,
-                cited_block_ids=item.cited_block_ids,
+    return PriorityReadingResponse(
+        summary=result.summary,
+        points=[
+            PriorityPointOut(
+                title=point.title,
+                statement=point.statement,
+                finding_ids=point.finding_ids,
             )
-            for item in result.nominations
+            for point in result.points
         ],
     )
 

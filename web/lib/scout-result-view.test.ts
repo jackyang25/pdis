@@ -464,9 +464,9 @@ function row(name: string, overrides: Record<string, unknown> = {}) {
   } as Parameters<typeof runHeadline>[0][number];
 }
 
-test("coverage reports no verdicts, because Priorities already does", () => {
-  // Naming the contradicting fields here duplicated `selectScoutPriorities`' first tier,
-  // directly above the panel that reports them with evidence and a source link.
+test("coverage reports no verdicts, because the field rows already do", () => {
+  // Naming the contradicting fields here duplicated the field rows directly below, which
+  // report them with evidence and a source link.
   const headline = runHeadline([
     row("drug.efficacy", { matches: [match("contradicts", "x"), match("confirms", "c")] }),
   ]);

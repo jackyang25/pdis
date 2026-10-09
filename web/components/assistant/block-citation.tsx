@@ -6,13 +6,14 @@ import { DocumentSourceContext } from "@/components/document-source-trace";
 import { BlockReferenceId } from "@/components/block-reference";
 import { resolveBlock } from "@/lib/block-reference";
 import { documentBlockLocationLabel } from "@/lib/document-extraction";
-import { DocumentExtractionNotice } from "@/components/document-extraction-notice";
+import { PassageExtractionNote } from "@/components/document-extraction-notice";
 import {
   Popover,
   PopoverContent,
   PopoverTrigger,
 } from "@/components/ui/popover";
-import { EYEBROW } from "@/lib/typography";
+import { PassageSource, SourceChip } from "@/components/ui/source-chip";
+import { displayDocumentName } from "@/lib/document-trace";
 
 /**
  * A cited document passage, opened where it was cited.
@@ -50,18 +51,25 @@ export function BlockCitation({
         {/* Inline, because a markdown link sits inside a paragraph: a block-level
             disclosure here would be invalid nesting. The panel is portalled, so
             only the trigger has to stay inline. */}
+        {/* The citation shape every source in the suite is named with: the file type the
+            parser recorded, then the answer's own label for the passage. Which document,
+            and where in it, open with the passage. */}
         <button
           type="button"
-          className="rounded-sm font-medium text-foreground underline decoration-dotted decoration-from-font underline-offset-2 transition-colors hover:decoration-solid focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/20 motion-reduce:transition-none"
+          title={`${displayDocumentName(block.doc_id)} · ${heading}`}
+          className="group/source mx-0.5 rounded-md align-baseline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/20"
         >
-          {children}
+          <SourceChip format={block.source_format}>{children}</SourceChip>
         </button>
       </PopoverTrigger>
       <PopoverContent align="start" className="w-80 p-3">
-        <p className={EYEBROW}>
-          {heading}
-        </p>
-        <DocumentExtractionNotice blocks={[block]} />
+        {/* Always named: the chat can open over a page that holds none of its documents. */}
+        <PassageSource
+          format={block.source_format}
+          document={displayDocumentName(block.doc_id)}
+          location={documentBlockLocationLabel(block)}
+        />
+        <PassageExtractionNote block={block} />
         <p className="mt-2 max-h-64 overflow-y-auto whitespace-pre-wrap text-xs leading-relaxed text-foreground">
           {block.content}
         </p>

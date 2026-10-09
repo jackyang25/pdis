@@ -60,6 +60,13 @@ export class AssistantSseTransport<
                   throw new Error(parsed.text);
                 } else if (parsed.kind === "done") {
                   completed = true;
+                } else if (parsed.kind === "offer") {
+                  // A proposal for the interface, never answer text: its own part, read
+                  // and validated where it is rendered.
+                  controller.enqueue({
+                    type: "data-offer",
+                    data: parsed.data,
+                  } as UIMessageChunk);
                 } else if (parsed.kind === "activity") {
                   // Its own part, not text: what the agent is doing is not part
                   // of the answer, and the format already separates them.
@@ -96,7 +103,13 @@ export class AssistantSseTransport<
   }
 }
 
-export type StreamEvent = { kind: "text" | "activity" | "done" | "error"; text: string; code?: string };
+export type StreamEvent = {
+  kind: "text" | "activity" | "offer" | "done" | "error";
+  text: string;
+  code?: string;
+  /** An offer's object, which unlike text is not a string. */
+  data?: unknown;
+};
 
 /**
  * What one event carries, or null if it carries nothing.
@@ -110,7 +123,7 @@ export type StreamEvent = { kind: "text" | "activity" | "done" | "error"; text: 
  */
 export function readEvent(event: string): StreamEvent | null {
   const eventKind = event.split("\n").find((line) => line.startsWith("event:"))?.slice(6).trim();
-  const kind: StreamEvent["kind"] = eventKind === "activity" || eventKind === "error" || eventKind === "done" ? eventKind : "text";
+  const kind: StreamEvent["kind"] = eventKind === "activity" || eventKind === "offer" || eventKind === "error" || eventKind === "done" ? eventKind : "text";
   const parts: string[] = [];
   for (const line of event.split("\n")) {
     if (!line.startsWith("data:")) continue;
@@ -119,6 +132,7 @@ export function readEvent(event: string): StreamEvent | null {
     try {
       const value = JSON.parse(raw);
       if (kind === "done") return { kind, text: "" };
+      if (kind === "offer") return { kind, text: "", data: value };
       if (kind === "error") {
         return {
           kind,

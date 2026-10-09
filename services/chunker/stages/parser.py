@@ -3,7 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 from collections.abc import Set
 
-from ..formats import DOCUMENT_SUFFIXES
+from ..formats import DOCUMENT_SUFFIXES, SOURCE_FORMAT_BY_SUFFIX
 from ..models import ContentBlock
 from .parser_docx import parse_docx
 from .parser_pptx import parse_pptx
@@ -44,12 +44,15 @@ def parse_document(
         raise ValueError(
             f"Unsupported file format '{suffix}'. Supported: {', '.join(sorted(accepted_suffixes))}"
         )
-    if suffix == ".docx":
-        return parse_docx(file_path, doc_id)
-    if suffix == ".pptx":
-        return parse_pptx(file_path, doc_id)
-    if suffix == ".pdf":
-        return parse_pdf(file_path, doc_id)
+    parsers = {".docx": parse_docx, ".pptx": parse_pptx, ".pdf": parse_pdf}
+    if suffix in parsers:
+        blocks = parsers[suffix](file_path, doc_id)
+        # Stamped here, once, from the extension the dispatch already chose by, so no
+        # parser can forget it and no reader has to infer it from a page or slide field.
+        source_format = SOURCE_FORMAT_BY_SUFFIX[suffix]
+        for block in blocks:
+            block.source_format = source_format
+        return blocks
     raise ValueError(
         f"Unsupported file format '{suffix}': no parser is registered."
     )

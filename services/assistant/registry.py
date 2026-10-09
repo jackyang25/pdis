@@ -18,7 +18,7 @@ plain text or an image-bearing `ToolOutput`.
 from __future__ import annotations
 
 import json
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any
 
 from shared.chat import ToolCall, ToolOutput
@@ -27,6 +27,7 @@ from . import document as document_reader
 from . import knowledge
 from . import limits
 from . import navigator
+from . import offers
 from . import resources
 from . import skills
 from . import web_sources
@@ -45,10 +46,27 @@ def _int(raw: Any, default: int) -> int:
 
 @dataclass(frozen=True)
 class ToolContext:
-    """Everything a verb may read, and the question's visual budget."""
+    """Everything a verb may read, the question's visual budget, and what it offered.
+
+    `offers` collects proposals for the reader during one question; the loop sends each
+    on its own event as soon as the verb that made it returns.
+    """
 
     index: WorkspaceIndex
     budget: VisualBudget
+    offers: list[offers.SearchOffer] = field(default_factory=list)
+
+
+def _offer_search(context: ToolContext, args: dict[str, Any]) -> str:
+    offer = offers.search_offer(args)
+    if isinstance(offer, str):
+        return offer
+    context.offers.append(offer)
+    return (
+        "The reader now sees this search with an Open in Searcher control. Do not repeat its "
+        "fields; say in one sentence why the workspace cannot answer and that the search "
+        "would look for it. You have not searched, and nothing has been found."
+    )
 
 
 REGISTRY: tuple[resources.Resource, ...] = (
@@ -238,6 +256,27 @@ REGISTRY: tuple[resources.Resource, ...] = (
                     "required": ["name"],
                 },
                 handler=lambda ctx, args: skills.read_skill(str(args.get("name", ""))),
+            ),
+        ),
+    ),
+    resources.Resource(
+        key="searcher_offer",
+        summary="A Searcher run the reader can start",
+        kind="offer",
+        verbs=(
+            resources.Verb(
+                name="offer_search",
+                description=(
+                    "Propose a Searcher run when answering needs external evidence the workspace "
+                    "does not hold. Runs nothing: the reader sees the search, edits it, and starts "
+                    "it. Use only after checking the workspace, at most once per question, and "
+                    "never for a question the workspace already answers."
+                ),
+                activity="Setting up a search",
+                # Built from what Searcher accepts: its fields, its registered sources, its
+                # entity types. Nothing about a search is restated here.
+                parameters=offers.offer_parameters(),
+                handler=_offer_search,
             ),
         ),
     ),

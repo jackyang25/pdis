@@ -1,8 +1,26 @@
 {
-  "pdf_limited_structure": "PDF page text and directly placed embedded raster images. Vector drawings and images nested in Form objects are not read; columns and tables may be misordered. Images follow page text, not reading order, and may be fragments. Check the original before relying on the result.",
-  "pdf_text_layout": "Page visuals are retained. Extracted PDF text may have incorrect reading order or table relationships. A matching quotation validates the extracted words, not their visual arrangement. Check the retained page images for layout and context.",
-  "presentation_renderer_unavailable": "Slide rendering was unavailable. Extracted text, tables, notes and supported embedded pictures are retained, but charts, drawn shapes and their relationships may be missing. Check the original presentation.",
-  "presentation_render_failed": "Slide rendering did not complete. Extracted text, tables, notes and supported embedded pictures are retained, but charts, drawn shapes and their relationships may be missing. Check the original presentation.",
-  "unsupported_document_visual": "A visual object was detected but not captured for analysis. It may be decorative or contain information. Compare captured content with the original document to check what is missing.",
-  "document_image_unavailable": "An embedded image could not be decoded or converted. Its location is retained, but its visual content was not available for analysis. Check the original document."
+  "pdf_limited_structure": {
+    "summary": "PDF text: columns, tables and images may be misordered or missing.",
+    "description": "PDF page text and directly placed embedded raster images. Vector drawings and images nested in Form objects are not read; columns and tables may be misordered. Images follow page text, not reading order, and may be fragments. Check the original before relying on the result."
+  },
+  "pdf_text_layout": {
+    "summary": "PDF text: reading order and tables may be wrong; the page image shows the layout.",
+    "description": "Page visuals are retained. Extracted PDF text may have incorrect reading order or table relationships. A matching quotation validates the extracted words, not their visual arrangement. Check the retained page images for layout and context."
+  },
+  "presentation_renderer_unavailable": {
+    "summary": "Slide not rendered: charts and drawn shapes may be missing.",
+    "description": "Slide rendering was unavailable. Extracted text, tables, notes and supported embedded pictures are retained, but charts, drawn shapes and their relationships may be missing. Check the original presentation."
+  },
+  "presentation_render_failed": {
+    "summary": "Slide rendering failed: charts and drawn shapes may be missing.",
+    "description": "Slide rendering did not complete. Extracted text, tables, notes and supported embedded pictures are retained, but charts, drawn shapes and their relationships may be missing. Check the original presentation."
+  },
+  "unsupported_document_visual": {
+    "summary": "A visual here was not captured and may hold information.",
+    "description": "A visual object was detected but not captured for analysis. It may be decorative or contain information. Compare captured content with the original document to check what is missing."
+  },
+  "document_image_unavailable": {
+    "summary": "An image here could not be read.",
+    "description": "An embedded image could not be decoded or converted. Its location is retained, but its visual content was not available for analysis. Check the original document."
+  }
 }

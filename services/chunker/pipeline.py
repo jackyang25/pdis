@@ -121,6 +121,7 @@ def parse_context_file(
             structural_meta={"source": "assistant_attachment"},
             style_hint={"parser": "standalone_image"},
             image=image,
+            source_format="image",
         )
     ]
 

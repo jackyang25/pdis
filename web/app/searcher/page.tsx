@@ -1,6 +1,6 @@
 "use client";
 
-import { FormEvent, useEffect, useState } from "react";
+import { FormEvent, useEffect, useRef, useState } from "react";
 import { ExternalLink, Loader2, Search, X } from "lucide-react";
 import { PageHeader } from "@/components/page-header";
 import { ErrorMessage } from "@/components/ui/error-message";
@@ -21,6 +21,8 @@ import { useSearcherSession } from "@/lib/session";
 import { SourceAttributions } from "@/components/source-attributions";
 import type { Finding } from "@/lib/api";
 import { EYEBROW } from "@/lib/typography";
+import { SEARCH_FIELD_LABEL } from "@/lib/search-fields";
+import { readSearchHandoff, type SearchHandoff } from "@/lib/search-offer";
 
 export default function SearcherPage() {
   const [query, setQuery] = useState("");
@@ -48,16 +50,42 @@ export default function SearcherPage() {
     setError,
   } = useSearcherSession();
 
+  // A search the Assistant set up arrives in the address. It fills the form and nothing
+  // more: the reader reviews it and presses Run, so Ask still never searches. Its sources
+  // are applied once the source list loads, because only that list says which can run here.
+  const handoff = useRef<SearchHandoff | null>(null);
+  useEffect(() => {
+    const read = readSearchHandoff(window.location.search);
+    if (!read.fields.query) return;
+    handoff.current = read;
+    const { fields } = read;
+    setQuery(fields.query ?? "");
+    setCondition(fields.condition ?? "");
+    setIntervention(fields.intervention ?? "");
+    setProduct(fields.product ?? "");
+    setPopulation(fields.population ?? "");
+    setOutcome(fields.outcome ?? "");
+    setRegion(fields.region ?? "");
+    setPublishedSince(fields.published_since ?? "");
+    setEntities(read.entities.map((entity) => ({ name: entity.name, type: entity.entity_type })));
+  }, []);
+
   useEffect(() => {
     let active = true;
     fetchSearchSources()
       .then((available) => {
         if (!active) return;
         setSources(available);
+        // Offered sources replace the defaults, but only those this server can run with the
+        // entities the offer named; an offer whose sources all fall away keeps the defaults.
+        const offered = handoff.current;
+        const stated = (offered?.entities ?? []).map((entity) => ({ name: entity.name, type: entity.entity_type }));
+        const runnable = available.filter(
+          (source) => offered?.sources.includes(source.key) && source.configured && reachable(source, stated),
+        );
         setSelected(
           new Set(
-            available
-              .filter((source) => source.default_enabled)
+            (runnable.length ? runnable : available.filter((source) => source.default_enabled))
               .map((source) => source.key),
           ),
         );
@@ -178,14 +206,14 @@ export default function SearcherPage() {
           className="rounded-lg bg-card p-5 shadow-raised sm:p-6"
         >
           <h2 className="sr-only">Search configuration</h2>
-          <Label htmlFor="search-query" className="mb-1.5 block">Search query</Label>
+          <Label htmlFor="search-query" className="mb-1.5 block">{SEARCH_FIELD_LABEL.query}</Label>
           <div className="flex flex-col gap-2 sm:flex-row">
             <div className="relative flex-1">
               <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
               <ConfigTextInput
                 type="text"
                 id="search-query"
-                aria-label="Search query"
+                aria-label={SEARCH_FIELD_LABEL.query}
                 value={query}
                 onChange={(e) => setQuery(e.target.value)}
                 placeholder="e.g. recent FDA guidance on RSV vaccines"
@@ -208,7 +236,7 @@ export default function SearcherPage() {
           <ConfigFieldGrid layout="wide" className="mt-4">
             <ConfigSectionHeading>Search scope</ConfigSectionHeading>
             <ConfigField
-              label="Condition"
+              label={SEARCH_FIELD_LABEL.condition}
               help="Used for registry and database requests. If left blank, these requests use the query text, which may not match their condition fields."
             >
               <ConfigTextInput
@@ -220,7 +248,7 @@ export default function SearcherPage() {
               />
             </ConfigField>
             <ConfigField
-              label="Health product type"
+              label={SEARCH_FIELD_LABEL.intervention}
               help="The product category, such as vaccine or drug. Used by sources with an intervention field."
             >
               <ConfigTextInput
@@ -232,7 +260,7 @@ export default function SearcherPage() {
               />
             </ConfigField>
             <ConfigField
-              label="Product"
+              label={SEARCH_FIELD_LABEL.product}
               help="One named product. Adds a narrower request alongside the health product type, preserving broader results when a source records the product under a different name."
             >
               <ConfigTextInput
@@ -244,7 +272,7 @@ export default function SearcherPage() {
               />
             </ConfigField>
             <ConfigField
-              label="Population"
+              label={SEARCH_FIELD_LABEL.population}
               help="Who the question is about. PubMed and Semantic Scholar search this phrase instead of the whole query, unless Outcome is supplied."
               note={
                 <ConfigHelp>
@@ -261,7 +289,7 @@ export default function SearcherPage() {
               />
             </ConfigField>
             <ConfigField
-              label="Outcome"
+              label={SEARCH_FIELD_LABEL.outcome}
               help="What is measured. PubMed and Semantic Scholar use this phrase ahead of Population or the whole query."
               note={
                 <ConfigHelp>
@@ -279,7 +307,7 @@ export default function SearcherPage() {
             </ConfigField>
             <ConfigSectionHeading>Search limits</ConfigSectionHeading>
             <ConfigField
-              label="Region"
+              label={SEARCH_FIELD_LABEL.region}
               note={
                 <ConfigHelp>
                   {regionLabels.length > 0
@@ -297,7 +325,7 @@ export default function SearcherPage() {
               />
             </ConfigField>
             <ConfigField
-              label="Published since (optional)"
+              label={SEARCH_FIELD_LABEL.published_since}
               note={
                 <ConfigHelp>
                   {dateBoundLabels.length > 0

@@ -38,29 +38,6 @@ test("the addresses do not depend on the order runs arrive in", () => {
   assert.deepEqual(forward[0].blocks.map((x) => x.id), backward[1].blocks.map((x) => x.id));
 });
 
-test("extras are rewritten the same way analysis is, so a priority digest cites its own version", () => {
-  const withExtras = (id: string, text: string) => ({
-    ...run(id, text),
-    extras: {
-      priority_digest: {
-        digest: "A summary that never names an ID.",
-        nominations: [{ label: "Overlooked", statement: "See the passage.", cited_block_ids: ["cTPP/b-0001"] }],
-      },
-      priority_item_ids: ["cTPP/b-0001"],
-    },
-  });
-  const [a, b] = resolveDocumentVersions([withExtras("a", "v1"), withExtras("b", "v2")]);
-  for (const version of [a, b]) {
-    const extras = version.extras as {
-      priority_digest: { digest: string; nominations: { cited_block_ids: string[] }[] };
-      priority_item_ids: string[];
-    };
-    assert.deepEqual(extras.priority_digest.nominations[0].cited_block_ids, [version.blocks[0].id]);
-    assert.deepEqual(extras.priority_item_ids, [version.blocks[0].id]);
-    assert.equal(extras.priority_digest.digest, "A summary that never names an ID.");
-  }
-});
-
 test("only the document that actually has another version is tagged; a same-run sibling document is untouched", () => {
   const withSibling = (id: string, text: string) => ({
     id,

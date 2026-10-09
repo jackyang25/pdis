@@ -24,6 +24,9 @@ from api.schemas import (
 )
 from services.searcher import (
     ENTITY_TYPES,
+    SEARCH_ENTITIES_DESCRIPTION,
+    SEARCH_ENTITY_FIELDS,
+    SEARCH_TEXT_FIELDS,
     RetrievalEntity,
     SearchRuntime,
     findings_to_dicts,
@@ -47,8 +50,8 @@ class SearchEntityInput(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
-    name: str = Field(min_length=1, pattern=r"\S", description="The subject's name, e.g. a gene, protein or compound.")
-    entity_type: EntityType = Field(description="What kind of subject `name` is.")
+    name: str = Field(min_length=1, pattern=r"\S", description=SEARCH_ENTITY_FIELDS["name"])
+    entity_type: EntityType = Field(description=SEARCH_ENTITY_FIELDS["entity_type"])
 
     @field_validator("name")
     @classmethod
@@ -60,31 +63,27 @@ class SearchEntityInput(BaseModel):
 
 
 # Every field is described because the schema is what an agent reads: MCP tool discovery
-# publishes these descriptions and nothing else. They restate `run_pipeline`'s contract.
+# publishes these descriptions and nothing else. Searcher owns what its fields mean, so the
+# shared ones are its own `SEARCH_TEXT_FIELDS` wording; only `sources` and `max_findings`,
+# which belong to this request, are described here.
 class SearchInput(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     query: str = Field(
-        min_length=1, pattern=r"\S",
-        description="The evidence question in plain words, e.g. 'maternal RSV vaccine efficacy against severe infant LRTI'.",
+        min_length=1, pattern=r"\S", description=SEARCH_TEXT_FIELDS["query"],
     )
     sources: list[str] = Field(
         default_factory=list,
         description="Source keys from searcher_sources. Empty searches the server's default sources.",
     )
-    condition: str = Field("", description="Disease or condition, e.g. 'respiratory syncytial virus'. Anchors structured sources such as trial registries.")
-    intervention: str = Field("", description="Intervention class, e.g. 'vaccine', 'monoclonal antibody', 'drug'.")
-    entities: list[SearchEntityInput] = Field(
-        default_factory=list,
-        description="Named genes, proteins or compounds. Sources that require an entity type plan nothing without one.",
-    )
-    product: str = Field("", description="One named product, e.g. 'Abrysvo'. Narrows the intervention class; it does not replace it.")
-    population: str = Field("", description="Who the question is about, e.g. 'pregnant women 24-36 weeks'.")
-    outcome: str = Field("", description="What is measured, e.g. 'efficacy against severe LRTI'.")
-    region: str = Field("", description="Countries or WHO regions the question is about, e.g. 'sub-Saharan Africa'.")
-    published_since: str = Field(
-        "", description="ISO date (YYYY-MM-DD). Keeps records published on or after it; records with no stated date are kept.",
-    )
+    condition: str = Field("", description=SEARCH_TEXT_FIELDS["condition"])
+    intervention: str = Field("", description=SEARCH_TEXT_FIELDS["intervention"])
+    entities: list[SearchEntityInput] = Field(default_factory=list, description=SEARCH_ENTITIES_DESCRIPTION)
+    product: str = Field("", description=SEARCH_TEXT_FIELDS["product"])
+    population: str = Field("", description=SEARCH_TEXT_FIELDS["population"])
+    outcome: str = Field("", description=SEARCH_TEXT_FIELDS["outcome"])
+    region: str = Field("", description=SEARCH_TEXT_FIELDS["region"])
+    published_since: str = Field("", description=SEARCH_TEXT_FIELDS["published_since"])
     max_findings: int | None = Field(
         None, ge=1, le=500,
         description="Upper bound on returned findings, taken from each source in turn so no source is crowded out. `omitted_findings` reports what was left out. Empty returns everything.",

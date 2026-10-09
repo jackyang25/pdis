@@ -1,15 +1,42 @@
 import type { GateReview, QuestionAssessment } from "./api.ts";
+import { QUESTION_REQUIREMENT_LABEL, QUESTION_STATE_LABEL } from "./api.ts";
+import type { PriorityFinding } from "./priorities.ts";
 import { matchesQuery, normalizeQuery } from "./result-search.ts";
 
 /**
- * What Screener counts, and how its result view slices the questions.
- *
- * There is no `PriorityItem` selector here. Screener declines the shared
- * `PriorityPanel` — see the note at its call site in `app/screener/page.tsx` — because
- * a 40-60 word gate question has nowhere to go in that shape, and the panel restated
- * a list that was already flat. `questionsInState` feeds the panels instead, which
- * carry the question alongside the statement about it.
+ * What Screener counts, how its result view slices the questions, and how its result is
+ * read for the priority card.
  */
+
+export const SCREENER_PRIORITY_FOCUS =
+  "Questions this gate requires that the material leaves unanswered or only partly "
+  + "answered, and the disciplines that own them; anticipatory gaps after those.";
+
+/**
+ * One finding per gate question, every state included.
+ *
+ * The question is the subject in full: it is what a reader closes, and a summary of it
+ * would be a second wording that could disagree with the bank. What a partial answer still
+ * leaves open is the model's own sentence, labelled so it is not read as the answer.
+ */
+export function screenerPriorityFindings(review: GateReview): PriorityFinding[] {
+  return review.disciplines.flatMap((discipline) =>
+    discipline.questions.map((question) => ({
+      id: question.id,
+      subject: question.text,
+      group: discipline.label,
+      verdicts: [
+        QUESTION_STATE_LABEL[question.state],
+        QUESTION_REQUIREMENT_LABEL[question.requirement],
+      ],
+      statements: [
+        question.statement,
+        question.missing ? `Still open: ${question.missing}` : "",
+      ],
+      blockIds: question.cited_block_ids,
+    })),
+  );
+}
 
 /**
  * Why this order, in the reader's words. Shown beneath the list.

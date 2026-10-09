@@ -52,9 +52,11 @@ import {
 import {
   SCREENER_EMPTY_MESSAGE,
   SCREENER_ORDER_NOTE,
+  SCREENER_PRIORITY_FOCUS,
   countStates,
   groupedByDiscipline,
   countRequiredInState,
+  screenerPriorityFindings,
 } from "@/lib/screener-priorities";
 import {
   runFilename,
@@ -65,6 +67,8 @@ import {
   readResultIdentity,
 } from "@/lib/result-file";
 import { useScreenerSession } from "@/lib/session";
+import { usePriorityReading } from "@/lib/priority-reading";
+import { PriorityPanel } from "@/components/ui/priority-panel";
 import { isContextComplete, useHeaderStore } from "@/lib/store";
 import { displayLabel } from "@/lib/display-label";
 import { Badge } from "@/components/ui/badge";
@@ -304,10 +308,25 @@ function ReviewView({
     open: openBlockInTrace,
     consume: consumeTraceFocus,
   } = useTraceFocus(revealTrace);
+  const priorityFindings = useMemo(() => screenerPriorityFindings(review), [review]);
+  const priorityReading = usePriorityReading(selectedId, {
+    authority: toolAuthority("screener"),
+    focus: SCREENER_PRIORITY_FOCUS,
+    findings: priorityFindings,
+    org: review.org,
+    interventionClass: review.intervention_class,
+    indication: review.indication,
+  });
 
   // The gate is in the title via `runLabel`, so it is not repeated here.
 
   return (
+    // Around the whole layout, not inside its tabs, so the priority card's source triggers
+    // resolve passages too.
+    <DocumentSourceProvider
+      blocks={review.blocks}
+      onOpenInTrace={openBlockInTrace}
+    >
     <ResultLayout
       notices={<DocumentExtractionNotice blocks={review.blocks} />}
       title={runLabel(result, "screener")}
@@ -340,6 +359,11 @@ function ReviewView({
           <TabsTrigger value="trace">Documents</TabsTrigger>
         </>
       }
+      priorities={{
+        // Every point rests on gate questions, so it shows where the questions are.
+        tab: "questions",
+        panel: <PriorityPanel findings={priorityFindings} reading={priorityReading} />,
+      }}
       actions={
         <>
           <RunHistory
@@ -359,10 +383,6 @@ function ReviewView({
         </>
       }
     >
-      <DocumentSourceProvider
-        blocks={review.blocks}
-        onOpenInTrace={openBlockInTrace}
-      >
         <TabsContent value="questions" className="m-0">
           {/* The view's nav: its name, and what explains it. */}
           <ResultToolbar>
@@ -394,15 +414,6 @@ function ReviewView({
               }}
             />
 
-            {/*
-                Screener does not use the shared `PriorityPanel`, and that is a deliberate
-                exception rather than drift. For Inspector and Scout the panel digests
-                items scattered across dozens of units into one opening list. Screener's
-                unanswered questions are already one flat list, so the panel showed the
-                same items a second time — and `PriorityItem` cannot carry a 40-60 word
-                question, so it showed Screener's comment with the question it was about
-                missing. The panel below carries both.
-              */}
             {/*
                 Partials first. They are the only state with a specific ask attached —
                 the material got part of the way and `missing` names the rest — so this
@@ -446,8 +457,8 @@ function ReviewView({
             onFocusConsumed={consumeTraceFocus}
           />
         </TabsContent>
-      </DocumentSourceProvider>
     </ResultLayout>
+    </DocumentSourceProvider>
   );
 }
 
@@ -724,7 +735,7 @@ function QuestionRow({ question }: { question: QuestionAssessment }) {
           treatment for the tool's own words and the document's values.
 
           `prominent`, like every other result row in the suite. It was `body`, which is
-          the size for a panel's own paragraph - a trace panel, the priority digest - and
+          the size for a panel's own paragraph - a trace panel, the priority summary - and
           at 14px it made the answer larger than the question it answers and left the
           11px label beside it looking stranded. */}
       {question.statement && (

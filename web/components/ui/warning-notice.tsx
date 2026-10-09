@@ -4,7 +4,17 @@ import { DISCLOSURE_MOTION } from "@/lib/motion";
 import { cn } from "@/lib/utils";
 import { DisclosureSummary } from "@/components/ui/disclosure-summary";
 
-/** Warning presentation only; each caller owns the condition and its meaning. */
+/*
+ * Two weights of warning, because weight follows consequence. A `WarningNotice` is a fact
+ * that changes what the result says - a run that stopped short, a document that may not
+ * concern the configured disease. A `CaveatNotice` qualifies how far the result's words can
+ * be taken - extracted PDF text, a few numbers kept out of calibration - and the result
+ * still says what it says. Giving a caveat the box told a reader it was as serious as a
+ * failure. Both mark themselves with the same amber icon, so a reader learns one sign; only
+ * the box separates them. Each caller owns its condition and its meaning.
+ */
+
+/** A fact that changes what the result says: the amber box. */
 export function WarningNotice({ label, children, summary }: {
   label: string;
   children: ReactNode;
@@ -13,18 +23,43 @@ export function WarningNotice({ label, children, summary }: {
 }) {
   return (
     <aside aria-label={label} className="flex items-start gap-2.5 rounded-lg border border-[hsl(var(--tone-warning))]/30 bg-[hsl(var(--tone-warning))]/[0.07] px-3.5 py-3 text-xs leading-relaxed text-foreground">
-      <AlertTriangle aria-hidden="true" className="mt-0.5 h-3.5 w-3.5 shrink-0 text-[hsl(var(--tone-warning))]" />
-      <div className="min-w-0 flex-1 space-y-2">
-        {summary ? (
-          <details>
-            <DisclosureSummary className="w-fit rounded-sm font-medium focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
-              {summary}
-            </DisclosureSummary>
-            <div className={cn("mt-2 space-y-2 break-words", DISCLOSURE_MOTION)}>{children}</div>
-          </details>
-        ) : children}
-      </div>
+      <WarningIcon />
+      <NoticeBody summary={summary}>{children}</NoticeBody>
     </aside>
+  );
+}
+
+/** A limit on how far the result's words can be taken: one quiet line, details on request. */
+export function CaveatNotice({ label, children, summary }: {
+  label: string;
+  children: ReactNode;
+  /** Optional disclosure; without one the caveat is its own short line. */
+  summary?: string;
+}) {
+  return (
+    <aside aria-label={label} className="flex items-start gap-2 text-xs leading-relaxed text-muted-foreground">
+      <WarningIcon />
+      <NoticeBody summary={summary}>{children}</NoticeBody>
+    </aside>
+  );
+}
+
+function WarningIcon() {
+  return <AlertTriangle aria-hidden="true" className="mt-0.5 h-3.5 w-3.5 shrink-0 text-[hsl(var(--tone-warning))]" />;
+}
+
+function NoticeBody({ summary, children }: { summary?: string; children: ReactNode }) {
+  return (
+    <div className="min-w-0 flex-1 space-y-2">
+      {summary ? (
+        <details>
+          <DisclosureSummary className="w-fit rounded-sm font-medium focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
+            {summary}
+          </DisclosureSummary>
+          <div className={cn("mt-2 space-y-2 break-words", DISCLOSURE_MOTION)}>{children}</div>
+        </details>
+      ) : children}
+    </div>
   );
 }
 

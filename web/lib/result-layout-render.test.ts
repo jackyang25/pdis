@@ -24,7 +24,7 @@ test("result download names the format without asserting completeness", () => {
 const { ResultLayout } = loadComponent(fileURLToPath(
   new URL("../components/ui/result-layout.tsx", import.meta.url),
 ));
-const { WarningNotice, ResultNotices } = loadComponent(fileURLToPath(
+const { CaveatNotice, WarningNotice, ResultNotices } = loadComponent(fileURLToPath(
   new URL("../components/ui/warning-notice.tsx", import.meta.url),
 ));
 
@@ -42,6 +42,19 @@ test("shared warnings retain separate accessible labels and details", () => {
   assert.match(html, /<summary>Review unresolved fields<\/summary>Original failure reason/);
   assert.equal((html.match(/aria-hidden="true"/g) ?? []).length, 2);
   assert.equal((html.match(/rounded-lg border/g) ?? []).length, 2);
+});
+
+test("a caveat carries the warning's sign without its box", () => {
+  // Weight follows consequence: the box says the result changed, a caveat only limits it.
+  const html = renderToStaticMarkup(React.createElement(ResultNotices, null,
+    React.createElement(WarningNotice, { label: "Assessment incomplete" }, "Stopped"),
+    React.createElement(CaveatNotice, { label: "Extraction limitation", summary: "Document extraction limitations" }, "PDF text"),
+  ));
+  assert.equal((html.match(/lucide-triangle-alert|lucide-alert-triangle/g) ?? []).length, 2);
+  assert.equal((html.match(/rounded-lg border/g) ?? []).length, 1);
+  const caveat = html.slice(html.indexOf('aria-label="Extraction limitation"'));
+  assert.doesNotMatch(caveat, /rounded-lg border|bg-\[hsl/);
+  assert.match(caveat, /<details>/);
 });
 
 test("result views show one AI disclaimer in the header, before navigation", () => {

@@ -21,7 +21,10 @@ serializers from `services.chunker`.
 | Output | Ordered `ContentBlock` records with stable IDs and retained visuals |
 
 The API supplies the original filename stem as `doc_id`; temporary upload names
-never enter citations. DOCX preserves body order and embedded images; PPTX
+never enter citations. Every block carries `source_format` (`docx`, `pptx`, `pdf`, or
+`image` for a standalone attachment), stamped by the parser dispatch from the extension
+it chose by, so a reader can say which kind of file a passage came from without inferring
+it. DOCX preserves body order and embedded images; PPTX
 retains slide text, tables, notes, positions, and rendered slide images when
 available.
 

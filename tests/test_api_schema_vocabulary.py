@@ -24,6 +24,7 @@ import pathlib
 import re
 import unittest
 
+from services.chunker.formats import SOURCE_FORMATS
 from services.scout import models as scout_models
 from services.searcher.models import (
     DEVELOPMENT_RECORD_TYPES,
@@ -55,6 +56,7 @@ def domain_vocabularies() -> dict[str, frozenset[str]]:
         "ENTITY_TYPES": frozenset(ENTITY_TYPES),
         "EVIDENCE_CLASSES": frozenset(EVIDENCE_CLASSES),
         "EVIDENCE_DOMAINS": frozenset(EVIDENCE_DOMAINS),
+        "SOURCE_FORMATS": SOURCE_FORMATS,
     }
     for name in dir(scout_models):
         if not name.isupper():

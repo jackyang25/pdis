@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import test from "node:test";
@@ -145,6 +146,8 @@ test("extraction notice names affected documents and is absent for ordinary sour
   const block = { doc_id: "Trial report", structural_meta: { extraction_warnings: ["pdf_limited_structure"] } };
   const html = renderToStaticMarkup(React.createElement(DocumentExtractionNotice, { blocks: [block, block] }));
   assert.match(html, /aria-label="Document extraction limitations"/);
+  // A caveat, not a failure: the warning's sign without its box.
+  assert.doesNotMatch(html, /rounded-lg border/);
   // The suite's chevron, then the label, in place of the browser's default marker.
   assert.match(html, /<summary[^>]*><svg[^>]*lucide-chevron-down[\s\S]*?<\/svg><span[^>]*>Document extraction limitations<\/span><\/summary>/);
   assert.match(html, /<summary[^>]*\[&amp;::-webkit-details-marker\]:hidden/);
@@ -178,6 +181,34 @@ test("every extraction warning gives navigation appropriate to the current view"
     assert.doesNotMatch(checkpoint, /Documents tab/, code);
     assert.match(checkpoint, /source links in this review/, code);
   }
+});
+
+test("every extraction warning has a passage line and a result paragraph", () => {
+  const warnings = JSON.parse(readFileSync(resolve(root, "../shared/document-extraction.json"), "utf8"));
+  for (const [code, entry] of Object.entries(warnings) as [string, Record<string, unknown>][]) {
+    assert.deepEqual(Object.keys(entry).sort(), ["description", "summary"], code);
+    assert.ok(typeof entry.summary === "string" && entry.summary.trim(), code);
+    assert.ok(typeof entry.description === "string" && entry.description.trim(), code);
+    // The line is read beside a passage whose document is already named, wherever it opens.
+    assert.doesNotMatch(entry.summary as string, /Documents tab|source links/, code);
+  }
+});
+
+test("a passage shows its limitation as one line, not the result-wide notice", () => {
+  const { PassageExtractionNote } = loadComponent(resolve(root, "components/document-extraction-notice.tsx"));
+  const block = { doc_id: "Merck IPDP", heading_stack: [], structural_meta: { page: 8, extraction_warnings: ["pdf_text_layout"] } };
+  const html = renderToStaticMarkup(React.createElement(PassageExtractionNote, { block }));
+  assert.match(html, /aria-label="Extraction limitation"/);
+  assert.match(html, /reading order and tables may be wrong/);
+  // The result's caveat in its short form: no box, no disclosure, nothing the chip names.
+  assert.doesNotMatch(html, /Merck IPDP|Documents tab|<details|rounded-lg border/);
+  const unknown = renderToStaticMarkup(React.createElement(PassageExtractionNote, {
+    block: { ...block, structural_meta: { extraction_warnings: ["future_warning"] } },
+  }));
+  assert.match(unknown, /extraction limitation here/);
+  assert.equal(renderToStaticMarkup(React.createElement(PassageExtractionNote, {
+    block: { ...block, structural_meta: {} },
+  })), "");
 });
 
 test("unsupported visual notice displays source type and location without hiding header drawings", () => {

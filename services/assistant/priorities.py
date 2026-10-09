@@ -1,47 +1,49 @@
-"""One read over a finished result: what its priorities add up to, and what they miss.
+"""One read over a finished result: what it amounts to, and where to look first.
 
-Two things a tool's own selector cannot produce, and they are deliberately separate:
+The caller hands over every finding the result holds, in one shape every tool maps into,
+and gets back a short summary and a few points. Each point names the findings it is about
+by ID, drawn from a closed list of the result's own IDs, so a point is a pointer at the
+result and never a copy of it: the reader opens the findings the point names, with the
+names and verdicts the tool's own page gives them.
 
-    digest       one short passage about the list already on screen
-    nominations  items the selector excluded that are worth a second look
+The order and selection are the model's, and the card says so. What stays authoritative is
+the tool's own result below it, which this read never edits, re-ranks or overturns.
 
-The selector stays the authority for what qualifies and in what order. This module never
-reorders it, never adds to it, and never overturns a verdict — the panel's promise is that
-the wording is the model's and the ranking is not, and a model that could re-sort the list
-would make that sentence false.
-
-It is one call because the two outputs need the same context and the nomination half needs
-to know what the deterministic half already covers. Told nothing about the list, a model
-asked for "anything else worth looking at" returns the list.
-
-Nothing here is stored. The digest describes a list that is itself derived on read, so
-freezing it into a result would leave a paragraph describing a list that changed under it.
+Nothing here is stored. The read is derived when a result is opened, so it improves with the
+prompt and needs no saved-result migration.
 
 Agnostic by construction: no tool name, no document type and no indication appears in the
-prompt. The caller supplies the authority sentence the tool already publishes in the
-catalog, the context tags every result carries, and the items as the panel rendered them.
+prompt. The caller supplies the authority sentence its tool already publishes, one focus
+sentence for what to raise first, the context tags the result carries, and its findings.
 A fifth tool is served by this file unchanged.
 """
 
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Any, Protocol, Sequence
+from typing import Any, Protocol
 
 from shared.ai import request_structured
-from shared.references import reference_array
 from shared.openai_client import ModelTask
+from shared.references import reference_array
 from shared.vocabulary import search_term
 
-#: Most nominations a reader is offered.
-#:
-#: This is a second look, not a second list: the deterministic panel is already the answer
-#: to "what should I read first", and a nomination layer long enough to scroll competes
-#: with it instead of adding to it.
-MAX_NOMINATIONS = 3
+#: Most points a reader is offered. The tool's sections are the full result; this is where
+#: to start, and a list long enough to scroll competes with them instead of leading into them.
+MAX_POINTS = 5
 
-#: Longest digest, in words. Enough for two short paragraphs.
-MAX_DIGEST_WORDS = 130
+#: Longest summary, in words.
+MAX_SUMMARY_WORDS = 110
+
+#: Longest the findings may be inside the prompt, in characters.
+#:
+#: Refused rather than truncated: a model handed part of a result would summarise the part
+#: and present it as the whole.
+MAX_FINDINGS_CHARACTERS = 200_000
+
+
+class PriorityRequestTooLarge(ValueError):
+    """The result holds more than one read can honestly cover."""
 
 
 class LLMClientProtocol(Protocol):
@@ -60,14 +62,22 @@ class LLMClientProtocol(Protocol):
 
 
 @dataclass(frozen=True)
-class PriorityItemInput:
-    """One item exactly as the panel rendered it."""
+class PriorityFinding:
+    """One thing the result judged, as the tool's own page names it."""
 
     id: str
-    label: str
-    qualifier: str = ""
-    statement: str = ""
-    recommendation: str = ""
+    #: What it is about: a rubric unit, a requirement, a field, a question.
+    subject: str
+    #: Where it sits in the tool's own structure: a section, a comparison, a discipline.
+    group: str = ""
+    #: The tool's verdicts on it, each in the tool's own words. Code-assigned.
+    verdicts: tuple[str, ...] = ()
+    #: Sentences the tool's model wrote about it.
+    statements: tuple[str, ...] = ()
+    #: Facts code derived about it, kept apart so they are never read as a model's.
+    notes: tuple[str, ...] = ()
+    #: The document's own words, where the finding is about something the document states.
+    quote: str = ""
 
 
 @dataclass(frozen=True)
@@ -75,100 +85,74 @@ class PriorityRequest:
     """Everything the read needs, all of it already published by the caller."""
 
     #: The tool's catalog sentence: what it reads, and the authority it judges against.
-    #: Passed rather than looked up so this module holds no tool table.
     authority: str
-    #: How the deterministic list was ordered, in the tool's own words.
-    order_note: str
-    items: tuple[PriorityItemInput, ...]
-    #: The result's analysis, without its blocks. The nomination half reads this,
-    #: because what the selector excluded is by definition not in the selector's output.
-    analysis: Any
-    #: Every block ID the result carries, so a citation can be checked against it.
-    block_ids: frozenset[str] = frozenset()
+    #: What this tool's reader needs first, in one sentence.
+    focus: str
+    findings: tuple[PriorityFinding, ...]
     org: str = ""
     intervention_class: str = ""
     indication: str = ""
 
 
 @dataclass
-class Nomination:
-    """One thing the selector left out, and where to look at it."""
-
-    label: str
+class PriorityPoint:
+    title: str
     statement: str
-    cited_block_ids: list[str] = field(default_factory=list)
+    finding_ids: list[str] = field(default_factory=list)
 
 
 @dataclass
-class PriorityDigest:
-    digest: str
-    nominations: list[Nomination] = field(default_factory=list)
+class PriorityReading:
+    summary: str
+    points: list[PriorityPoint] = field(default_factory=list)
 
 
 def build_system_prompt() -> str:
     """The one prompt, for every tool. Names none of them."""
-    return f"""You are reading one finished analysis and the list of priorities a tool has already selected from it.
+    return f"""You are reading every finding of one finished analysis, so that a reader knows what it amounts to and where to look first.
 
-Return ONLY valid JSON. No markdown fences, no preamble, no explanation.
+Write two things.
 
-You produce two things, and they must not do each other's job.
-
-`digest`: at most {MAX_DIGEST_WORDS} words, one or two short paragraphs, about the items in
-the list you were given and nothing else.
-- Say what the list amounts to: what kind of thing keeps recurring, where it concentrates,
-  what a reader is looking at as a whole. A reader who has the list already can see the
-  items; what they cannot see is the shape.
+`summary`: at most {MAX_SUMMARY_WORDS} words, one or two short paragraphs.
+- Say what the result amounts to as a whole: what kind of problem recurs, where it
+  concentrates, and what is in good shape.
 - Name the authority the tool judged against. A sentence saying a document "has gaps"
   without saying what it was held to is the sentence most likely to be repeated wrongly.
-- Do NOT introduce an item that is not in the list, do not re-rank the list, do not say
-  which item is most important, and do not score or total anything. The order was decided
-  by a stated rule and is not yours to revise.
-- Do not restate items one by one. A digest that walks the list is the list again.
-- Written to be read on screen beside the list, so no citations and no identifiers.
+- No identifiers and no citations; it is read on screen above the points.
 
-`nominations`: at most {MAX_NOMINATIONS}, and fewer or none is the normal answer.
-- Something in the analysis that the selected list does NOT contain and that a reader of
-  this list would want to know. A finding the rule filtered out, a pattern across several
-  findings, a value that is fine on its own but sits under something else that is not.
-- Never a repeat of a listed item in different words. If everything worth raising is
-  already in the list, return an empty array — that is a good answer and the common one.
-- `statement`: one or two sentences, factual, saying what it is and why a reader of this
-  list would care. Never an instruction, never a severity, never a ranking against the
-  listed items.
-- `cited_block_ids`: the exact document block IDs the nomination rests on, drawn from the
-  IDs supplied. A nomination you cannot point at is a nomination you cannot make, so if
-  nothing in the analysis carries block IDs for it, leave it out entirely.
+`points`: at most {MAX_POINTS}, most useful first, and fewer is fine.
+- Each point is one thing worth a reader's attention first, following the focus you are
+  given. A point may gather several findings when they are one problem.
+- `title`: a short headline in plain words.
+- `statement`: one or two sentences saying what it is and why it matters, from the findings.
+- `finding_ids`: the IDs of the findings the point is about, drawn from those supplied.
+- Return no points when nothing in the findings needs attention.
 
-Scope boundary:
-- You do not judge the product, the targets, or the documents. The tool already judged;
-  you are reading its output.
-- You do not overturn, soften or contradict a verdict, a state or a grade. Where you think
-  the analysis is wrong, that is not a nomination.
-- You do not use your own knowledge of the field to add a finding. Everything you say
-  comes from the analysis in front of you.
-- The domain is context for reading, never a source. Knowing the intervention class and
-  indication tells you which findings are consequential; it does not license a claim
-  neither the analysis nor its documents make."""
+Reading the findings:
+- `verdict` lines are the tool's own judgements, assigned by its pipeline. `says` lines are
+  sentences its model wrote. `note` lines are facts code derived. `document` lines are the
+  document's own words.
+- Never overturn, soften or contradict a verdict. Where you think one is wrong, say nothing.
+- Do not score, total or grade anything, and do not invent a severity the verdicts do not carry.
+- Do not use your own knowledge of the field to add a finding. The domain is context for
+  reading, never a source: it tells you which findings are consequential, and licenses no
+  claim the findings do not make."""
 
 
-#: Longest the analysis may be inside the prompt, in characters.
-#:
-#: The digest half needs only the list it describes; the nomination half needs the
-#: analysis, and analyses differ by an order of magnitude between tools — a rubric
-#: assessment against a run holding matches, insights, precedents and a landscape. Rather
-#: than project each tool's result into a shape this file would have to know about, the
-#: bound is stated once and the nomination half stands down when a result exceeds it. A
-#: digest that describes the list is still worth having; nominations invented from a
-#: truncated view are not.
-MAX_ANALYSIS_CHARACTERS = 120_000
+def _finding_text(finding: PriorityFinding) -> str:
+    lines = [f"[{finding.id}] {finding.subject}"]
+    if finding.group:
+        lines.append(f"  in: {finding.group}")
+    lines.extend(f"  verdict: {verdict}" for verdict in finding.verdicts)
+    if finding.quote:
+        lines.append(f"  document: {finding.quote}")
+    lines.extend(f"  says: {statement}" for statement in finding.statements)
+    lines.extend(f"  note: {note}" for note in finding.notes)
+    return "\n".join(lines)
 
 
 def build_user_message(request: PriorityRequest) -> str:
-    """Context, then the list, then the analysis.
-
-    The list before the analysis on purpose: the first question is "what is already
-    covered", and a model that reads the analysis first tends to answer with it.
-    """
+    """Context, focus, then every finding, each part labelled for what it holds."""
     context = [f"The tool: {request.authority}"]
     domain = " · ".join(
         part
@@ -181,60 +165,39 @@ def build_user_message(request: PriorityRequest) -> str:
     )
     if domain:
         context.append(f"Run context: {domain}")
-    if request.order_note:
-        context.append(f"How the list below was ordered: {request.order_note}")
+    if request.focus:
+        context.append(f"What to raise first: {request.focus}")
 
-    listed = "\n\n".join(
-        "\n".join(
-            part
-            for part in (
-                f"[{item.id}] {item.label}",
-                f"  where: {item.qualifier}" if item.qualifier else "",
-                f"  finding: {item.statement}" if item.statement else "",
-                f"  recommended: {item.recommendation}" if item.recommendation else "",
-            )
-            if part
+    findings = "\n\n".join(_finding_text(finding) for finding in request.findings)
+    if len(findings) > MAX_FINDINGS_CHARACTERS:
+        raise PriorityRequestTooLarge(
+            f"this result holds {len(request.findings)} findings, more than one read can cover"
         )
-        for item in request.items
-    ) or "(the tool selected nothing)"
-
-    analysis = str(request.analysis)
-    if len(analysis) > MAX_ANALYSIS_CHARACTERS:
-        # Said plainly rather than truncated. A model handed half an analysis with no note
-        # would nominate from the half it saw and present it as a reading of the whole.
-        return "\n\n".join([
-            "\n".join(context),
-            f"Priorities already selected and shown to the reader ({len(request.items)}):\n{listed}",
-            "The full analysis is too large to include, so return an empty `nominations` "
-            "array: you have not seen enough to say what the list leaves out. Write the "
-            "digest from the list above, which is all it describes.",
-        ])
     return "\n\n".join([
         "\n".join(context),
-        f"Priorities already selected and shown to the reader ({len(request.items)}):\n{listed}",
-        f"The full analysis:\n{analysis}",
+        f"Findings ({len(request.findings)}):\n{findings or '(none)'}",
     ])
 
 
-def digest_schema(block_ids: Sequence[str]) -> dict[str, Any]:
-    """The closed shape, with citations restricted to blocks that exist."""
-    ids = list(dict.fromkeys(block_ids))
+def reading_schema(finding_ids: list[str]) -> dict[str, Any]:
+    """The closed shape. Every constraint the parser enforces is stated here."""
     return {
         "type": "object",
         "additionalProperties": False,
-        "required": ["digest", "nominations"],
+        "required": ["summary", "points"],
         "properties": {
-            "digest": {"type": "string"},
-            "nominations": {
+            "summary": {"type": "string", "minLength": 1},
+            "points": {
                 "type": "array",
+                "maxItems": MAX_POINTS,
                 "items": {
                     "type": "object",
                     "additionalProperties": False,
-                    "required": ["label", "statement", "cited_block_ids"],
+                    "required": ["title", "statement", "finding_ids"],
                     "properties": {
-                        "label": {"type": "string"},
-                        "statement": {"type": "string"},
-                        "cited_block_ids": reference_array(ids),
+                        "title": {"type": "string", "minLength": 1},
+                        "statement": {"type": "string", "minLength": 1},
+                        "finding_ids": {**reference_array(finding_ids), "minItems": 1},
                     },
                 },
             },
@@ -246,60 +209,52 @@ def read_priorities(
     request: PriorityRequest,
     *,
     llm_client: LLMClientProtocol,
-    max_tokens: int = 1200,
-) -> PriorityDigest:
-    """One digest and up to `MAX_NOMINATIONS` nominations, both validated."""
+    max_tokens: int = 2000,
+) -> PriorityReading:
+    """One summary and up to `MAX_POINTS` points, validated against the result's IDs."""
+    if not request.findings:
+        raise ValueError("a result with no findings has nothing to read")
+    finding_ids = list(dict.fromkeys(finding.id for finding in request.findings))
     payload = request_structured(
         llm_client,
         build_system_prompt(),
         build_user_message(request),
         max_tokens=max_tokens,
-        schema_name="priority_digest",
-        schema=digest_schema(sorted(request.block_ids)),
+        schema_name="priority_reading",
+        schema=reading_schema(finding_ids),
     )
     if payload is None:
-        raise ValueError("model returned no priority digest")
-    return _parse_payload(payload, request)
+        raise ValueError("model returned no priority reading")
+    return _parse_payload(payload, frozenset(finding_ids))
 
 
-def _parse_payload(payload: object, request: PriorityRequest) -> PriorityDigest:
+def _parse_payload(payload: object, known: frozenset[str]) -> PriorityReading:
     if not isinstance(payload, dict):
-        raise ValueError("digest must be an object")
-    digest = " ".join(str(payload.get("digest") or "").split())
-    if not digest:
-        raise ValueError("a digest that says nothing is worse than none")
-
-    listed_labels = {_key(item.label) for item in request.items}
-    nominations: list[Nomination] = []
-    for entry in payload.get("nominations") or []:
+        raise ValueError("priority reading must be an object")
+    summary = _prose(payload.get("summary"))
+    if not summary:
+        raise ValueError("a summary that says nothing is worse than none")
+    points: list[PriorityPoint] = []
+    for entry in payload.get("points") or []:
         if not isinstance(entry, dict):
-            continue
-        label = str(entry.get("label") or "").strip()
-        statement = str(entry.get("statement") or "").strip()
-        if not label or not statement:
-            continue
-        # A nomination repeating a listed item would give one finding two layers, so the
-        # rule is enforced here rather than trusted to the prompt.
-        if _key(label) in listed_labels:
-            continue
-        cited = [
-            block_id
-            for block_id in dict.fromkeys(
-                str(item).strip() for item in entry.get("cited_block_ids") or []
-            )
-            if block_id in request.block_ids
-        ]
-        # Dropped rather than shown unsourced: the panel's whole claim is that everything
-        # in it can be opened.
-        if request.block_ids and not cited:
-            continue
-        nominations.append(
-            Nomination(label=label, statement=statement, cited_block_ids=cited)
-        )
-        if len(nominations) == MAX_NOMINATIONS:
-            break
-    return PriorityDigest(digest=digest, nominations=nominations)
+            raise ValueError("a point must be an object")
+        title = " ".join(str(entry.get("title") or "").split())
+        statement = _prose(entry.get("statement"))
+        finding_ids = list(dict.fromkeys(str(item) for item in entry.get("finding_ids") or []))
+        # The schema already closes all three; a reply that breaks them is a broken reply,
+        # refused whole rather than shown as a point that opens nothing.
+        if not title or not statement or not finding_ids:
+            raise ValueError("a point needs a title, a statement and at least one finding")
+        unknown = [item for item in finding_ids if item not in known]
+        if unknown:
+            raise ValueError(f"a point names findings this result does not hold: {unknown}")
+        points.append(PriorityPoint(title=title, statement=statement, finding_ids=finding_ids))
+    if len(points) > MAX_POINTS:
+        raise ValueError(f"at most {MAX_POINTS} points")
+    return PriorityReading(summary=summary, points=points)
 
 
-def _key(text: str) -> str:
-    return " ".join(text.lower().split())
+def _prose(value: object) -> str:
+    """Whitespace normalised inside each paragraph, the break between paragraphs kept."""
+    paragraphs = (" ".join(part.split()) for part in str(value or "").split("\n\n"))
+    return "\n\n".join(paragraph for paragraph in paragraphs if paragraph)

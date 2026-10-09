@@ -24,7 +24,7 @@ Import `answer_stream`, `StreamingChatLLMProtocol`, and `limits` from
 | Direction | Value |
 |---|---|
 | Input | Workspace bundle, source blocks, conversation history, and an injected chat client |
-| Output | Typed text/activity chunks; the API frames these as SSE |
+| Output | Typed text, activity, and offer chunks; the API frames these as SSE |
 
 Each question builds one workspace index from the bundle and blocks. The system prompt is a fixed prefix (rules, tool inventory, documentation map) followed by a bounded map of the workspace: the legends for held result types, each result and the documents it read, and each document's block count, headings and visual locations. No image is in the prompt. The bounded tool loop reaches everything else by exact ID: product documentation, result trees, document text by block or range, retained visuals through `view_document_visuals` (capped per call and per question), and the full text behind URLs the analyses already cite. Product documentation explains PDIS and is never treated as product evidence. The workspace legend is always present, so the map's own labels are defined even when no final result is held; a tool's legend is added only when the workspace holds a result of that type, and an active Scout review draft adds Scout's legend and the draft's own. A mounted Scout checkpoint supplies its draft and selected item separately as `active_review`, with retained source blocks through the same readers. This context is read-only, is not a final result or skill prerequisite, and disappears when the checkpoint unmounts. It is not added to exported results; the server stores no review session. Draft blocks and their references receive chat-only aliases so revised same-name uploads cannot replace final-result sources; canonical IDs remain in block metadata and stored results are untouched.
 Context changes preserve the conversation, attachments and unsent text. Each question
@@ -45,6 +45,15 @@ parsing provider deltas. Completed provider output (including encrypted reasonin
 is carried opaquely between tool steps within the request, with `store=False` and
 no provider session IDs. Every image reaches the model labelled `Visual for document block [id]:`, the same label the tool pipelines use (`shared/visuals.py`).
 
+An offer is a search the reader can run, proposed by `offer_search` (`offers.py`) when the
+workspace cannot answer. It travels on its own `offer` event as structured data, never
+inside the answer text; the chat renders it as a card whose one control opens Searcher
+with the fields filled in. The agent is told it has not searched, and nothing runs until
+the reader presses Run. The offer's schema is built from Searcher: its text fields and their descriptions
+(`SEARCH_TEXT_FIELDS`), its registered sources, described by evidence class and
+jurisdiction, and its entity types. Only `OFFER_RULES`, saying when a suggestion states a
+field, lives here.
+
 The SSE boundary sends `done` only on success and a sanitized `error` event on
 failure. The browser treats a stream ending without `done` as interrupted, and
 shows failures outside the answer text; provider diagnostics remain server-side.
@@ -64,5 +73,5 @@ shows failures outside the answer text; provider diagnostics remain server-side.
 - `knowledge.py` — Read-only navigation over the canonical public PDIS documentation.
 - `skills.py` — Procedures the assistant can follow, declared as files rather than prompt text.
 - `legends.py` — Per-result-type semantic legends for the Ask assistant.
-- `priorities.py` — One read over a finished result: what its priorities add up to, and what they miss.
+- `priorities.py` — One read over a finished result's findings: a summary, and points that name findings by ID.
 - `agent.py` — Ask: a read-only, grounded agent loop over one request's workspace.

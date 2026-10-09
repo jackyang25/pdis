@@ -7,9 +7,14 @@ import json
 from pathlib import Path
 from typing import Any
 
-EXTRACTION_WARNINGS: dict[str, str] = json.loads(
-    Path(__file__).with_name("document-extraction.json").read_text(encoding="utf-8")
-)
+#: Each parser warning code's full description. The file also holds a one-line `summary` per
+#: code, for a reader shown one passage; a model is always given the full description.
+EXTRACTION_WARNINGS: dict[str, str] = {
+    code: entry["description"]
+    for code, entry in json.loads(
+        Path(__file__).with_name("document-extraction.json").read_text(encoding="utf-8")
+    ).items()
+}
 
 
 def extraction_context(metadata: dict[str, Any]) -> str:

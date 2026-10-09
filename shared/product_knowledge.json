@@ -258,6 +258,10 @@
             {
               "term": "Cited sources",
               "description": "Assistant may open a URL only when it already appears in a submitted result. It never starts a new evidence search."
+            },
+            {
+              "term": "Suggested searches",
+              "description": "When the workspace cannot answer a question, Assistant can set up a Searcher run and show it as a card. The card opens Searcher with the fields filled in; nothing is searched until you press Run."
             }
           ]
         },

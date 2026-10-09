@@ -619,51 +619,25 @@ test("the caption under a run's name is the configuration, in one grammar", () =
 });
 
 test("the priorities panel is bounded, and says when it is", () => {
-  // Inspector returned its entire worklist - eighteen findings on a normal run, four lines
-  // each with a source trigger - so opening the panel pushed every result off the screen
-  // it was supposed to introduce. Scout capped at eight and the other three did not.
+  // Inspector's old list returned its entire worklist - eighteen findings on a normal run -
+  // so opening the panel pushed every result off the screen it was supposed to introduce.
+  // The card is now a reading capped at a few points by its schema, so it is bounded where
+  // the answer is made rather than by cutting a list on screen.
   //
-  // A cap rather than a scrolling box: the panel opens closed, so a scrollbar inside
-  // something you just opened hides what you asked for, and a nested scroll region
-  // captures the wheel on the way past. Nothing is lost - every order note already says
-  // each item also appears in the list below.
+  // Never a scrolling box: the panel opens closed, so a scrollbar inside something you just
+  // opened hides what you asked for, and a nested scroll region captures the wheel.
   const panel = read("components", "ui", "priority-panel.tsx");
-  assert.match(
-    panel,
-    /items\.slice\(0, PRIORITY_LIMIT\)/,
-    "the priorities panel renders every item its tool raised",
-  );
   assert.ok(
     !/overflow-y-auto/.test(panel),
-    "the priorities panel scrolls inside itself instead of stopping at the limit",
+    "the priorities panel scrolls inside itself",
   );
-  // Bounded by default, not truncated. These are a worklist - every one of Inspector's is
-  // a rubric unit somebody has to fix - so the ones past eight are jobs, and a sentence
-  // pointing at the tab below asks a reader to find rows they cannot identify. The reader
-  // decides how many is enough; the default decides what the panel costs on arrival.
-  assert.match(
-    panel,
-    /items\.length > PRIORITY_LIMIT/,
-    "the panel truncates silently, so a partial list reads as the whole one",
-  );
-  assert.match(
-    panel,
-    /setShowAll/,
-    "the panel drops items with no way to see them",
-  );
-  assert.match(
-    panel,
-    /aria-expanded=\{showAll\}/,
-    "the show-all control does not say whether it is expanded",
-  );
-  // One number. Scout's selector stops at the limit rather than truncating after it, and
-  // the two must not be able to disagree about where that is.
-  const scout = read("lib", "scout-priorities.ts");
-  assert.match(
-    scout,
-    /SCOUT_PRIORITY_LIMIT = PRIORITY_LIMIT/,
-    "Scout keeps its own copy of the priority limit",
-  );
+  // Every point the reading returned is shown: a cap on screen would hide part of an
+  // answer that was already bounded.
+  assert.match(panel, /points\.map\(/, "the panel no longer renders every point");
+  assert.doesNotMatch(panel, /points\.slice\(/, "the panel cuts the reading short");
+  const reader = readFileSync(path.join(REPO, "..", "services", "assistant", "priorities.py"), "utf8");
+  assert.match(reader, /MAX_POINTS = \d+/, "the reading states no cap");
+  assert.match(reader, /"maxItems": MAX_POINTS/, "the schema does not carry the cap");
 });
 
 test("units in one list are one row each, at one left edge", () => {
@@ -769,7 +743,6 @@ test("the mark belongs to a contribution, not to every sentence in it", () => {
   for (const [file, first, second] of [
     [["app", "scout", "page.tsx"], "match.insight.statement", "match.reason"],
     [["app", "screener", "page.tsx"], "question.statement", "question.missing"],
-    [["components", "ui", "priority-panel.tsx"], "item.statement", "item.recommendation"],
   ] as const) {
     const source = read(...file);
     // The render site, not the first mention: the comment above one of these names the
@@ -876,27 +849,18 @@ test("a trace summary is marked by who wrote it, not by which panel shows it", (
   );
 });
 
-test("a priority states who wrote its statement, and the digest says it is a model's", () => {
-  // Scout's grounding priorities quote the document's own target when there is one and
-  // fall back to the model's sentence when there is not, so one field carries two authors
-  // depending on the run. Rendered as a model's, the document's own words wore the
-  // authorship mark - the tool claiming it wrote the reader's document.
-  // Fixed by splitting the field rather than by labelling which author it holds: two
-  // slots, `quote` for the document's words and `statement` for the model's, so every
-  // row in one list has one shape instead of two.
-  const selector = read("lib", "scout-priorities.ts");
-  assert.ok(
-    !/doc_target \|\| /.test(selector),
-    "one field carries the document's words or the model's again, decided per run",
-  );
-  assert.match(selector, /quote: assessment\.doc_target/);
-  assert.match(selector, /statement: assessment\.reason/);
+test("a priority states who wrote its statement, and the summary says it is a model's", () => {
+  // Scout's grounding priorities once quoted the document's own target when there was one
+  // and fell back to the model's sentence when there was not, so one slot carried two
+  // authors. The card keeps every author in its own place: the model's summary and point
+  // statements are marked, the document's words are quoted, and the tool's own names and
+  // verdicts are plain text. Which lens puts code-derived text where is pinned in
+  // `priorities.test.ts`.
   const panel = read("components", "ui", "priority-panel.tsx");
-  assert.match(panel, /item\.quote && \(\s*<Quoted/, "the document's words are unmarked as quoted");
-  assert.match(panel, /<Reading size="prominent">\{item\.statement\}/);
-  // The digest is a model's summary of the list under it, and was the one paragraph on
-  // the page most obviously written by a model that did not say so.
-  assert.match(panel, /<Reading size="body"[^>]*>\{digest\}<\/Reading>/, "the digest is unmarked again");
+  assert.match(panel, /<Reading size="prominent">\{statement\}<\/Reading>/, "a point's statement is unmarked");
+  assert.match(panel, /<Reading size="body"[^>]*>\{summary\}<\/Reading>/, "the summary is unmarked again");
+  assert.match(panel, /finding\.quote && \(\s*<Quoted/, "the document's words are not shown as quoted");
+  assert.doesNotMatch(panel, /<Reading[^>]*>\{finding\./, "a tool's own words wear the model's mark");
 });
 
 test("a marked sentence has one left edge", () => {
@@ -1017,7 +981,6 @@ test("a mark is never rendered with nothing after it", () => {
   // blank space, which reads as a broken row rather than as silence.
   for (const [file, field] of [
     [["components", "aligner-document-trace.tsx"], "ref.statement"],
-    [["components", "ui", "priority-panel.tsx"], "item.statement"],
     [["app", "inspector", "page.tsx"], "item.statement"],
   ] as const) {
     const source = read(...file);

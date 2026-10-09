@@ -51,19 +51,6 @@ test("section headers use dots for single, multiple and clear verdicts without r
   }
 });
 
-test("priority summaries retain all model text and do not truncate the worklist silently", () => {
-  const { PriorityPanel } = loadComponent(fileURLToPath(new URL("../components/ui/priority-panel.tsx", import.meta.url)));
-  const digest = "The opening finding. ".repeat(40) + "The final qualification must remain reachable.";
-  const html = renderToStaticMarkup(React.createElement(PriorityPanel, {
-    attribution: "by Inspector", defaultOpen: true, digest, emptyMessage: "No findings", orderNote: "Authored order",
-    items: Array.from({ length: 12 }, (_, i) => ({ id: `item-${i}`, label: `Finding ${i}`, statement: "A finding" })),
-  }));
-  assert.match(html, /The final qualification must remain reachable/);
-  assert.match(html, /Show all/);
-  assert.match(html, /Finding 0/);
-  assert.doesNotMatch(html, /Finding 11/);
-});
-
 test("template requirements retain a source link without repeating rubric-level prose", () => {
   const html = renderToStaticMarkup(React.createElement(InspectorRequirement, { rubric, requirement }));
   assert.match(html, /Describe development objectives/);

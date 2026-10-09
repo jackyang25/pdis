@@ -2,92 +2,55 @@ import type { AlignmentEdge, AlignmentFinding, AlignmentResult, AlignmentVerdict
 import { displayLabel } from "./display-label.ts";
 import { ALIGNMENT_VERDICTS, VERDICT_LABELS, alignmentBlockIds } from "./api.ts";
 import { chainWarningText, chainWarnings } from "./aligner-chain.ts";
-import type { PriorityItem } from "./priorities.ts";
+import type { PriorityFinding } from "./priorities.ts";
 
 /**
- * What Aligner puts at the top, how its verdicts are counted, and how they group.
+ * How Aligner's verdicts are counted, how they group, and how its result is read for the
+ * priority card.
  *
- * The one place each of those is decided. Nothing here re-judges anything: every
- * function reads the verdicts the result already carries, so a count, a panel and a
- * grouped list cannot disagree about the same run.
+ * The one place each of those is decided. Nothing here re-judges anything: every function
+ * reads the verdicts the result already carries, so a count, a card and a grouped list
+ * cannot disagree about the same run.
  */
 
-/** Why this order, in the reader's words. Shown beneath the list. */
-export const ALIGNER_ORDER_NOTE =
-  "Wording is Aligner's. The order is not: requirements the other document falls "
-  + "short of come first, then ones it addresses in terms that cannot be compared, "
-  + "then ones it does not address, then ones it meets that an earlier comparison "
-  + "already flagged. Each also appears under its comparison below.";
-
-export const ALIGNER_EMPTY_MESSAGE =
-  "Every requirement in the reference documents is met or exceeded.";
+export const ALIGNER_PRIORITY_FOCUS =
+  "Requirements the measured document falls short of or states in terms that cannot be "
+  + "compared, then ones it does not address, and any it meets on a passage an earlier "
+  + "comparison flagged.";
 
 /**
- * Which verdicts reach the panel, in the order they appear there.
+ * One finding per requirement, every verdict included.
  *
- * `meets` and `exceeds` are absent because neither asks anything of anyone. `exceeds`
- * is worth a reader's attention — a candidate well past its target may mean the target
- * is stale — but that is a question about the reference document, not a shortfall in
- * the one being measured, and mixing the two would make the panel a list of two
- * different things.
- *
- * `not_addressed` comes last on purpose. Silence is the weakest signal here: many
- * requirements are addressed in documents this run never held, so an unaddressed one is
- * often a question about scope rather than a gap.
+ * A requirement met on a passage an earlier comparison left unsettled carries that as a
+ * note. It is the one situation no single verdict shows - every verdict involved reads as
+ * good news - and it is derived by code from shared block ids, so it travels as a note rather
+ * than as anything a model wrote.
  */
-const RAISED_VERDICTS: AlignmentVerdict[] = [
-  "falls_short",
-  "not_comparable",
-  "not_addressed",
-];
-
-export function selectAlignerPriorities(result: AlignmentResult): PriorityItem[] {
+export function alignerPriorityFindings(result: AlignmentResult): PriorityFinding[] {
   const edges = new Map(result.edges.map((edge) => [edge.edge_id, edge]));
-  const raised = RAISED_VERDICTS.flatMap((verdict) =>
-    result.findings
-      .filter((finding) => finding.verdict === verdict)
-      .map((finding) => ({
-        id: finding.requirement_id,
-        label: finding.requirement,
-        // Which comparison raised it, because the same wording means different things
-        // across two edges: a shortfall against an iTPP is a candidate question, and
-        // one against a cTPP is a plan question.
-        qualifier: `${VERDICT_LABELS[verdict]} · ${comparisonLabel(edges.get(finding.edge_id), result)}`,
-        statement: finding.statement,
-        // The measured document's passages, not the requirement's: the panel is about
-        // what this document does, and the bar is checkable from the row below.
-        blockIds: alignmentBlockIds(finding, "comparison"),
-        spans: finding.comparison_spans,
-      })),
-  );
-
-  /*
-    Last: requirements the measured document meets, on a passage an earlier comparison
-    left unsettled. They belong here for the reason nothing else does — they are the one
-    finding a reader cannot spot by scanning. Every verdict involved reads as good news,
-    and the situation they describe (a plan on track to deliver something the candidate
-    already got wrong) is only visible by holding two comparisons side by side.
-
-    Kept out of the verdict groups above rather than sorted among them: a `meets` in a
-    list of shortfalls would read as a mistake, so the qualifier states both facts.
-  */
   const warnings = chainWarnings(result);
-  const chained = result.findings
-    .filter((finding) => warnings.has(finding.requirement_id))
-    .flatMap((finding) =>
-      (warnings.get(finding.requirement_id) ?? []).map((warning) => ({
-        // Qualified by the upstream finding, because one downstream requirement can sit
-        // on two flagged passages and each is a separate thing to go and read.
-        id: `${finding.requirement_id}+${warning.upstreamVerdict}`,
-        label: finding.requirement,
-        qualifier: `${VERDICT_LABELS[finding.verdict]} here · flagged upstream · ${comparisonLabel(edges.get(finding.edge_id), result)}`,
-        statement: finding.statement,
-        recommendation: chainWarningText(warning),
-        blockIds: warning.blockIds,
-      })),
-    );
-
-  return [...raised, ...chained];
+  return result.findings.map((finding) => {
+    const chained = warnings.get(finding.requirement_id) ?? [];
+    return {
+      id: finding.requirement_id,
+      subject: finding.requirement,
+      // Which comparison judged it, because the same wording means different things across
+      // two: a shortfall against an iTPP is a candidate question, one against a cTPP a plan
+      // question.
+      group: comparisonLabel(edges.get(finding.edge_id), result),
+      verdicts: [VERDICT_LABELS[finding.verdict]],
+      statements: [finding.statement],
+      notes: chained.map(chainWarningText),
+      // The measured document's passages, and the shared passage of any chained warning:
+      // the card is about what this document does, and the bar is in the row below.
+      blockIds: [
+        ...new Set([
+          ...alignmentBlockIds(finding, "comparison"),
+          ...chained.flatMap((warning) => warning.blockIds),
+        ]),
+      ],
+    };
+  });
 }
 
 /** How many findings landed on each verdict. Derived, never stored. */

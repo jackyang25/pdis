@@ -11,11 +11,8 @@ import type { ContentBlock } from "./api";
  *
  * Only reference fields are rewritten: a string that is exactly a renamed block ID, and a
  * `doc_id` / `*_doc_id` field that is exactly a renamed document. Prose is never touched.
- * `extras` is rewritten the same way as `analysis` — it exists because some of what a run
- * cites (a priority digest's nominations) is derived after the run itself and attached
- * beside its analysis rather than inside it, and both name the same block IDs.
  */
-export type WorkspaceRun = { id: string; blocks: ContentBlock[]; analysis: unknown; extras?: unknown };
+export type WorkspaceRun = { id: string; blocks: ContentBlock[]; analysis: unknown };
 
 export function resolveDocumentVersions<T extends WorkspaceRun>(runs: T[]): T[] {
   const fingerprints = runs.map((run) => {
@@ -53,7 +50,6 @@ export function resolveDocumentVersions<T extends WorkspaceRun>(runs: T[]): T[] 
       ...run,
       blocks,
       analysis: rewrite(run.analysis, blockRenames, docRenames, ""),
-      extras: rewrite(run.extras, blockRenames, docRenames, ""),
     };
   });
 }

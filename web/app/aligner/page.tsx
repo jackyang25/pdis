@@ -63,25 +63,23 @@ import {
   type ChainWarning,
 } from "@/lib/aligner-chain";
 import {
-  ALIGNER_EMPTY_MESSAGE,
-  ALIGNER_ORDER_NOTE,
+  ALIGNER_PRIORITY_FOCUS,
+  alignerPriorityFindings,
   comparisonLabel,
   documentType,
   countVerdicts,
   findingsByComparison,
   findingsWithVerdict,
-  selectAlignerPriorities,
 } from "@/lib/aligner-priorities";
 import {
   runFilename,
   packAlignerResult,
   runLabel,
   runScope,
-  splitResultContext,
   unpackAlignerResult,
   readResultIdentity,
 } from "@/lib/result-file";
-import { usePriorityDigest } from "@/lib/priority-digest";
+import { usePriorityReading } from "@/lib/priority-reading";
 import { toolAuthority } from "@/lib/tools";
 import { useAlignerSession } from "@/lib/session";
 import { isContextComplete, useHeaderStore } from "@/lib/store";
@@ -429,23 +427,15 @@ function AlignmentView({
 
   const counts = useMemo(() => countVerdicts(alignment), [alignment]);
   const groups = useMemo(() => findingsByComparison(alignment), [alignment]);
-  const priorities = useMemo(() => selectAlignerPriorities(alignment), [alignment]);
-  const selectedId = useAlignerSession((state) => state.selectedId);
-  const digest = usePriorityDigest(
-    selectedId
-      ? {
-          resultId: selectedId,
-          authority: toolAuthority("aligner"),
-          orderNote: ALIGNER_ORDER_NOTE,
-          items: priorities,
-          analysis: splitResultContext(result).analysis,
-          blockIds: alignment.blocks.map((block) => block.id),
-          org: alignment.org,
-          interventionClass: alignment.intervention_class,
-          indication: alignment.indication,
-        }
-      : null,
-  );
+  const priorityFindings = useMemo(() => alignerPriorityFindings(alignment), [alignment]);
+  const priorityReading = usePriorityReading(selectedRunId, {
+    authority: toolAuthority("aligner"),
+    focus: ALIGNER_PRIORITY_FOCUS,
+    findings: priorityFindings,
+    org: alignment.org,
+    interventionClass: alignment.intervention_class,
+    indication: alignment.indication,
+  });
   // Where two comparisons meet. Computed once per result and read per row, so the panel
   // and the rows cannot disagree about which passages an earlier comparison flagged.
   const warnings = useMemo(() => chainWarnings(alignment), [alignment]);
@@ -471,6 +461,12 @@ function AlignmentView({
   );
 
   return (
+    // Around the whole layout, not inside its tabs, so the priority card's source triggers
+    // resolve passages too. Inside `children` the card sat outside it and opened nothing.
+    <DocumentSourceProvider
+      blocks={alignment.blocks}
+      onOpenInTrace={openBlockInTrace}
+    >
     <ResultLayout
       notices={<DocumentExtractionNotice blocks={alignment.blocks} />}
       title={runLabel(result, "aligner")}
@@ -493,24 +489,9 @@ function AlignmentView({
         </>
       }
       priorities={{
-        // Every item links to a requirement, so it shows where the comparisons are.
+        // Every point rests on requirements, so it shows where the comparisons are.
         tab: "comparisons",
-        panel: (
-          <PriorityPanel
-            attribution="by Aligner"
-            items={priorities}
-            emptyMessage={ALIGNER_EMPTY_MESSAGE}
-            orderNote={ALIGNER_ORDER_NOTE}
-            digest={
-              digest?.state === "ready" ? digest.digest.digest : undefined
-            }
-            nominations={
-              digest?.state === "ready" ? digest.digest.nominations : []
-            }
-            digestLoading={digest?.state === "loading"}
-            digestError={digest?.state === "failed" ? digest.reason : undefined}
-          />
-        ),
+        panel: <PriorityPanel findings={priorityFindings} reading={priorityReading} />,
       }}
       actions={
         <>
@@ -531,10 +512,6 @@ function AlignmentView({
         </>
       }
     >
-      <DocumentSourceProvider
-        blocks={alignment.blocks}
-        onOpenInTrace={openBlockInTrace}
-      >
         <TabsContent value="comparisons" className="m-0">
           {/* The view's nav: its name, and what explains it. */}
           {/* One band, not a band and a heading beneath it. The word "Comparisons"
@@ -587,8 +564,8 @@ function AlignmentView({
             onFocusConsumed={consumeTraceFocus}
           />
         </TabsContent>
-      </DocumentSourceProvider>
     </ResultLayout>
+    </DocumentSourceProvider>
   );
 }
 

@@ -1,5 +1,5 @@
 import type { Tone } from "./tone.ts";
-import { documentBlockLocationLabel } from "./document-extraction.ts";
+import { documentBlockLocationLabel, documentVisualLabel } from "./document-extraction.ts";
 import type { ContentBlock } from "./api.ts";
 
 /**
@@ -167,6 +167,8 @@ export type DocumentTraceBlockLocation = {
 export type DocumentTracePassage = {
   blockId: string;
   documentId: string;
+  /** The kind of file it is in, as the parser recorded it. */
+  sourceFormat: ContentBlock["source_format"];
   /** Where the passage sits: the nearest heading the block declares, if any. */
   sectionLabel: string;
   /** The passage's opening words, so the list reads without navigating away. */
@@ -178,8 +180,13 @@ export type DocumentTracePassage = {
 /** Longest preview kept. Two lines in the panel, which is as much as it can show. */
 const PASSAGE_PREVIEW_LIMIT = 110;
 
-function passagePreview(content: string): string {
-  const flat = content.replace(/\s+/g, " ").trim();
+/**
+ * A passage's opening words, for every list of passages. An image block is named for what it
+ * is, because its content is the parser's `[image]` placeholder, which reads as a broken quote.
+ */
+export function passagePreview(block: ContentBlock): string {
+  if (block.block_type === "image") return documentVisualLabel(block);
+  const flat = block.content.replace(/\s+/g, " ").trim();
   if (flat.length <= PASSAGE_PREVIEW_LIMIT) return flat;
   // Cut back to a word boundary: a preview ending mid-word reads as corruption.
   return `${flat.slice(0, PASSAGE_PREVIEW_LIMIT).replace(/\s+\S*$/, "")}…`;
@@ -216,8 +223,9 @@ export function documentTracePassages<TKind extends string, TRef>(
       passages.push({
         blockId: traceBlock.block.id,
         documentId: document.docId,
+        sourceFormat: traceBlock.block.source_format,
         sectionLabel: documentBlockLocationLabel(traceBlock.block),
-        preview: passagePreview(traceBlock.block.content),
+        preview: passagePreview(traceBlock.block),
         connection: exact ? "exact" : "block",
       });
     }

@@ -1,281 +1,267 @@
 /**
- * Both tools open with the same panel, and neither owns it.
+ * Every tool's result is read through one shape, named the way its own page names it.
  *
- * The container renders whatever a selector returns and has no opinion about
- * rubrics, targets, or evidence. That is what makes the priorities improvable: when
- * a rubric arrives, one selector changes and nothing else does. These tests pin that
- * separation, because it is the kind that erodes quietly.
+ * The card's points name findings by ID and render them from these lists, so what these
+ * tests pin is that each list is complete, uniquely addressed, and says exactly what the
+ * page says - the drift the hand-written selectors kept producing. The model's choice of
+ * what to raise is not tested here; it is the model's, and the card says so.
  */
 
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import type { InspectionReviewView as InspectionResult, ScoutResponse } from "./api.ts";
-import {
-  INSPECTOR_EMPTY_MESSAGE,
-  INSPECTOR_ORDER_NOTE,
-  selectInspectorPriorities,
-} from "./inspector-priorities.ts";
-import {
-  SCOUT_EMPTY_MESSAGE,
-  SCOUT_ORDER_NOTE,
-  SCOUT_PRIORITY_LIMIT,
-  selectScoutPriorities,
-} from "./scout-priorities.ts";
+import type {
+  AlignmentFinding,
+  AlignmentResult,
+  AlignmentVerdict,
+  DocumentSpan,
+  GateReview,
+  InspectionReviewView,
+  QuestionAssessment,
+  ScoutResponse,
+} from "./api.ts";
+import { chainWarningText, chainWarnings } from "./aligner-chain.ts";
+import { ALIGNER_PRIORITY_FOCUS, alignerPriorityFindings } from "./aligner-priorities.ts";
+import { INSPECTOR_PRIORITY_FOCUS, inspectorPriorityFindings } from "./inspector-priorities.ts";
+import { priorityRequest, type PriorityFinding } from "./priorities.ts";
+import { SCOUT_PRIORITY_FOCUS, scoutPriorityFindings } from "./scout-priorities.ts";
+import { displayAttributeLabel } from "./scout-labels.ts";
+import { SCREENER_PRIORITY_FOCUS, screenerPriorityFindings } from "./screener-priorities.ts";
 
-function inspection(overrides: Partial<InspectionResult> = {}): InspectionResult {
+// --- Fixtures ------------------------------------------------------------------
+
+function inspection(): InspectionReviewView {
+  const unit = (section: string, variable: string | null, verdict: "specified" | "insufficient", blocks: string[]) => ({
+    id: `${section}|${variable ?? ""}`,
+    verdict,
+    statement: verdict === "specified" ? "" : "Not enough is stated.",
+    section_name: section,
+    variable_name: variable,
+    optional: false,
+    cited_block_ids: blocks,
+    rank: 0,
+  });
   return {
     doc_id: "plan",
     applicability_facts: {},
     rubric: { id: "test", revision: null, updated_on: null, display_name: "Test", authority: "Test", scope: "Test", stage_guidance: "", mirrors: null, evidence_scope: "mapped_section", sources: [], requirements: [] },
-    sections: [],
-    document_findings: [],
+    sections: [
+      { section_name: "Profile", mapped_block_ids: [], is_present: true, verdict_counts: {} as never,
+        units: [unit("Profile", "Efficacy", "insufficient", ["plan/b-1"]), unit("Profile", "Safety", "specified", ["plan/b-2"])] },
+      { section_name: "Access", mapped_block_ids: [], is_present: true, verdict_counts: {} as never,
+        units: [unit("Access", "Efficacy", "specified", ["plan/b-3"]), unit("Access", null, "insufficient", [])] },
+    ],
+    document_findings: [
+      { id: "conflict|0", verdict: "section_conflict", statement: "Two sections disagree.", section_name: null,
+        variable_name: null, optional: false, cited_block_ids: ["plan/b-1"], rank: 0 },
+    ],
     consistency_status: "complete",
     assessment_status: "complete",
-    org: null,
-    source_type: null,
-    intervention_class: null,
-    indication: null,
-    blocks: [],
+    org: null, source_type: null, intervention_class: null, indication: null,
+    blocks: ["plan/b-1", "plan/b-2", "plan/b-3"].map((id) => ({ id, doc_id: "plan" })) as never,
+  } as InspectionReviewView;
+}
+
+function cite(blockId: string): DocumentSpan {
+  return { quote: `Content of ${blockId}.`, block_ids: [blockId] };
+}
+
+function requirement(id: string, edge: string, verdict: AlignmentVerdict, overrides: Partial<AlignmentFinding> = {}): AlignmentFinding {
+  return {
+    requirement_id: id, edge_id: edge, verdict, requirement: `Requirement ${id}`, statement: `About ${id}.`,
+    reference_spans: [], comparison_spans: [], reference_visual_block_ids: [], comparison_visual_block_ids: [],
     ...overrides,
   };
 }
 
-function scout(overrides: Partial<ScoutResponse> = {}): ScoutResponse {
-  return { matches: [], assessments: [], conformity: [], ...overrides } as ScoutResponse;
+function alignment(): AlignmentResult {
+  return {
+    documents: [
+      { doc_id: "profile", source_type: "itpp", display_name: "iTPP" },
+      { doc_id: "candidate", source_type: "ctpp", display_name: "cTPP" },
+      { doc_id: "plan", source_type: "ipdp", display_name: "IPDP" },
+    ],
+    edges: [
+      { edge_id: "upstream", reference_doc_id: "profile", comparison_doc_id: "candidate", question: "Q1" },
+      { edge_id: "downstream", reference_doc_id: "candidate", comparison_doc_id: "plan", question: "Q2" },
+    ],
+    org: "bmgf", intervention_class: "vaccine", indication: "malaria", blocks: [],
+    findings: [
+      requirement("upstream/r-1", "upstream", "falls_short", { comparison_spans: [cite("candidate/b-42")] }),
+      requirement("downstream/r-1", "downstream", "meets", {
+        reference_spans: [cite("candidate/b-42")], comparison_spans: [cite("plan/b-7")],
+      }),
+      requirement("downstream/r-2", "downstream", "exceeds"),
+    ],
+  };
 }
 
-test("both selectors return the same item shape", () => {
-  // The shared contract. A field either makes sense for a rubric gap AND a
-  // contradicted target, or it does not belong in the panel every tool shares.
-  const inspectorItem = selectInspectorPriorities(
-    inspection({
-      sections: [
-        {
-          section_name: "Profile",
-          mapped_block_ids: ["b1"],
-          is_present: true,
-          verdict_counts: { not_present: 1 } as never,
-          units: [
-            {
-              id: "Profile|Efficacy",
-              verdict: "not_present",
-              statement: "Not stated.",
-              section_name: "Profile",
-              variable_name: "Efficacy",
-              optional: false,
-              cited_block_ids: [],
-              rank: 0,
-            },
-          ],
-        },
-      ],
-    }),
-  )[0];
+function scout(): ScoutResponse {
+  const field = (name: string, target: string, resolved = true) => ({
+    name, description: "", block_ids: [`doc/${name}`], document_target: target, document_spans: [],
+    definition_mode: "fixed", target_resolved: resolved, target_resolution_reason: "", evidence_domain: "clinical",
+    entities: [], quantitative_target_ids: [], quantitative_statement_dispositions: [],
+    quantitative_target_status: "present", quantitative_target_status_reason: "",
+  });
+  const insight = (ref: string | null, statement: string) => ({
+    id: statement, statement, query: "q", supporting_findings: [], org: null, source_type: null,
+    intervention_class: null, indication: null, attribute_ref: ref,
+  });
+  return {
+    variables: [field("vaccine.hiv_incidence", "at least 80% reduction"), field("vaccine.dose_volume", "", false)],
+    assessments: [{ attribute_ref: "vaccine.hiv_incidence", strength: "thin", reason: "One small trial.",
+      doc_target: "at least 80% reduction", doc_block_ids: ["doc/a"], supporting_insight_ids: [], supporting_findings: [] }],
+    matches: [
+      { relation: "contradicts", reason: "Reported 40%.", doc_block_ids: ["doc/m"], insight: insight("vaccine.hiv_incidence", "Observed 40%.") },
+      { relation: "confirms", reason: "Agrees.", insight: insight("vaccine.hiv_incidence", "Observed 85%.") },
+      { relation: "contradicts", reason: "Cost differs.", insight: insight(null, "Program cost is higher.") },
+      { relation: "unrelated", reason: "Off topic.", insight: insight("vaccine.dose_volume", "Unrelated.") },
+    ],
+    conformity: [{ attribute_refs: ["vaccine.hiv_incidence"], target_id: "t1", target_label: "Constructed summary",
+      target_quote: "at least 80% reduction", target_meeting_count: 0, target_meeting_rate: 0,
+      verdict: "0 of 12 admitted comparators meet the document target", benchmark_count: 12,
+      calibration_status: "sufficient", doc_block_ids: [] }],
+    precedents: [],
+  } as unknown as ScoutResponse;
+}
 
-  const scoutItem = selectScoutPriorities(
-    scout({
-      assessments: [
-        {
-          attribute_ref: "vaccine.efficacy",
-          strength: "unsupported",
-          reason: "Nothing found.",
-          doc_target: "at least 80%",
-          doc_block_ids: ["b2"],
-          supporting_insight_ids: [],
-          supporting_findings: [],
-        },
-      ],
-    }),
-  )[0];
+function gate(): GateReview {
+  const question = (id: string, state: QuestionAssessment["state"], overrides: Partial<QuestionAssessment> = {}): QuestionAssessment => ({
+    id, text: `Question ${id}?`, state, requirement: "required", statement: "", missing: "", cited_block_ids: [], ...overrides,
+  });
+  return {
+    gate_id: "ep1", gate_label: "End of Phase 1", bank_source: "fixture", documents: [{ doc_id: "plan" }],
+    disciplines: [
+      { id: "cmc", label: "CMC", questions: [
+        question("q1", "partly_answered", { statement: "Route is named.", missing: "No yield is given.", cited_block_ids: ["plan/b-1"] }),
+        question("q2", "not_found", { requirement: "anticipatory" }),
+      ] },
+      { id: "clin", label: "Clinical", questions: [question("q3", "answered", { statement: "Stated.", cited_block_ids: ["plan/b-2"] })] },
+    ],
+    org: "bmgf", intervention_class: "drug", indication: "malaria", blocks: [],
+  };
+}
 
-  // Every key each selector emits has to be one the shared item declares. Equality of
-  // the two key sets was the old check, and it stopped being the right one when
-  // Inspector lost its `recommendation`: that field restated the statement beside it,
-  // so removing it was the point. Scout's is a different thing under the same name -
-  // the evidence's own reason - and it stays.
-  const DECLARED = [
-    "id",
-    "label",
-    "qualifier",
-    "statement",
-    "recommendation",
-    "quote",
-    "blockIds",
-  ];
-  for (const [tool, item] of [
-    ["inspector", inspectorItem],
-    ["scout", scoutItem],
-  ] as const) {
-    for (const key of Object.keys(item)) {
-      assert.ok(DECLARED.includes(key), `${tool} emits ${key}, which no other tool has`);
+const LENSES: [string, PriorityFinding[], string][] = [
+  ["inspector", inspectorPriorityFindings(inspection()), INSPECTOR_PRIORITY_FOCUS],
+  ["aligner", alignerPriorityFindings(alignment()), ALIGNER_PRIORITY_FOCUS],
+  ["scout", scoutPriorityFindings(scout()), SCOUT_PRIORITY_FOCUS],
+  ["screener", screenerPriorityFindings(gate()), SCREENER_PRIORITY_FOCUS],
+];
+
+// --- The shared contract ------------------------------------------------------
+
+test("every tool addresses each finding once, so a point can name it unambiguously", () => {
+  for (const [tool, findings] of LENSES) {
+    const ids = findings.map((finding) => finding.id);
+    assert.equal(new Set(ids).size, ids.length, `${tool} repeats a finding id`);
+  }
+});
+
+test("every finding has a subject and at least one verdict in the tool's words", () => {
+  for (const [tool, findings] of LENSES) {
+    for (const finding of findings) {
+      assert.ok(finding.subject.trim(), `${tool} has a finding with no subject`);
+      assert.ok(finding.verdicts.length > 0, `${tool}'s ${finding.id} carries no verdict`);
     }
   }
-  // The two that make no sense to omit: without them the panel has no row and no link.
-  for (const required of ["id", "label", "statement"]) {
-    assert.ok(required in inspectorItem, `inspector omits ${required}`);
-    assert.ok(required in scoutItem, `scout omits ${required}`);
+});
+
+test("every tool states what its reader needs first", () => {
+  for (const [tool, , focus] of LENSES) assert.ok(focus.trim(), `${tool} has no focus sentence`);
+});
+
+test("the request leaves passages behind: the model points at findings, never at blocks", () => {
+  const request = priorityRequest({
+    authority: "A", focus: "F", findings: LENSES[0][1], org: "", interventionClass: "", indication: "",
+  });
+  for (const finding of request.findings) {
+    assert.equal("blockIds" in finding, false);
+    assert.ok(finding.statements.every(Boolean), "an empty statement reaches the model");
   }
 });
 
-test("Inspector reuses the rank the result already assigned", () => {
-  // Re-deriving the order in the view would be a second opinion that could disagree
-  // with the sections below it.
-  const unit = (name: string, rank: number) => ({
-    id: `Profile|${name}`,
-    verdict: "vague" as const,
-    statement: name,
-    section_name: "Profile",
-    variable_name: name,
-    optional: false,
-    cited_block_ids: ["b1"],
-    rank,
-  });
+// --- Inspector ---------------------------------------------------------------
 
-  const items = selectInspectorPriorities(
-    inspection({
-      sections: [
-        {
-          section_name: "Profile",
-          mapped_block_ids: ["b1"],
-          is_present: true,
-          verdict_counts: { vague: 2 } as never,
-          units: [unit("later", 5), unit("sooner", 1)],
-        },
-      ],
-    }),
-  );
-
-  assert.deepEqual(items.map((i) => i.label), ["sooner", "later"]);
+test("Inspector reads every unit of the rubric, and not the run-wide consistency check", () => {
+  const findings = inspectorPriorityFindings(inspection());
+  assert.deepEqual(findings.map((finding) => finding.id), ["Profile|Efficacy", "Profile|Safety", "Access|Efficacy", "Access|"]);
 });
 
-test("Scout raises a contradicted target above an unsupported one", () => {
-  const items = selectScoutPriorities(
-    scout({
-      assessments: [
-        {
-          attribute_ref: "vaccine.safety",
-          strength: "unsupported",
-          reason: "Nothing found.",
-          doc_target: "no SAEs",
-          doc_block_ids: [],
-          supporting_insight_ids: [],
-          supporting_findings: [],
-        },
-      ],
-      matches: [
-        {
-          relation: "contradicts",
-          reason: "Trial reports 40%.",
-          doc_block_ids: ["b1"],
-          insight: {
-            statement: "Observed efficacy was 40%.",
-            query: "q",
-            attribute_ref: "vaccine.efficacy",
-            supporting_findings: [],
-            org: null,
-            source_type: null,
-            intervention_class: null,
-            indication: null,
-          },
-        },
-      ],
-    }),
-  );
-
-  assert.deepEqual(items.map((i) => i.label), ["Efficacy", "Safety"]);
+test("Inspector keeps the section, so two units with one name are told apart", () => {
+  const [profile, , access, sectionOnly] = inspectorPriorityFindings(inspection());
+  assert.equal(profile.subject, "Efficacy");
+  assert.equal(profile.group, "Profile");
+  assert.equal(access.group, "Access");
+  // A unit that is the section itself is named by it, not grouped under it a second time.
+  assert.equal(sectionOnly.subject, "Access");
+  assert.equal(sectionOnly.group, undefined);
+  assert.deepEqual(profile.verdicts, ["Insufficient"]);
 });
 
-test("Scout raises each target once, keeping the stronger claim", () => {
-  const items = selectScoutPriorities(
-    scout({
-      assessments: [
-        {
-          attribute_ref: "vaccine.efficacy",
-          strength: "unsupported",
-          reason: "Nothing found.",
-          doc_target: "at least 80%",
-          doc_block_ids: [],
-          supporting_insight_ids: [],
-          supporting_findings: [],
-        },
-      ],
-      matches: [
-        {
-          relation: "contradicts",
-          reason: "Trial reports 40%.",
-          doc_block_ids: [],
-          insight: {
-            statement: "Observed efficacy was 40%.",
-            query: "q",
-            attribute_ref: "vaccine.efficacy",
-            supporting_findings: [],
-            org: null,
-            source_type: null,
-            intervention_class: null,
-            indication: null,
-          },
-        },
-      ],
-    }),
-  );
+// --- Aligner -----------------------------------------------------------------
 
-  assert.equal(items.length, 1);
-  assert.equal(items[0].qualifier, "Evidence contradicts this target");
+test("Aligner reads every requirement under the comparison that judged it", () => {
+  const findings = alignerPriorityFindings(alignment());
+  assert.deepEqual(findings.map((finding) => finding.id), ["upstream/r-1", "downstream/r-1", "downstream/r-2"]);
+  assert.equal(findings[0].group, "iTPP → cTPP");
+  assert.deepEqual(findings[0].verdicts, ["Falls short"]);
 });
 
-test("Scout does not raise a target it could not calibrate", () => {
-  // "insufficient" means no comparator cohort existed, which is not the same as
-  // falling short of the target.
-  // Only the fields the selector reads; the rest of Conformity is irrelevant here
-  // and spelling it out would tie this test to an unrelated shape.
-  const score = (calibration: string, rate: number, count: number) =>
-    ({
-      attribute_refs: ["vaccine.efficacy"],
-      target_id: `t-${calibration}-${rate}`,
-      target_label: "at least 80%",
-      target_meeting_rate: rate,
-      benchmark_count: count,
-      calibration_status: calibration,
-      verdict: "v",
-      doc_block_ids: [],
-    }) as unknown as ScoutResponse["conformity"][number];
-
-  const uncalibrated = selectScoutPriorities(
-    scout({ conformity: [score("insufficient", 0, 0)] }),
-  );
-  const unmet = selectScoutPriorities(
-    scout({ conformity: [score("sufficient", 0, 12)] }),
-  );
-
-  assert.deepEqual(uncalibrated, []);
-  assert.equal(unmet.length, 1);
-  assert.match(unmet[0].qualifier ?? "", /12 measured/);
+test("Aligner carries an upstream flag as a code note, never as a model's statement", () => {
+  const result = alignment();
+  const met = alignerPriorityFindings(result)[1];
+  const [warning] = chainWarnings(result).get("downstream/r-1") ?? [];
+  assert.deepEqual(met.notes, [chainWarningText(warning)]);
+  assert.deepEqual(met.statements, ["About downstream/r-1."]);
+  assert.ok(met.blockIds.includes("candidate/b-42"), "the shared passage is not openable");
 });
 
-test("Scout's list is bounded", () => {
-  const many = Array.from({ length: 30 }, (_, i) => ({
-    attribute_ref: `vaccine.field_${i}`,
-    strength: "unsupported" as const,
-    reason: "Nothing found.",
-    doc_target: "t",
-    doc_block_ids: [],
-    supporting_insight_ids: [],
-    supporting_findings: [],
-  }));
+// --- Scout -------------------------------------------------------------------
 
-  assert.equal(selectScoutPriorities(scout({ assessments: many })).length, SCOUT_PRIORITY_LIMIT);
+test("Scout names a field exactly as its Fields tab does", () => {
+  const [incidence] = scoutPriorityFindings(scout());
+  assert.equal(incidence.subject, displayAttributeLabel("vaccine.hiv_incidence"));
+  assert.equal(incidence.subject, "HIV Incidence");
 });
 
-test("an empty result yields no items, not a placeholder row", () => {
-  assert.deepEqual(selectInspectorPriorities(inspection()), []);
-  assert.deepEqual(selectScoutPriorities(scout()), []);
+test("Scout keeps each axis as its own verdict, and code's counts out of the statements", () => {
+  const [incidence] = scoutPriorityFindings(scout());
+  assert.deepEqual(incidence.verdicts, [
+    "Thinly grounded",
+    "Conflicts: 1 insight",
+    "Supports: 1 insight",
+    "at least 80% reduction: 0 of 12 admitted comparators meet the document target (12 measured)",
+  ]);
+  assert.ok(incidence.statements.every((statement) => !statement.includes("comparators meet")));
+  assert.deepEqual(incidence.statements, ["One small trial.", "Observed 40%.", "Reported 40%."]);
 });
 
-test("each tool states how its own order was decided", () => {
-  // The sparkle marks the wording as the model's; it does not cover the ordering,
-  // so each note has to say what produced it.
-  assert.match(INSPECTOR_ORDER_NOTE, /order is not/i);
-  assert.match(SCOUT_ORDER_NOTE, /placeholder/i);
-  assert.ok(INSPECTOR_EMPTY_MESSAGE && SCOUT_EMPTY_MESSAGE);
+test("Scout quotes the document's own words, never a summary it built", () => {
+  const [incidence, volume] = scoutPriorityFindings(scout());
+  assert.equal(incidence.quote, "at least 80% reduction");
+  assert.ok(!incidence.verdicts.join(" ").includes("Constructed summary"));
+  // An unresolved target has no words of the document's to quote.
+  assert.equal(volume.quote, undefined);
+});
+
+test("Scout keeps a contradiction that names no field, rather than dropping it", () => {
+  const program = scoutPriorityFindings(scout()).find((finding) => finding.id === "program");
+  assert.ok(program, "the program-wide contradiction vanished");
+  assert.deepEqual(program.verdicts, ["Conflicts: 1 insight"]);
+});
+
+// --- Screener ----------------------------------------------------------------
+
+test("Screener reads every question in full, with its state, requirement and discipline", () => {
+  const findings = screenerPriorityFindings(gate());
+  assert.deepEqual(findings.map((finding) => finding.id), ["q1", "q2", "q3"]);
+  assert.equal(findings[0].subject, "Question q1?");
+  assert.equal(findings[0].group, "CMC");
+  assert.deepEqual(findings[1].verdicts, ["Not found", "Anticipatory"]);
+});
+
+test("Screener labels what a partial answer leaves open, so it is not read as the answer", () => {
+  const [partial] = screenerPriorityFindings(gate());
+  assert.ok(partial.statements.includes("Still open: No yield is given."));
 });

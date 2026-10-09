@@ -1,6 +1,6 @@
 "use client";
 import { DocumentExtractionNotice } from "@/components/document-extraction-notice";
-import { ResultNotices, WarningNotice } from "@/components/ui/warning-notice";
+import { CaveatNotice, ResultNotices, WarningNotice } from "@/components/ui/warning-notice";
 import { usePublishReviewContext, type ReviewSelection } from "@/lib/assistant-review-context";
 
 import { useTraceFocus } from "@/lib/trace-focus";
@@ -94,7 +94,7 @@ import {
   RESULT_LIMIT_MESSAGE,
   useScoutSession,
 } from "@/lib/session";
-import { usePriorityDigest } from "@/lib/priority-digest";
+import { usePriorityReading } from "@/lib/priority-reading";
 import { toolAuthority } from "@/lib/tools";
 import { useScoutReviewSession } from "@/lib/scout-review-session";
 import {
@@ -103,7 +103,6 @@ import {
   runLabel,
   runScope,
   pendingQuantitativeReviewCount,
-  splitResultContext,
   runFilename,
   unpackScoutResult,
   readResultIdentity,
@@ -161,9 +160,8 @@ import {
   type TargetRow,
 } from "@/lib/scout-result-view";
 import {
-  SCOUT_EMPTY_MESSAGE,
-  SCOUT_ORDER_NOTE,
-  selectScoutPriorities,
+  SCOUT_PRIORITY_FOCUS,
+  scoutPriorityFindings,
 } from "@/lib/scout-priorities";
 import { PriorityPanel } from "@/components/ui/priority-panel";
 import { DISPLAY_HEADING, EYEBROW } from "@/lib/typography";
@@ -2025,22 +2023,15 @@ function FieldGrid({
   onNewAnalysis: () => void;
 }) {
   const { results, selectedId, selectResult, removeResult } = useScoutSession();
-  const priorities = useMemo(() => selectScoutPriorities(result), [result]);
-  const digest = usePriorityDigest(
-    selectedId
-      ? {
-          resultId: selectedId,
-          authority: toolAuthority("scout"),
-          orderNote: SCOUT_ORDER_NOTE,
-          items: priorities,
-          analysis: splitResultContext(result).analysis,
-          blockIds: (result.blocks ?? []).map((block) => block.id),
-          org: result.org ?? "",
-          interventionClass: result.intervention_class ?? "",
-          indication: result.indication ?? "",
-        }
-      : null,
-  );
+  const priorityFindings = useMemo(() => scoutPriorityFindings(result), [result]);
+  const priorityReading = usePriorityReading(selectedId, {
+    authority: toolAuthority("scout"),
+    focus: SCOUT_PRIORITY_FOCUS,
+    findings: priorityFindings,
+    org: result.org ?? "",
+    interventionClass: result.intervention_class ?? "",
+    indication: result.indication ?? "",
+  });
   const matches = result.matches ?? [];
   const variables = result.variables ?? [];
   const developmentLandscape = result.development_landscape ?? [];
@@ -2143,52 +2134,50 @@ function FieldGrid({
       <div className="flex flex-col gap-4">
         <ResultLayout
           notices={<>
-            {(unresolvedFieldCount > 0 ||
-              result.quantitative_ledger.status === "uncertain") && (
+            {/* Most consequential first. Fields that could not be bound stopped the run
+                short and a doubtful document context changes what it is about, so both are
+                warnings; numbers held out of calibration and extracted PDF text only limit
+                how far its words go, so they are caveats and follow. */}
+            {unresolvedFieldCount > 0 && (
               <WarningNotice label="Document interpretation limitations">
-                <div className="space-y-1">
-                  {unresolvedFieldCount > 0 && (
-                    <div>
-                      <p>
-                        Document interpretation stopped before retrieval because{" "}
-                        {unresolvedFieldCount}{" "}
-                        {unresolvedFieldCount === 1 ? "field" : "fields"} could
-                        not be bound safely.
-                      </p>
-                      <p className="mt-1.5">
-                        Try running the analysis again. If the issue persists,
-                        report it through Feedback with the downloaded JSON.
-                      </p>
-                      <details className="mt-1.5">
-                        <DisclosureSummary className="w-fit rounded-sm font-medium text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/20">
-                          Review unresolved fields
-                        </DisclosureSummary>
-                        <ul className="mt-1.5 space-y-1 pl-4">
-                          {unresolvedFields.map((variable) => (
-                            <li key={variable.name} className="list-disc">
-                              <span className="font-medium text-foreground">
-                                {displayAttributeLabel(variable.name)}:
-                              </span>{" "}
-                              {variable.target_resolution_reason ||
-                                "No validated decision was returned."}
-                            </li>
-                          ))}
-                        </ul>
-                      </details>
-                    </div>
-                  )}
-                  {result.quantitative_ledger.status === "uncertain" && (
-                    <p>
-                      Some numeric statements remained unresolved after one
-                      retry. They were retained for audit and excluded from
-                      quantitative calibration; the verified document claims
-                      still proceeded through evidence retrieval.
-                    </p>
-                  )}
+                <div>
+                  <p>
+                    Document interpretation stopped before retrieval because{" "}
+                    {unresolvedFieldCount}{" "}
+                    {unresolvedFieldCount === 1 ? "field" : "fields"} could
+                    not be bound safely.
+                  </p>
+                  <p className="mt-1.5">
+                    Try running the analysis again. If the issue persists,
+                    report it through Feedback with the downloaded JSON.
+                  </p>
+                  <details className="mt-1.5">
+                    <DisclosureSummary className="w-fit rounded-sm font-medium text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/20">
+                      Review unresolved fields
+                    </DisclosureSummary>
+                    <ul className="mt-1.5 space-y-1 pl-4">
+                      {unresolvedFields.map((variable) => (
+                        <li key={variable.name} className="list-disc">
+                          <span className="font-medium text-foreground">
+                            {displayAttributeLabel(variable.name)}:
+                          </span>{" "}
+                          {variable.target_resolution_reason ||
+                            "No validated decision was returned."}
+                        </li>
+                      ))}
+                    </ul>
+                  </details>
                 </div>
               </WarningNotice>
             )}
             <ContextValidationNotice result={result} />
+            {result.quantitative_ledger.status === "uncertain" && (
+              <CaveatNotice label="Unresolved numeric statements">
+                Some numeric statements remained unresolved after one retry. They were
+                retained for audit and excluded from quantitative calibration; the verified
+                document claims still proceeded through evidence retrieval.
+              </CaveatNotice>
+            )}
             <DocumentExtractionNotice blocks={result.blocks ?? []} />
           </>}
           title={runLabel(result, "scout")}
@@ -2220,26 +2209,9 @@ function FieldGrid({
             </>
           }
           priorities={{
-            // Every item links to a field, so it shows where the fields are.
+            // Every point rests on fields, so it shows where the fields are.
             tab: "fields",
-            panel: (
-              <PriorityPanel
-                attribution="by Scout"
-                items={priorities}
-                emptyMessage={SCOUT_EMPTY_MESSAGE}
-                orderNote={SCOUT_ORDER_NOTE}
-                digest={
-                  digest?.state === "ready" ? digest.digest.digest : undefined
-                }
-                nominations={
-                  digest?.state === "ready" ? digest.digest.nominations : []
-                }
-                digestLoading={digest?.state === "loading"}
-                digestError={
-                  digest?.state === "failed" ? digest.reason : undefined
-                }
-              />
-            ),
+            panel: <PriorityPanel findings={priorityFindings} reading={priorityReading} />,
           }}
           footer={
             <SourceAttributions
@@ -2791,9 +2763,9 @@ function SafetyObservations({
 /**
  * How much of the document was testable, in one line.
  *
- * Deliberately *not* the answer. `PriorityPanel` below owns that - `contradictedTargets`
- * is its first tier, so naming the contradicting fields here said the same thing twice,
- * directly above a panel that says it with the evidence, the reason and a source link.
+ * Deliberately *not* the answer. The fields below own that, and the priority card reads
+ * them - so naming the contradicting fields here said the same thing twice, directly above
+ * rows that say it with the evidence, the reason and a source link.
  *
  * What is left is the part nothing else reports: how many fields stated a target at all,
  * and how many numbers could be calibrated against anything. On a real run 10 of 28 fields
@@ -2867,9 +2839,8 @@ function RunCoverage({
               },
             ]
           : []),
-        // Counted, not named. An unfavourable precedent is the one signal `PriorityPanel`
-        // has no tier for, so the count belongs somewhere - but the field name is right
-        // below and one of them renders as "I E Ddi", which helps nobody.
+        // Counted, not named: the field name is right below, and one of them renders as
+        // "I E Ddi", which helps nobody.
         ...(headline.unfavorableFields.length > 0
           ? [
               {

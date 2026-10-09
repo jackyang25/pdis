@@ -17,8 +17,8 @@ retry or failure policy. There is no unrestricted-string fallback, citation
 truncation, evidence selection, or additional model call. Source text, image
 labels, verdict enums, line numbers, and saved result shapes are unchanged.
 
-Screener, Inspector, Aligner, Scout's document citations, and priority nominations
-use this boundary. Chunker keeps its existing bounded output shards (each reads
+Screener, Inspector, Aligner, and Scout's document citations, and the priority card's
+finding references, use this boundary. Chunker keeps its existing bounded output shards (each reads
 the complete document) and shares the same schema-budget predicate. Non-reference
 enums are not rewritten. Compact reference fields currently require explicit
 object/array paths; references inside unions or definitions fail preflight rather

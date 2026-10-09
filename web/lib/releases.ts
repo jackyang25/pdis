@@ -16,6 +16,17 @@ type Release = {
 
 export const RELEASES: readonly Release[] = [
   {
+    version: "0.6.0",
+    title: "Priorities in every tool and suggested searches in Assistant",
+    sections: [{ changes: [
+      "Inspector, Aligner, Scout and Screener open with a Priorities card: an AI summary of the result and a few points to look at first, each linked to the findings and passages it rests on.",
+      "Priorities name each finding exactly as the result below it does, and you can try again if the summary doesn’t load.",
+      "When your results don’t cover a question, Assistant can set up a Searcher run for you to review and start.",
+      "Assistant’s citations show which kind of file each passage comes from, and where in it.",
+      "Notes about how a file was read now appear as a short caveat rather than a warning.",
+    ] }],
+  },
+  {
     version: "0.5.1",
     title: "PDIS tools only",
     sections: [{ changes: [

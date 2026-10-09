@@ -122,6 +122,10 @@ class ContentBlock:
     structural_meta: dict[str, Any]
     style_hint: dict[str, Any]
     image: ImageAsset | None = None
+    #: The kind of file this block was parsed from (`formats.SourceFormat`). Set once,
+    #: by `parse_document` or the attachment reader; None only on a block saved before
+    #: the field existed, which a reader treats as unknown rather than guessing.
+    source_format: str | None = None
 
     # --- Reserved for Phase 2 (mapper) - always None after parsing ---
     section_label: str | None = None

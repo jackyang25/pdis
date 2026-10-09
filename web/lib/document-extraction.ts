@@ -30,6 +30,15 @@ export function documentBlockLocationLabel(block: ContentBlock): string {
   return block.section_label || block.heading_stack.at(-1) || "";
 }
 
+/**
+ * What a retained visual is, from the scope the parser recorded: the whole slide, the whole
+ * page, or an image inside the document. Its `[image]` content is a placeholder, not words.
+ */
+export function documentVisualLabel(block: ContentBlock): string {
+  const scope = block.structural_meta.visual_scope;
+  return scope === "full_slide" ? "Slide visual" : scope === "full_page" ? "Page visual" : "Document image";
+}
+
 /** A parser records limitations; consumers translate, never re-diagnose a file. */
 export function documentExtractionWarnings(blocks: readonly ContentBlock[]): {
   code: string; documentIds: string[]; details?: string[];

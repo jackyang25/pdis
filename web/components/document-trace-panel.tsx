@@ -8,6 +8,7 @@ import {
   type DocumentTracePassage,
 } from "@/lib/document-trace";
 import { TONE_TEXT, type Tone } from "@/lib/tone";
+import { PassageSource } from "@/components/ui/source-chip";
 import { cn } from "@/lib/utils";
 import { EYEBROW } from "@/lib/typography";
 
@@ -167,16 +168,11 @@ export function TracePassageList({
                 {index + 1}
               </span>
               <span className="min-w-0">
-                {(spansDocuments || passage.sectionLabel) && (
-                  <span className={cn("block truncate", EYEBROW)}>
-                    {[
-                      spansDocuments ? displayDocumentName(passage.documentId) : "",
-                      passage.sectionLabel,
-                    ]
-                      .filter(Boolean)
-                      .join(" · ")}
-                  </span>
-                )}
+                <PassageSource
+                  format={passage.sourceFormat}
+                  document={spansDocuments ? displayDocumentName(passage.documentId) : undefined}
+                  location={passage.sectionLabel}
+                />
                 <span className="mt-0.5 block text-[11px] leading-4 text-foreground">
                   {passage.preview}
                 </span>

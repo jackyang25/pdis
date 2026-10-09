@@ -17,8 +17,8 @@ import {
   useScoutSession,
 } from "@/lib/session";
 import { WORKSPACE_TOOLS } from "@/lib/tools";
-import type { ContentBlock, PriorityDigest } from "@/lib/api";
-import { usePriorityDigestStore } from "@/lib/priority-digest";
+import type { ContentBlock, PriorityReading } from "@/lib/api";
+import { usePriorityReadingStore } from "@/lib/priority-reading";
 import { reviewContextForAssistant, useAssistantReviewContext } from "@/lib/assistant-review-context";
 import { resolveDocumentVersions } from "@/lib/workspace-documents";
 
@@ -38,23 +38,13 @@ type WorkspaceResult = {
   analysis: unknown;
   document_block_ids: string[];
   /**
-   * What the priority panel is showing for this run, when a digest has been read.
+   * The priority card's reading of this run, once it has been read.
    *
-   * Not part of the analysis, because it is not part of the result: it describes a list
-   * the browser derives. It travels here so the assistant and the screen cannot disagree
-   * about what a reader is looking at — the nominations are findings the result does not
-   * contain, and an assistant blind to them would answer about a panel it half sees.
+   * Not part of the analysis, because it is not part of the result: it is read when the
+   * result is opened. It travels here so the assistant and the screen cannot disagree about
+   * what a reader is looking at. Its points name findings by the IDs `analysis` carries.
    */
-  priority_digest?: PriorityDigest;
-  /**
-   * The IDs the tool's selector chose for its priority panel, in its order.
-   *
-   * Sent as IDs alone: the items themselves are in `analysis`, so this adds only the two
-   * facts that are not — which findings were selected, and their order. Without it the
-   * assistant can see every finding but not the list a reader is actually looking at, and
-   * would answer "what is third" with a list of its own.
-   */
-  priority_item_ids?: string[];
+  priorities?: PriorityReading;
 };
 
 /**
@@ -71,10 +61,9 @@ export function WorkspaceAsk() {
   const searcher = useSearcherSession((state) => state.results);
   const activeReview = useAssistantReviewContext(state => state.active);
 
-  // Subscribed rather than read once: a digest lands after the result does, and the
+  // Subscribed rather than read once: a reading lands after the result does, and the
   // bundle has to pick it up when it arrives.
-  const digests = usePriorityDigestStore((state) => state.entries);
-  const selected = usePriorityDigestStore((state) => state.selected);
+  const readings = usePriorityReadingStore((state) => state.entries);
   const bundle = useMemo(() => {
     const results: WorkspaceResult[] = [];
     const blocks = new Map<string, ContentBlock>();
@@ -89,37 +78,34 @@ export function WorkspaceAsk() {
     // Collected rather than resolved immediately: a same-named document can arrive from
     // more than one run, and only once every run's blocks are in hand can
     // `resolveDocumentVersions` tell whether two runs read the same text or different
-    // versions of it. `panel` records whether this run owns a top-level priority panel —
-    // Inspector's digests live on each review instead, so its run-level fields stay unset.
-    // The digest itself travels in `extras`, alongside `analysis`, because a nomination
-    // cites block IDs the same way the analysis does: attached after resolving, it would
-    // still be citing whichever version's addresses existed when the digest was read.
+    // versions of it. A run's priority reading rides beside it: its points name findings,
+    // never blocks, so resolving versions leaves it as it is. Inspector's readings live on
+    // each review instead, so its run-level reading stays unset.
     const pending: {
       id: string;
       resultType: WorkspaceResult["result_type"];
       label: string;
       blocks: ContentBlock[];
       analysis: unknown;
-      panel: boolean;
-      extras: { priority_digest?: PriorityDigest; priority_item_ids?: string[] };
+      priorities?: PriorityReading;
     }[] = [];
+
+    function readingFor(key: string): PriorityReading | undefined {
+      const entry = readings[key];
+      return entry?.state === "ready" ? entry.reading : undefined;
+    }
 
     function addResult(
       id: string,
       resultType: WorkspaceResult["result_type"],
       label: string,
       value: unknown,
-      panel = true,
+      priorities?: PriorityReading,
     ) {
       const context = splitResultContext(value);
-      const digest = digests[id];
       pending.push({
         id, resultType, label,
-        blocks: context.document ?? [], analysis: context.analysis, panel,
-        extras: {
-          priority_digest: panel && digest?.state === "ready" ? digest.digest : undefined,
-          priority_item_ids: panel ? selected[id] : undefined,
-        },
+        blocks: context.document ?? [], analysis: context.analysis, priorities,
       });
     }
 
@@ -131,18 +117,13 @@ export function WorkspaceAsk() {
         runLabel(entry.result.inspection.doc_id || "Inspector result", entry.created_at),
         {
           ...entry.result.inspection,
-          // All reviews travel together. Derived panel context belongs to its own
-          // rubric; a digest from the selected review must never speak for the run.
-          reviews: entry.result.inspection.reviews.map(review => {
-            const key = `${entry.id}:${review.rubric.id}`;
-            const digest = digests[key];
-            return { ...review,
-              priority_digest: digest?.state === "ready" ? digest.digest : undefined,
-              priority_item_ids: selected[key],
-            };
-          }),
+          // All reviews travel together. A reading belongs to its own rubric; one from
+          // the selected review must never speak for the run.
+          reviews: entry.result.inspection.reviews.map(review => ({
+            ...review,
+            priorities: readingFor(`${entry.id}:${review.rubric.id}`),
+          })),
         },
-        false,
       );
     }
 
@@ -167,6 +148,7 @@ export function WorkspaceAsk() {
         "aligner",
         runLabel(names.join(" · ") || "Documents", entry.created_at),
         aligner.alignment,
+        readingFor(entry.id),
       );
     }
 
@@ -179,6 +161,7 @@ export function WorkspaceAsk() {
         "screener",
         runLabel(screener.review.gate_label || "Gate review", entry.created_at),
         screener.review,
+        readingFor(entry.id),
       );
     }
 
@@ -193,6 +176,7 @@ export function WorkspaceAsk() {
         "scout",
         runLabel(documentIds[0] || scout.indication || "Scout result", entry.created_at),
         scout,
+        readingFor(entry.id),
       );
     }
 
@@ -220,12 +204,7 @@ export function WorkspaceAsk() {
         label: run.label,
         analysis: run.analysis,
         document_block_ids: documentBlockIds,
-        // Read back from the resolved run, not the digest store directly: a nomination
-        // was rewritten alongside `analysis` if this run's document turned out to have
-        // more than one version, so the assistant and the screen agree on which passage
-        // it points at.
-        priority_digest: run.extras.priority_digest,
-        priority_item_ids: run.extras.priority_item_ids,
+        priorities: run.priorities,
       });
     }
 
@@ -259,7 +238,7 @@ export function WorkspaceAsk() {
       },
       resultCount: results.length,
     };
-  }, [aligner, chunker, digests, screener, inspector, scout, searcher, selected, activeReview]);
+  }, [aligner, chunker, readings, screener, inspector, scout, searcher, activeReview]);
 
   return (
     <Ask

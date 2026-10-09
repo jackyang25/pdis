@@ -48,7 +48,7 @@ from .controller import (
     unconfigured_source_keys,
 )
 from .net import prefer_ipv4
-from .pipeline import run_pipeline
+from .pipeline import SEARCH_ENTITIES_DESCRIPTION, SEARCH_ENTITY_FIELDS, SEARCH_TEXT_FIELDS, run_pipeline
 from .stages.searcher import DEFAULT_MAX_TOKENS, DEFAULT_MAX_USES
 
 # Make the direct-HTTP lanes (PubMed, ClinicalTrials.gov) resilient in
@@ -57,6 +57,9 @@ prefer_ipv4()
 
 __all__ = [
     "DEFAULT_MAX_TOKENS",
+    "SEARCH_ENTITIES_DESCRIPTION",
+    "SEARCH_ENTITY_FIELDS",
+    "SEARCH_TEXT_FIELDS",
     "TavilyHTTPConnector",
     "DEFAULT_MAX_USES",
     "DEVELOPMENT_RECORD_TYPES",

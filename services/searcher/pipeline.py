@@ -18,6 +18,42 @@ from .models import (
 from .stages.searcher import DEFAULT_MAX_TOKENS, DEFAULT_MAX_USES
 
 
+#: What a caller states about a search in words - the query and each scope field, by
+#: `run_pipeline`'s own parameter names - and what each one means. Sources and entities are
+#: the two structured inputs beside these. Every schema that composes a search is named and
+#: described from here: the API's request, which MCP publishes, and the Assistant's
+#: suggested search. Each is read by an agent filling it in, so two wordings would tell two
+#: agents different things about one field. A test pins each name to `run_pipeline`.
+SEARCH_TEXT_FIELDS: dict[str, str] = {
+    "query": (
+        "A short search query in search terms, a dozen words at most, e.g. 'maternal RSV "
+        "vaccine efficacy phase 3'. Not a question or an instruction."
+    ),
+    "condition": (
+        "Disease or condition as a search term, e.g. 'respiratory syncytial virus'. Anchors "
+        "structured sources such as trial registries."
+    ),
+    "intervention": "Intervention class in one or two words, e.g. 'vaccine', 'monoclonal antibody', 'drug'.",
+    "product": "One named product, e.g. 'Abrysvo'. Narrows the intervention class; it does not replace it.",
+    "population": "Who the question is about, in a few words, e.g. 'pregnant women 24-36 weeks'.",
+    "outcome": "What is measured, in a few words, e.g. 'efficacy against severe LRTI'.",
+    "region": "Countries or WHO regions the question is about, e.g. 'sub-Saharan Africa'.",
+    "published_since": (
+        "ISO date (YYYY-MM-DD). Keeps records published on or after it; records with no "
+        "stated date are kept."
+    ),
+}
+#: What `entities` holds, and what each entity states, for the same callers.
+SEARCH_ENTITIES_DESCRIPTION = (
+    "Named genes, proteins, compounds or products, each with its type. Sources that require "
+    "an entity type plan nothing without one."
+)
+SEARCH_ENTITY_FIELDS: dict[str, str] = {
+    "name": "The subject's name, e.g. a gene, protein, compound or product.",
+    "entity_type": "What kind of subject `name` is.",
+}
+
+
 def run_pipeline(
     query: str,
     *,

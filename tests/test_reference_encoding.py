@@ -174,7 +174,7 @@ def test_exact_aggregate_enum_boundary(count, compact):
 def test_other_document_consumers_restore_their_canonical_contracts():
     from services.inspector.stages.assessor import assessment_schema, cross_section_schema
     from services.scout.ai_contracts import context_validation, unit_batch
-    from services.assistant.priorities import digest_schema
+    from services.assistant.priorities import reading_schema
     ids = [block.id for block in blocks(1100)]
     cases = [
         (assessment_schema(blocks(1100)),
@@ -191,9 +191,9 @@ def test_other_document_consumers_restore_their_canonical_contracts():
                      "spans": [{"block_id": 1099, "start_line": 2, "end_line": 3}], "entities": []}]},
          {"units": [{"name": "Target", "description": "A target", "evidence_domain": "clinical",
                      "spans": [{"block_id": ids[-1], "start_line": 2, "end_line": 3}], "entities": []}]}),
-        (digest_schema(ids),
-         {"digest": "Summary", "nominations": [{"label": "Target", "statement": "Inspect", "cited_block_ids": [1099]}]},
-         {"digest": "Summary", "nominations": [{"label": "Target", "statement": "Inspect", "cited_block_ids": [ids[-1]]}]}),
+        (reading_schema(ids),
+         {"summary": "Summary", "points": [{"title": "T", "statement": "S", "finding_ids": [1099]}]},
+         {"summary": "Summary", "points": [{"title": "T", "statement": "S", "finding_ids": [ids[-1]]}]}),
     ]
     for schema, response, expected in cases:
         result, (_, _, sent) = request(schema, response)

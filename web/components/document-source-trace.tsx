@@ -22,6 +22,8 @@ import { ProvenanceTrigger, stopRowToggle , PROVENANCE_PANEL} from "@/components
 import type { TraceFocus } from "@/lib/trace-focus";
 import { EmptyState } from "@/components/empty-state";
 import { closeDocumentVisualOnEscape, DocumentVisual } from "@/components/document-visual";
+import { PassageSource } from "@/components/ui/source-chip";
+import { displayDocumentName, passagePreview } from "@/lib/document-trace";
 import { EYEBROW } from "@/lib/typography";
 import { cn } from "@/lib/utils";
 
@@ -98,6 +100,19 @@ export function DocumentSourceTrace({
   const selectedHeading = selectedBlock
     ? documentBlockLocationLabel(selectedBlock) || "Source passage"
     : "Source passage unavailable";
+  // Named once in the title when every passage is in one document, and on each passage when
+  // they span several - the rule the trace's passage list follows, so a Screener result
+  // reading four documents says which one each passage came from.
+  const citedDocuments = Array.from(new Set(
+    uniqueBlockIds.flatMap((blockId) => {
+      const block = blocksById.get(blockId);
+      return block ? [block.doc_id] : [];
+    }),
+  ));
+  const spansDocuments = citedDocuments.length > 1;
+  const panelTitle = citedDocuments.length === 1
+    ? displayDocumentName(citedDocuments[0])
+    : spansDocuments ? "Uploaded documents" : "Uploaded document";
 
   async function copyBlockId(blockId: string) {
     try {
@@ -131,7 +146,7 @@ export function DocumentSourceTrace({
         <TracePanelHeader
           eyebrow="Source passage"
           className="sticky top-0 z-10 bg-card"
-          title="Uploaded document"
+          title={panelTitle}
           description="Passages cited by this result."
           action={<Button type="button" variant="ghost" size="icon" className="h-8 w-8" aria-label="Close source passages" onClick={() => setOpen(false)}><X className="h-4 w-4" aria-hidden="true" /></Button>}
         />
@@ -147,7 +162,6 @@ export function DocumentSourceTrace({
             >
               {uniqueBlockIds.map((blockId, index) => {
                 const block = blocksById.get(blockId);
-                const label = (block && documentBlockLocationLabel(block)) || `Passage ${index + 1}`;
                 return (
                   <button
                     key={blockId}
@@ -163,9 +177,16 @@ export function DocumentSourceTrace({
                     <span className={cn("block", EYEBROW)}>
                       Passage {index + 1}
                     </span>
-                    <span className="mt-0.5 block truncate text-[11px] font-medium">{label}</span>
+                    {block && (
+                      <PassageSource
+                        className="mt-1"
+                        format={block.source_format}
+                        document={spansDocuments ? displayDocumentName(block.doc_id) : undefined}
+                        location={documentBlockLocationLabel(block)}
+                      />
+                    )}
                     <span className="mt-1 line-clamp-2 text-xs leading-relaxed text-muted-foreground">
-                      {block?.content || (block?.image ? "Image passage" : "Source passage unavailable")}
+                      {block ? passagePreview(block) : "Source passage unavailable"}
                     </span>
                   </button>
                 );
@@ -179,6 +200,13 @@ export function DocumentSourceTrace({
             {selectedBlock ? (
               <>
                 <div className="min-w-0">
+                  {spansDocuments && (
+                    <PassageSource
+                      className="mb-1.5"
+                      format={selectedBlock.source_format}
+                      document={displayDocumentName(selectedBlock.doc_id)}
+                    />
+                  )}
                   <p className="break-words text-xs font-semibold text-foreground">{selectedHeading}</p>
                   <p className="mt-0.5 text-[10px] capitalize text-muted-foreground">
                     {selectedBlock.block_type.replaceAll("_", " ")} · passage {selectedBlock.ordinal + 1}

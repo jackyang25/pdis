@@ -13,8 +13,8 @@ entry in the registry.
 
 `kind` is the distinction the shape alone would lose: a document and a workflow are
 both fetched the same way, but one is evidence to cite and the other is procedure to
-follow. Declaring it lets the system prompt say so once instead of every skill
-repeating it.
+follow. An offer reaches nothing at all: it proposes something the reader can do.
+Declaring it lets the system prompt say so once instead of every skill repeating it.
 """
 
 from __future__ import annotations
@@ -25,7 +25,7 @@ from typing import TYPE_CHECKING, Any, Callable, Literal
 if TYPE_CHECKING:
     from shared.chat import ToolOutput
 
-ResourceKind = Literal["evidence", "procedure"]
+ResourceKind = Literal["evidence", "procedure", "offer"]
 
 # What the agent is doing, in the reader's words. Held beside the schema so a new
 # capability cannot ship with a tool and no label. A handler may return the plain
@@ -91,6 +91,12 @@ def activity_for(table: dict[str, "Verb"], verb_name: str) -> str:
     return verb.activity if verb else "Working"
 
 
+_KIND_NOTE: dict[str, str] = {
+    "procedure": " (procedure to follow, never evidence to cite)",
+    "offer": " (proposed to the reader to run, never run by you)",
+}
+
+
 def inventory(resources: tuple[Resource, ...]) -> str:
     """The agent's own map of its world, for the system prompt.
 
@@ -100,6 +106,6 @@ def inventory(resources: tuple[Resource, ...]) -> str:
     lines: list[str] = []
     for resource in resources:
         names = ", ".join(verb.name for verb in resource.verbs)
-        note = " (procedure to follow, never evidence to cite)" if resource.kind == "procedure" else ""
+        note = _KIND_NOTE.get(resource.kind, "")
         lines.append(f"- {resource.summary}{note}: {names}")
     return "\n".join(lines)

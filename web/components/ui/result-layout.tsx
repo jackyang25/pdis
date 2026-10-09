@@ -24,16 +24,15 @@ import { ResultNotices } from "@/components/ui/warning-notice";
  *               actions, so the header is one line in every tool.
  *   notices     run-wide limitations, below the header and before navigation,
  *               regardless of the selected tab. Callers order by consequence.
- *   priorities  what to look at first, on the tab where those items live.
+ *   priorities  what to look at first, on the tab its points rest on.
  *
- *               Two separate questions, and conflating them was the mistake. *Selected
+ *               Two separate questions, and conflating them was the mistake. *Read
  *               from* the whole result - so it is the layout's zone, not one tab's
- *               content, and it is not rebuilt per tab. *Shown on* the tab it nominates
- *               into, because every item is a link into that tab: on Scout's Documents
- *               view a panel of field nominations points at nothing you can see, and on
- *               the Evidence map it is a closed grey band above the thing you came for.
- *               Passed as `{ tab, panel }` so a tool cannot supply the panel without
- *               saying where its items go.
+ *               content, and it is not rebuilt per tab. *Shown on* the tab its points
+ *               rest on: on Scout's Documents view a card about fields points at nothing
+ *               you can see, and on the Evidence map it is a closed grey band above the
+ *               thing you came for. Passed as `{ tab, panel }` so a tool cannot supply
+ *               the card without saying where its points go.
  *   content     one tab's result, which each tool renders its own way.
  *   footer      what the whole run drew on, credited once.
  *
@@ -97,10 +96,11 @@ export function ResultLayout({
   /** The triggers only. This owns the row they sit in. */
   tabs: ReactNode;
   /**
-   * What to look at first, and the tab those items link into.
+   * What to look at first, and the tab its points rest on.
    *
-   * Omitted by a tool that nominates nothing - Screener's questions are already one flat
-   * list, so a panel of them would show the same items twice.
+   * Every tool that judges a document supplies one. It renders outside `children`, so a
+   * page puts its `DocumentSourceProvider` around this layout, not inside it, or the card's
+   * source triggers resolve no passages.
    */
   priorities?: { tab: string; panel: ReactNode };
   /** The tab panels. */

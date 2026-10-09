@@ -31,7 +31,7 @@ test("workspace submits the active review separately, with source blocks, withou
     "next/navigation": { usePathname: () => "/scout" },
     "./ask": { Ask: (value: unknown) => { props = value; return null; } },
     "@/lib/session": Object.fromEntries(["Chunker", "Inspector", "Aligner", "Screener", "Scout", "Searcher"].map(name => [`use${name}Session`, emptySession])),
-    "@/lib/priority-digest": { usePriorityDigestStore: (selector: any) => selector({ entries: {}, selected: {} }) },
+    "@/lib/priority-reading": { usePriorityReadingStore: (selector: any) => selector({ entries: {} }) },
     "@/lib/assistant-review-context": {
       ...loadComponent(fileURLToPath(new URL("./assistant-review-context.ts", import.meta.url))),
       useAssistantReviewContext: (selector: any) => selector({ active }),
@@ -67,7 +67,7 @@ test("a draft of a revised same-name document cannot replace a final result's so
     "next/navigation": { usePathname: () => "/scout" },
     "./ask": { Ask: (value: unknown) => { props = value; return null; } },
     "@/lib/session": sessions,
-    "@/lib/priority-digest": { usePriorityDigestStore: (selector: any) => selector({ entries: {}, selected: {} }) },
+    "@/lib/priority-reading": { usePriorityReadingStore: (selector: any) => selector({ entries: {} }) },
     "@/lib/assistant-review-context": {
       ...loadComponent(fileURLToPath(new URL("./assistant-review-context.ts", import.meta.url))),
       useAssistantReviewContext: (selector: any) => selector({ active: { owner: "panel", draft, selection: null } }),

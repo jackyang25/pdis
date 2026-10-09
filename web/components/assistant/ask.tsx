@@ -31,11 +31,21 @@ import {
   type CitationSources,
 } from "@/lib/citation";
 import { BlockCitation } from "./block-citation";
+import { SourceChip } from "@/components/ui/source-chip";
+import { SearchOfferCard } from "./search-offer-card";
+import { readSearchOffer, type SearchOffer } from "@/lib/search-offer";
 import { DocumentSourceProvider } from "@/components/document-source-trace";
 import { SURFACE } from "@/lib/surface";
 import { cn } from "@/lib/utils";
 import { Button } from "../ui/button";
 import { DISPLAY_HEADING } from "@/lib/typography";
+
+/** The searches the agent proposed in this message, in the order it proposed them. */
+function messageOffers(message: UIMessage): SearchOffer[] {
+  return message.parts.flatMap((part) =>
+    part.type === "data-offer" ? [readSearchOffer(part.data)].filter((offer): offer is SearchOffer => offer !== null) : [],
+  );
+}
 
 /** The most recent thing the agent said it was doing, if it has said anything. */
 function latestActivity(message: UIMessage): string | null {
@@ -352,6 +362,10 @@ export function Ask({
                 <p className="mb-1 text-xs text-muted-foreground">Based on earlier workspace context</p>
               )}
               <Markdown text={text} sources={turnContext?.sources ?? { urls: new Set<string>() }} />
+              {/* After the prose that explains it, so the reader meets the reason before the control. */}
+              {message.role === "assistant" && messageOffers(message).map((offer, offerIndex) => (
+                <SearchOfferCard key={offerIndex} offer={offer} />
+              ))}
               {isStreaming && activity && !text && (
                 <p className="flex items-center gap-1.5 text-xs text-muted-foreground">
                   <Loader2 className="h-3 w-3 animate-spin motion-reduce:animate-none" aria-hidden="true" />
@@ -656,8 +670,6 @@ function resizeTextarea(element: HTMLTextAreaElement | null) {
   element.style.height = `${Math.min(element.scrollHeight, 112)}px`;
 }
 
-const LINK_CLASS =
-  "break-all font-medium text-foreground underline decoration-border underline-offset-2 transition-colors hover:decoration-foreground motion-reduce:transition-none";
 
 /**
  * The model writes GitHub-flavoured Markdown, so the full grammar is parsed
@@ -677,9 +689,16 @@ const markdownElements = (sources: CitationSources): Components => ({
       return <BlockCitation blockId={citation.blockId}>{children}</BlockCitation>;
     }
     if (citation.kind === "external") {
+      // A web page is cited in the same shape as a passage: one source, named.
       return (
-        <a href={citation.href} target="_blank" rel="noreferrer" className={LINK_CLASS}>
-          {children}
+        <a
+          href={citation.href}
+          target="_blank"
+          rel="noreferrer"
+          title={citation.href}
+          className="group/source mx-0.5 rounded-md align-baseline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/20"
+        >
+          <SourceChip format="web">{children}</SourceChip>
         </a>
       );
     }

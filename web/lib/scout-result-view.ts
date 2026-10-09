@@ -417,8 +417,8 @@ function targetPosition(conformity: Conformity): CalibrationView["position"] {
 /**
  * How much of the document was testable.
  *
- * Coverage, not verdicts: `selectScoutPriorities` already reports which targets external
- * evidence contradicts. What nothing else reports is how much of the document stated a
+ * Coverage, not verdicts: the Fields tab already reports which targets external evidence
+ * contradicts, and the priority card reads it. What nothing else reports is how much of the document stated a
  * target at all, and how many of its numbers could be calibrated against anything - on a
  * real run 10 of 28 fields stated nothing and 15 of 18 numeric targets had no comparable
  * measurement. Every number here is counted from the result; nothing is inferred or graded.
@@ -432,10 +432,9 @@ export type FieldSummaryInput = {
 };
 
 export type RunHeadline = {
-  /* No `conflictFields` or `confirmedFields`. Which fields are contradicted is
-     `selectScoutPriorities`' first tier, and it reports them with the evidence, the reason
-     and a source link. A second list of the same names is a second authority on the same
-     fact, and the weaker one. */
+  /* No `conflictFields` or `confirmedFields`. Which fields are contradicted is on each
+     field row, with the evidence, the reason and a source link. A second list of the same
+     names is a second authority on the same fact, and the weaker one. */
   unfavorableFields: string[];
   /**
    * Every field by how well evidence supports its target, summing to `fieldCount`.

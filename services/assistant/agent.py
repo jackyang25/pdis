@@ -34,10 +34,14 @@ class Chunk:
 
     The label comes from the verb that declared it, so a capability added later
     cannot ship without one, and the line can never claim work that is not running.
+
+    An `offer` carries `data` instead of text: a proposal for the interface to render
+    as a control (`offers.SearchOffer.to_event`), never prose for the reader.
     """
 
-    kind: Literal["text", "activity"]
-    text: str
+    kind: Literal["text", "activity", "offer"]
+    text: str = ""
+    data: dict[str, Any] | None = None
 
 
 @dataclass
@@ -84,6 +88,8 @@ def answer_stream(
                 yield Chunk("activity", resources.activity_for(VERBS, call.name))
                 output = run_tool(call, context)
                 stats.tools_called.append(call.name)
+                while context.offers:
+                    yield Chunk("offer", data=context.offers.pop(0).to_event())
                 work.append({"role": "tool", "tool_call_id": call.id,
                              "content": output.text, "images": output.images})
         work.append({"role": "user", "content": "Answer now using what you've gathered."})

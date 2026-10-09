@@ -23,6 +23,16 @@ export type DocumentType = {
   supports: Partial<Record<ToolName, boolean>>;
 };
 
+/**
+ * The kind of file a block was parsed from, recorded by the parser that read it.
+ *
+ * Mirrors `SourceFormat` in `services/chunker/formats.py`; `source-chip.test.ts` fails if
+ * the two diverge. Absent on a block saved before the parser recorded it, which a reader
+ * shows as unknown rather than working out from a page or slide number.
+ */
+export const SOURCE_FORMATS = ["docx", "pptx", "pdf", "image"] as const;
+export type SourceFormat = (typeof SOURCE_FORMATS)[number];
+
 export type ContentBlock = {
   id: string;
   doc_id: string;
@@ -42,6 +52,7 @@ export type ContentBlock = {
     width?: number;
     height?: number;
   } | null;
+  source_format?: SourceFormat | null;
 };
 
 /**
@@ -909,52 +920,48 @@ export type AlignmentResult = {
 
 export type AlignerResponse = { alignment: AlignmentResult };
 
-// --- Priority digest ---------------------------------------------------------
+// --- Priority reading -------------------------------------------------------
 
-/**
- * One thing the tool's selector left out, and where to look at it.
- *
- * Never a repeat of a listed priority — the service drops those — and never unsourced:
- * a nomination the reader cannot open is dropped rather than shown.
- */
-export type PriorityNomination = {
-  label: string;
+/** One thing worth a reader's attention first, pointing at findings by ID. */
+export type PriorityPoint = {
+  title: string;
   statement: string;
-  cited_block_ids: string[];
+  /** IDs of findings in the result the card was read from. */
+  finding_ids: string[];
 };
 
 /**
- * A short passage about a tool's priorities, and what they miss.
+ * An AI reading of a finished result: what it amounts to, and where to look first.
  *
- * Derived on read and held for the session only. It describes a list the browser computes
- * when a result is opened, so it is never part of a result and never exported.
+ * Derived when a result is opened and held for the session only, so it is never part of
+ * a result and never exported.
  */
-export type PriorityDigest = {
-  digest: string;
-  nominations: PriorityNomination[];
+export type PriorityReading = {
+  summary: string;
+  points: PriorityPoint[];
 };
 
-export type PriorityDigestRequest = {
+export type PriorityReadingRequest = {
   authority: string;
-  order_note: string;
-  items: Array<{
+  focus: string;
+  findings: Array<{
     id: string;
-    label: string;
-    qualifier: string;
-    statement: string;
-    recommendation: string;
+    subject: string;
+    group: string;
+    verdicts: string[];
+    statements: string[];
+    notes: string[];
+    quote: string;
   }>;
-  analysis: unknown;
-  block_ids: string[];
   org: string;
   intervention_class: string;
   indication: string;
 };
 
-export async function fetchPriorityDigest(
-  request: PriorityDigestRequest,
-): Promise<PriorityDigest> {
-  return jsonRequest<PriorityDigest>("/api/assistant/priority-digest", {
+export async function fetchPriorityReading(
+  request: PriorityReadingRequest,
+): Promise<PriorityReading> {
+  return jsonRequest<PriorityReading>("/api/assistant/priorities", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(request),

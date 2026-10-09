@@ -64,14 +64,12 @@ import {
   packInspectorResult,
   runLabel,
   runScope,
-  splitResultContext,
   unpackInspectorResult,
   readResultIdentity,
 } from "@/lib/result-file";
 import {
-  INSPECTOR_EMPTY_MESSAGE,
-  INSPECTOR_ORDER_NOTE,
-  selectInspectorPriorities,
+  INSPECTOR_PRIORITY_FOCUS,
+  inspectorPriorityFindings,
 } from "@/lib/inspector-priorities";
 import {
   IMPORT_LIMIT_MESSAGE,
@@ -79,7 +77,7 @@ import {
   RESULT_LIMIT_MESSAGE,
   useInspectorSession,
 } from "@/lib/session";
-import { usePriorityDigest } from "@/lib/priority-digest";
+import { usePriorityReading } from "@/lib/priority-reading";
 import { toolAuthority } from "@/lib/tools";
 import { TONE_TEXT, type Tone } from "@/lib/tone";
 import { cn } from "@/lib/utils";
@@ -240,29 +238,20 @@ function InspectionResultView({
     consume: consumeTraceFocus,
   } = useTraceFocus(revealTrace);
 
-  // Lifted with the panel it feeds. Priorities describe the run, so they are read once
-  // here rather than inside whichever tab happened to render them.
-  const priorityItems = useMemo(
-    () => selectInspectorPriorities(inspection),
-    [inspection],
-  );
-  // `selectedId` already came from the session destructure above; the panel's old home
-  // read it separately because it sat further down the tree.
-  const digest = usePriorityDigest(
-    selectedId
-      ? {
-          resultId: `${selectedId}:${rubricId}`,
-          // The tool's own catalog sentence, so nothing here restates its authority.
-          authority: `${toolAuthority("inspector")} Selected rubric: ${inspection.rubric.display_name}. ${inspection.rubric.scope}`,
-          orderNote: INSPECTOR_ORDER_NOTE,
-          items: priorityItems,
-          analysis: splitResultContext({ ...inspection, document_findings: [] }).analysis,
-          blockIds: (inspection.blocks ?? []).map((block) => block.id),
-          org: inspection.org ?? "",
-          interventionClass: inspection.intervention_class ?? "",
-          indication: inspection.indication ?? "",
-        }
-      : null,
+  // The card reads the selected rubric's review, so it is keyed per rubric: a reading of one
+  // review must never speak for another.
+  const priorityFindings = useMemo(() => inspectorPriorityFindings(inspection), [inspection]);
+  const priorityReading = usePriorityReading(
+    selectedId ? `${selectedId}:${rubricId}` : null,
+    {
+      // The tool's own catalog sentence, so nothing here restates its authority.
+      authority: `${toolAuthority("inspector")} Selected rubric: ${inspection.rubric.display_name}. ${inspection.rubric.scope}`,
+      focus: INSPECTOR_PRIORITY_FOCUS,
+      findings: priorityFindings,
+      org: inspection.org ?? "",
+      interventionClass: inspection.intervention_class ?? "",
+      indication: inspection.indication ?? "",
+    },
   );
 
   const sections = inspection.sections ?? [];
@@ -274,6 +263,12 @@ function InspectionResultView({
   // was read, so the line under the run's name says the same kind of thing in all four.
 
   return (
+    // Around the whole layout, not inside its tabs, so the priority card's source triggers
+    // resolve passages too. Inside `children` the card sat outside it and opened nothing.
+    <DocumentSourceProvider
+      blocks={inspection.blocks}
+      onOpenInTrace={openBlockInTrace}
+    >
     <ResultLayout
       notices={<>
         {!final && <WarningNotice label="Assessment incomplete">
@@ -315,24 +310,9 @@ function InspectionResultView({
         </>
       }
       priorities={{
-        // Every item links to a rubric unit, so it shows where the sections are.
+        // Every point rests on rubric units, so it shows where the sections are.
         tab: "sections",
-        panel: (
-          <PriorityPanel
-            attribution="by Inspector"
-            items={priorityItems}
-            emptyMessage={INSPECTOR_EMPTY_MESSAGE}
-            orderNote={INSPECTOR_ORDER_NOTE}
-            digest={
-              digest?.state === "ready" ? digest.digest.digest : undefined
-            }
-            nominations={
-              digest?.state === "ready" ? digest.digest.nominations : []
-            }
-            digestLoading={digest?.state === "loading"}
-            digestError={digest?.state === "failed" ? digest.reason : undefined}
-          />
-        ),
+        panel: <PriorityPanel findings={priorityFindings} reading={priorityReading} />,
       }}
       actions={
         <>
@@ -357,10 +337,6 @@ function InspectionResultView({
         </>
       }
     >
-      <DocumentSourceProvider
-        blocks={inspection.blocks}
-        onOpenInTrace={openBlockInTrace}
-      >
         <TabsContent value="trace" className="m-0">
           <InspectorDocumentTrace
             key={rubricId}
@@ -398,8 +374,8 @@ function InspectionResultView({
             />
           </div>
         </TabsContent>
-      </DocumentSourceProvider>
     </ResultLayout>
+    </DocumentSourceProvider>
   );
 }
 

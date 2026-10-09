@@ -21,8 +21,10 @@ test("the API frames what this file parses", () => {
   const source = readFileSync(ROUTE, "utf8");
   assert.match(source, /media_type="text\/event-stream"/,
     "the route no longer sends events, so this transport cannot read it");
-  assert.match(source, /json\.dumps\(chunk\.text\)/,
+  assert.match(source, /json\.dumps\(payload\)/,
     "the route no longer JSON-encodes each payload");
+  assert.match(source, /chunk\.data if chunk\.kind == "offer" else chunk\.text/,
+    "an offer is no longer framed as its object");
   assert.match(source, /event: \{chunk\.kind\}/,
     "the route no longer marks activity as its own event kind");
 });
@@ -169,3 +171,10 @@ async function collect(body: string | string[], preSplit = false, complete = tru
   }
   return out;
 }
+
+test("an offer event carries its object, not text", () => {
+  assert.deepEqual(
+    readEvent('event: offer\ndata: {"tool": "searcher", "fields": {"query": "RSV"}}'),
+    { kind: "offer", text: "", data: { tool: "searcher", fields: { query: "RSV" } } },
+  );
+});

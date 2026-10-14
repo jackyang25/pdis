@@ -170,6 +170,9 @@ production promotion, and the release checklist.
 
 ## Contributing
 
+[CONTRIBUTING.md](CONTRIBUTING.md) covers routine updates — rubrics, question banks,
+configuration, product documentation and releases — task by task.
+
 Questions and bug reports are welcome in
 [GitHub Issues](https://github.com/jackyang25/pdis/issues). Pull requests should
 preserve the contracts in [AGENTS.md](AGENTS.md) and pass the development checks

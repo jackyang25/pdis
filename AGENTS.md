@@ -2,7 +2,8 @@
 
 Read `README.md` for setup and each `services/*/README.md` for service details.
 This file contains only constraints whose violation would change system meaning,
-provenance, or portability.
+provenance, or portability. Step-by-step procedures for routine content and
+configuration updates live in `CONTRIBUTING.md`.
 
 ## Boundaries
 

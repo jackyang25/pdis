@@ -4,7 +4,12 @@ from shared.document_metadata import extraction_context
 from services.chunker import ContentBlock
 from services.aligner.context import format_blocks
 from services.inspector.stages.assessor import _format_blocks
-from services.scout.context import render_document_context, rendered_block_texts
+from services.scout.context import (
+    chunk_document_context,
+    document_block_ids,
+    render_document_context,
+    rendered_block_texts,
+)
 
 
 class SourceContextTests(unittest.TestCase):
@@ -31,6 +36,23 @@ class SourceContextTests(unittest.TestCase):
         rendered = render_document_context([block])
         self.assertIn("deck/image", rendered)
         self.assertEqual(rendered_block_texts(rendered), {})
+
+    def test_scout_block_ids_survive_brackets_in_the_filename(self):
+        # A real upload: the stem is the doc_id, and it carries a bracketed version tag.
+        doc_id = "2026-09-05 Truepoc_SG2_[v20260905]_PREREAD"
+        blocks = [
+            ContentBlock(
+                id=f"{doc_id}/b-{index:04d}", doc_id=doc_id, ordinal=index,
+                block_type="paragraph", content=text, heading_stack=["Targets [draft] (v2)"],
+                structural_meta={}, style_hint={},
+            )
+            for index, text in enumerate(["LoD 150 CFU/mL", "Time to result 30 min"], 1)
+        ]
+        rendered = render_document_context(blocks)
+        ids = {block.id for block in blocks}
+        self.assertEqual(document_block_ids(rendered), ids)
+        self.assertEqual(rendered_block_texts(rendered), {block.id: block.content for block in blocks})
+        self.assertEqual(len(chunk_document_context(rendered, max_chars=40)), 2)
 
     def test_metadata_with_unknown_visual_shape_remains_readable(self):
         self.assertEqual(extraction_context({"visual_scope": []}), "")

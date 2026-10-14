@@ -28,9 +28,15 @@ from .models import Attribute
 WHOLE_DOCUMENT_CONTEXT_CHARS = 500_000
 DOCUMENT_CHUNK_CHARS = 350_000
 
-_BLOCK_ID_RE = re.compile(r"\[block:([^\]]+)\]")
+# A block ID inside a `[block:<id>]` marker. Chunker IDs are `<doc_id>/<local id>`, and
+# `doc_id` is the uploaded filename's stem, so it may hold `]` but never `/`, while the
+# local part never holds `]`. Ending the ID at the first `]` instead cut
+# `Plan_[v2]_final/b-0001` to `Plan_[v2`, and every citation of that file failed.
+BLOCK_ID_PATTERN = r"[^/\n]*/[^\]\n]*"
+_BLOCK_ID_RE = re.compile(rf"\[block:({BLOCK_ID_PATTERN})\]")
+_BLOCK_BOUNDARY_RE = re.compile(rf"\n\n(?=\[block:{BLOCK_ID_PATTERN}\])")
 _RENDERED_BLOCK_CONTENT_RE = re.compile(
-    r"(?m)^\[block:([^\]]+)\]([^\n]*)\n(.*?)(?=\n\n\[block:|\Z)",
+    rf"(?m)^\[block:({BLOCK_ID_PATTERN})\]([^\n]*)\n(.*?)(?=\n\n\[block:|\Z)",
     re.DOTALL,
 )
 
@@ -59,7 +65,7 @@ def chunk_document_context(
     """Split rendered context only between complete annotated blocks."""
     if not document_context.strip():
         return []
-    rendered_blocks = re.split(r"\n\n(?=\[block:[^\]]+\])", document_context)
+    rendered_blocks = _BLOCK_BOUNDARY_RE.split(document_context)
     chunks: list[str] = []
     current: list[str] = []
     current_chars = 0
@@ -125,7 +131,7 @@ def limit_document_context(text: str, *, max_chars: int = WHOLE_DOCUMENT_CONTEXT
     if len(text) <= max_chars:
         return text
     marker = "\n\n[... middle document blocks omitted for context budget ...]\n\n"
-    rendered_blocks = re.split(r"\n\n(?=\[block:[^\]]+\])", text)
+    rendered_blocks = _BLOCK_BOUNDARY_RE.split(text)
     if len(rendered_blocks) <= 1:
         remaining = max(0, max_chars - len(marker))
         head = int(remaining * 0.6)
@@ -177,7 +183,7 @@ def render_line_addressable_context(document_context: str) -> str:
     wire format - blocks separated by a blank line, each opening with a `[block:<id>]`
     header that is addressed by ID rather than by line.
     """
-    rendered_blocks = re.split(r"\n\n(?=\[block:[^\]]+\])", document_context)
+    rendered_blocks = _BLOCK_BOUNDARY_RE.split(document_context)
     addressed: list[str] = []
     for rendered_block in rendered_blocks:
         header, _, content = rendered_block.partition("\n")

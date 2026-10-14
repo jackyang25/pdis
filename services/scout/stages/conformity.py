@@ -55,6 +55,7 @@ from ..ai_wire import (
     TernaryDecisionWire,
 )
 from ..context import (
+    BLOCK_ID_PATTERN,
     document_block_ids,
     render_document_context,
     validated_block_ids,
@@ -3076,7 +3077,7 @@ def _quote_in_text(quote: str, source_text: str) -> bool:
 
 def _text_for_blocks(document_text: str, block_ids: list[str]) -> str:
     wanted = set(block_ids)
-    matches = list(re.finditer(r"\[block:([^\]]+)\][^\n]*\n", document_text))
+    matches = list(re.finditer(rf"\[block:({BLOCK_ID_PATTERN})\][^\n]*\n", document_text))
     selected: list[str] = []
     for index, match in enumerate(matches):
         if match.group(1) not in wanted:

@@ -1,8 +1,8 @@
 "use client";
 
 import type { GateReview, QuestionAssessment, QuestionState } from "@/lib/api";
-import { QUESTION_STATE_LABEL, QUESTION_STATE_TONE } from "@/lib/api";
-import { TONE_FILL } from "@/lib/tone";
+import { QUESTION_REQUIREMENT_LABEL, QUESTION_STATE_LABEL, QUESTION_STATE_TONE } from "@/lib/api";
+import { TONE_FILL, TONE_OUTLINE } from "@/lib/tone";
 
 
 /**
@@ -29,6 +29,9 @@ import { TONE_FILL } from "@/lib/tone";
  * answer cited to a passage has anything to open. The title carries the whole claim
  * either way, so the colour is never the only signal, which is the rule the trace
  * emphasis follows too.
+ *
+ * A required question is solid and an anticipatory one an outline in the same colour, so
+ * what holds the gate up is visible without changing what the colour says.
  */
 function Cell({
   question,
@@ -38,10 +41,12 @@ function Cell({
   onSelect?: (question: QuestionAssessment) => void;
 }) {
   const tone = QUESTION_STATE_TONE[question.state];
-  const title = `${question.id} · ${QUESTION_STATE_LABEL[question.state].toLowerCase()}${
+  const requirement = QUESTION_REQUIREMENT_LABEL[question.requirement].toLowerCase();
+  const title = `${question.id} · ${requirement} · ${QUESTION_STATE_LABEL[question.state].toLowerCase()}${
     question.statement ? ` · ${question.statement}` : ""
   }`;
-  const shape = `h-3.5 w-3.5 rounded-[3px] ${TONE_FILL[tone]}`;
+  const mark = question.requirement === "anticipatory" ? TONE_OUTLINE[tone] : TONE_FILL[tone];
+  const shape = `h-3.5 w-3.5 rounded-[3px] ${mark}`;
   const openable = Boolean(onSelect) && question.cited_block_ids.length > 0;
 
   if (!openable) {
@@ -67,11 +72,10 @@ export function ScreenerCoverageStrip({
   /** Opens the question. Every cell is reachable by keyboard for the same reason. */
   onSelect?: (question: QuestionAssessment) => void;
 }) {
-  const present = new Set(
-    review.disciplines.flatMap((discipline) =>
-      discipline.questions.map((question) => question.state),
-    ),
-  );
+  const questions = review.disciplines.flatMap((discipline) => discipline.questions);
+  const present = new Set(questions.map((question) => question.state));
+  // The shapes need a key only when both appear; a gate of required questions is all solid.
+  const mixed = new Set(questions.map((question) => question.requirement)).size > 1;
 
   return (
     <section aria-label="Coverage by discipline">
@@ -110,6 +114,9 @@ export function ScreenerCoverageStrip({
               {QUESTION_STATE_LABEL[state].toLowerCase()}
             </span>
           ))}
+        {/* Said in words, not keyed with swatches: a neutral swatch for "required" would be
+            the same square as "not found" beside it, and the shape is the only difference. */}
+        {mixed && <span>Solid squares are required questions; outlines are anticipatory.</span>}
         <span>Bank order, left to right. Every question the gate asks appears.</span>
       </p>
     </section>

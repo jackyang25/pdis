@@ -181,6 +181,7 @@ export default function ScreenerPage() {
             onAddDocument={() => {
               const id = `document-${nextDocumentId.current++}`;
               setDocumentIds((ids) => [...ids, id]);
+              return id;
             }}
             onRemoveDocument={(id) => setDocumentIds((ids) => ids.filter((held) => held !== id))}
             onRun={(files) => void handleRun(files)}

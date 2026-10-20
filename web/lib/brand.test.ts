@@ -330,7 +330,8 @@ test("the border does its work by tone, not by width", () => {
       else if (entry.name.endsWith(".tsx")) {
         // `border-2` only: an edge thickened on every side, which is what a card or a panel
         // has. `border-l-2` is the quotation shape and a different idiom entirely, owned by
-        // `evidence-text.test.ts`.
+        // `evidence-text.test.ts`. A hollow tone cell is a mark rather than an edge, and owns
+        // its width as `TONE_OUTLINE` in `lib/tone.ts`, outside this walk.
         //
         // The first version of this pattern was `border-(?:[trb]|[xy])?-2`, which required a
         // side segment and so never matched the plain `border-2` it exists to catch. Found by

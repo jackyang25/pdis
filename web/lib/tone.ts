@@ -89,6 +89,22 @@ export const TONE_FILL: Record<Tone, string> = {
   neutral: "bg-foreground/45",
 };
 
+/**
+ * The tone as an outlined area: the same cell as `TONE_FILL`, drawn hollow.
+ *
+ * Screener's coverage strip draws an anticipatory question this way, so a gate's required
+ * questions read as solid at a glance and the state's colour stays the same either way.
+ * The width is part of the shape: this is a mark, not an edge, so a hairline would leave
+ * the cell reading as empty rather than as a hollow version of its colour.
+ */
+export const TONE_OUTLINE: Record<Tone, string> = {
+  success: "border-2 border-[hsl(var(--tone-success))]",
+  warning: "border-2 border-[hsl(var(--tone-warning))]",
+  danger: "border-2 border-[hsl(var(--tone-danger))]",
+  info: "border-2 border-[hsl(var(--tone-info))]",
+  neutral: "border-2 border-foreground/45",
+};
+
 /** The verdict word itself. */
 export const TONE_TEXT: Record<Tone, string> = {
   success: "text-[hsl(var(--tone-success))]",

@@ -141,6 +141,18 @@ test("PDF upload capability changes both the picker and its visible hint, not ot
   assert.doesNotMatch(ordinary, /Prefer DOCX or PPTX when available/);
 });
 
+test("only a document collection takes several files in one pick or drop", () => {
+  const { RunPanel } = loadComponent(resolve(root, "components/run-panel.tsx"));
+  const single = renderToStaticMarkup(React.createElement(RunPanel, { onRun: () => {} }));
+  const collection = renderToStaticMarkup(React.createElement(RunPanel, {
+    onRun: () => {}, onAddDocument: () => "document-2",
+  }));
+  assert.doesNotMatch(single, /multiple=""/);
+  assert.match(single, /Drop a file here/);
+  assert.match(collection, /multiple=""/);
+  assert.match(collection, /Drop files here/);
+});
+
 test("extraction notice names affected documents and is absent for ordinary sources", () => {
   const { DocumentExtractionNotice } = loadComponent(resolve(root, "components/document-extraction-notice.tsx"));
   const block = { doc_id: "Trial report", structural_meta: { extraction_warnings: ["pdf_limited_structure"] } };

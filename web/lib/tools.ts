@@ -147,7 +147,7 @@ export const WORKSPACE_TOOLS: readonly WorkspaceToolDefinition[] = [
       "Your documents against a stage gate’s question bank: what is answered, what remains open, and which discipline owns each question.",
     // Observed end-to-end estimate, including document processing and assessment.
     // Actual duration varies with document size, rendering and provider latency.
-    activity: "5 minutes",
+    activity: "15 minutes",
     icon: "screener",
     audience: "pst",
     workflow: "stage_gate",

@@ -46,7 +46,7 @@ const TOPICS: Record<ScreenerSignalTopic, SignalTopic> = {
     summary:
       "Whether this gate expects the question answered now, or expects it to be forming.",
     detail:
-      "The bank states this for every question, and it is what makes an open question actionable: a required one the documents do not answer is what holds a gate up. An anticipatory one is early warning, so leaving it open is a prompt for the next conversation rather than a shortfall. Each question is labelled Required or Anticipatory.",
+      "The bank states this for every question, and it is what makes an open question actionable: a required one the documents do not answer is what holds a gate up. An anticipatory one is early warning, so leaving it open is a prompt for the next conversation rather than a shortfall. Each question is labelled Required or Anticipatory; in the coverage grid a required question is a solid square and an anticipatory one an outline.",
   },
   denominator: {
     title: "The count",

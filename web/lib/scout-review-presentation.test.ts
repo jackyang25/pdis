@@ -75,6 +75,24 @@ test("qualifier details distinguish document content from every matching-rule st
   }
 });
 
+test("a comparison draws one box and says nothing where nothing was recorded", () => {
+  const { ScoutComparison } = loadComponent(fileURLToPath(new URL("../components/scout-comparison.tsx", import.meta.url)));
+  const result = reviewFixture();
+  const target = result.quantitative_ledger.targets[0];
+  const measurement = structuredClone(result.conformity[0].excluded_measurements[0]);
+  target.comparison_contract.population = { mode: "unconstrained", scope: "", reason: "No population restriction applies." };
+  measurement.semantic_assessment.source_ownership = { state: "yes", reason: "" };
+  for (const mapped of Object.values(measurement.semantic_assessment.dimensions)) {
+    mapped.compatibility.reason = "";
+  }
+  const html = renderToStaticMarkup(React.createElement(ScoutComparison, { target, measurement, compact: true }));
+  assert.doesNotMatch(html, /was recorded/);
+  assert.match(html, /Fields with no matching restriction/);
+  assert.match(html, /Why: No population restriction applies\./);
+  // The table of constrained fields is the only bordered box; the disclosures are plain.
+  assert.equal((html.match(/<details class="[^"]*border/g) ?? []).length, 0);
+});
+
 test("target review keeps document qualifiers visible and future comparison rules in one disclosure", () => {
   const result = reviewFixture("target_review");
   const target = result.quantitative_ledger.targets[0];
@@ -117,7 +135,7 @@ test("comparison exposes qualifier reasoning and separates non-controlling field
   assert.match(html, /The reported age range falls within the required adult population/);
   assert.match(html, /The target allows adult cohorts/);
   const disclosure = html.match(/<details[\s\S]*?<\/details>/)?.[0] ?? "";
-  assert.match(disclosure, /No matching restriction/);
+  assert.match(disclosure, /Fields with no matching restriction/);
   assert.match(disclosure, /No regimen restriction was imposed/);
   assert.doesNotMatch(disclosure, />Aligned</);
   assert.equal(JSON.stringify(result), before);

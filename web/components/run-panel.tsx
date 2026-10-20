@@ -12,6 +12,7 @@ import {
   type DocumentFormats,
   isSupportedDocument,
 } from "@/lib/document-formats";
+import { placeFiles } from "@/lib/document-slots";
 import { cn } from "@/lib/utils";
 
 /** One upload slot, identified by a role or by its place in a document collection. */
@@ -36,8 +37,11 @@ type Props = {
   documentFormats?: DocumentFormats;
   /** Explain an empty slot list before the caller has chosen document roles. */
   emptyDocumentsHint?: string;
-  /** Optional collection controls; the caller owns document identity and order. */
-  onAddDocument?: () => void;
+  /**
+   * Optional collection controls; the caller owns document identity and order. Adding returns
+   * the new slot's id, so several files picked or dropped together can each take one.
+   */
+  onAddDocument?: () => string;
   onRemoveDocument?: (id: string) => void;
   disabled?: boolean;
   busy?: boolean;
@@ -98,6 +102,34 @@ export function RunPanel({
       // never survive a failed pick and reach `onRun`.
       if (picked && !rejected) next[slotId] = picked;
       else delete next[slotId];
+      return next;
+    });
+  }
+
+  // A collection takes several files at once: any of its slots accepts any document, so a
+  // pick or drop fills the slot, then the empty ones, then new ones. A tool whose slots are
+  // roles keeps one file per pick, because only the reader knows which role a file is.
+  function chooseFiles(slotId: string, picked: File[]) {
+    if (!onAddDocument) {
+      chooseFile(slotId, picked[0] ?? null);
+      return;
+    }
+    const { placed, overflow, unsupported, repeated } = placeFiles({
+      slotId,
+      picked,
+      slotIds: documents.map((slot) => slot.id),
+      held: files,
+      suffixes: documentFormats.suffixes,
+    });
+    const added = Object.fromEntries(overflow.map((file) => [onAddDocument(), file]));
+    setTypeError([
+      unsupported.length ? `Unsupported file type: ${unsupported.join(", ")}. Supports ${documentFormats.hint}.` : "",
+      repeated.length ? `Already added: ${repeated.join(", ")}. Each document needs a distinct filename.` : "",
+    ].filter(Boolean).join(" ") || null);
+    setFiles((current) => {
+      const next = { ...current, ...placed, ...added };
+      // As with one file: a pick that placed nothing in this slot leaves it empty.
+      if (!placed[slotId]) delete next[slotId];
       return next;
     });
   }
@@ -169,6 +201,7 @@ export function RunPanel({
                 slot={slot}
                 formats={documentFormats}
                 file={files[slot.id] ?? null}
+                multiple={Boolean(onAddDocument)}
                 disabled={disabled || busy}
                 onRemove={
                   onRemoveDocument && documents.length > 1
@@ -178,7 +211,7 @@ export function RunPanel({
                       }
                     : undefined
                 }
-                onChange={(picked) => chooseFile(slot.id, picked)}
+                onChange={(picked) => chooseFiles(slot.id, picked)}
               />
             ))}
           </div>
@@ -245,6 +278,7 @@ function DocumentField({
   slot,
   formats,
   file,
+  multiple = false,
   disabled,
   onChange,
   onRemove,
@@ -252,8 +286,10 @@ function DocumentField({
   slot: DocumentSlot;
   formats: DocumentFormats;
   file: File | null;
+  /** Whether a pick or drop may carry several files; the panel decides where they go. */
+  multiple?: boolean;
   disabled?: boolean;
-  onChange: (file: File | null) => void;
+  onChange: (files: File[]) => void;
   onRemove?: () => void;
 }) {
   const inputRef = useRef<HTMLInputElement>(null);
@@ -288,7 +324,7 @@ function DocumentField({
         onDragOver={(event) => event.preventDefault()}
         onDrop={(event) => {
           event.preventDefault();
-          if (!disabled) onChange(event.dataTransfer.files?.[0] ?? null);
+          if (!disabled) onChange(Array.from(event.dataTransfer.files ?? []));
         }}
         disabled={disabled}
         className={cn(
@@ -314,7 +350,7 @@ function DocumentField({
             // The prompt wraps instead: in a two-slot layout each field is half
             // width, and a clipped instruction reads as broken rather than terse.
             <span className="block text-sm leading-5">
-              Drop a file here or choose from your computer
+              {multiple ? "Drop files here or choose from your computer" : "Drop a file here or choose from your computer"}
             </span>
           )}
           {file && (
@@ -329,8 +365,9 @@ function DocumentField({
         ref={inputRef}
         type="file"
         accept={formats.accept}
+        multiple={multiple}
         className="hidden"
-        onChange={(event) => onChange(event.target.files?.[0] ?? null)}
+        onChange={(event) => onChange(Array.from(event.target.files ?? []))}
       />
     </div>
   );

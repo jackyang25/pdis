@@ -39,6 +39,7 @@ import { SegmentedControl } from "@/components/ui/segmented-control";
 import { ToolDetail } from "@/components/docs/tool-detail";
 import {
   FitGraphToView,
+  GRAPH_EDGE_TYPE,
   GraphControls,
   GraphInspectorShell,
   GraphNodeFrame,
@@ -165,7 +166,7 @@ function layoutGraph(graph: ArchitectureGraphContract, expandedNodeId: string | 
     id: `${edge.source}:${edge.target}:${index}`,
     source: edge.source,
     target: edge.target,
-    type: "smoothstep",
+    type: GRAPH_EDGE_TYPE,
     label: edge.label,
     labelStyle: { fontSize: 9, fill: "hsl(var(--muted-foreground))" },
     labelBgStyle: { fill: "hsl(var(--card))", fillOpacity: 0.9 },

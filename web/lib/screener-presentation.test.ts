@@ -78,10 +78,15 @@ test("Screener coverage retains full discipline labels and every question", () =
   const label = "Chemistry, Manufacturing and Controls";
   const html = renderToStaticMarkup(React.createElement(ScreenerCoverageStrip, {
     review: { disciplines: [{ id: "cmc", label, questions: [
-      { id: "q-1", state: "answered", statement: "Evidence found", cited_block_ids: ["b-1"] },
-      { id: "q-2", state: "not_found", statement: "Not supplied", cited_block_ids: [] },
+      { id: "q-1", state: "answered", requirement: "required", statement: "Evidence found", cited_block_ids: ["b-1"] },
+      { id: "q-2", state: "not_found", requirement: "anticipatory", statement: "Not supplied", cited_block_ids: [] },
     ] }] }, onSelect: () => {},
   }));
+  // Required is solid and anticipatory an outline in the same tone, and each says which.
+  assert.match(html, /title="q-1 · required · answered/);
+  assert.match(html, /title="q-2 · anticipatory · not found/);
+  assert.equal((html.match(/border-2 border-foreground\/45/g) ?? []).length, 1);
+  assert.match(html, /Solid squares are required questions; outlines are anticipatory\./);
   assert.match(html, new RegExp(label));
   assert.doesNotMatch(html, /truncate/);
   assert.doesNotMatch(html, /auto-rows-fr/);

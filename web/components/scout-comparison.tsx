@@ -1,5 +1,5 @@
 "use client";
-import type { Measurement, QuantitativeTarget, QuantitativeSemanticProfile } from "@/lib/api";
+import type { Measurement, QuantitativeTarget, QuantitativeSemanticProfile, SemanticSlot } from "@/lib/api";
 import { Reading, Quoted, InterfaceNote } from "@/components/ui/evidence-text";
 import { DocumentSourceTrace } from "@/components/document-source-trace";
 import { EYEBROW } from "@/lib/typography";
@@ -56,7 +56,17 @@ export function TargetComparisonRules({ target }: { target: QuantitativeTarget }
   </details>;
 }
 
-/** Read-only provenance, shared by review and final measurement details. */
+/** A disclosure inside the comparison: plain, because the table is the one bordered box. */
+const INNER_SUMMARY = "w-fit select-none rounded-sm text-[11px] font-medium text-muted-foreground outline-none hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/20";
+
+/**
+ * Read-only provenance, shared by review and final measurement details.
+ *
+ * One bordered box, the table of constrained fields. The source context and the unrestricted
+ * fields are plain disclosures beside it: drawn as boxes too, they nested three deep inside
+ * a panel entry. A field with nothing recorded says nothing, rather than a line announcing
+ * that nothing was recorded, which on a real cohort was most of the panel.
+ */
 export function ScoutComparison({ target, measurement, compact = false }: {
   target?: QuantitativeTarget | null;
   measurement: Measurement;
@@ -68,23 +78,27 @@ export function ScoutComparison({ target, measurement, compact = false }: {
     ? (Object.keys(target.comparison_contract) as Array<keyof QuantitativeSemanticProfile>)
       .filter(dimension => target.comparison_contract[dimension].mode === "unconstrained") : [];
   const ownership = measurement.semantic_assessment.source_ownership;
-  return <div className="space-y-3">
-    {measurement.source_passage && measurement.source_passage !== measurement.source_quote && <details className="rounded-lg border border-border/60">
-      <DisclosureSummary className="rounded-lg px-4 py-3 text-xs font-medium text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">Retained source context</DisclosureSummary>
-      <div className="px-4 pb-4"><Quoted>{measurement.source_passage}</Quoted></div>
+  return <div className="mt-2 space-y-3">
+    {measurement.source_passage && measurement.source_passage !== measurement.source_quote && <details>
+      <DisclosureSummary className={INNER_SUMMARY}>Retained source context</DisclosureSummary>
+      <div className="mt-2"><Quoted>{measurement.source_passage}</Quoted></div>
     </details>}
-    <div className="mt-3 text-xs leading-relaxed text-muted-foreground">
+    <div className="text-xs leading-relaxed text-muted-foreground">
       <p className="font-medium">Source ownership: {ownership.state === "yes" ? "Attributed to this source" : ownership.state === "no" ? "Not attributed to this source" : "Uncertain"}</p>
-      {ownership.reason ? <Reading>{ownership.reason}</Reading> : <p>No source-ownership explanation was recorded.</p>}
+      {ownership.reason && <Reading>{ownership.reason}</Reading>}
     </div>
     {dimensions.length > 0 && <ReviewComparisonTable target={target ?? undefined} measurement={measurement} dimensions={dimensions} compact={compact} />}
-    {unconstrained.length > 0 && <details key={measurement.candidate_id} className="rounded-lg border border-border/60">
-      <DisclosureSummary className="rounded-lg px-4 py-3 text-xs font-medium text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
-        Fields with no matching restriction
+    {unconstrained.length > 0 && target && <details key={measurement.candidate_id}>
+      <DisclosureSummary className={INNER_SUMMARY}>
+        Fields with no matching restriction {unconstrained.length}
       </DisclosureSummary>
-      <div className="px-4 pb-4">
-        <p className="text-xs leading-relaxed text-muted-foreground">These fields are not required to match. Their inclusion here does not establish that they are equivalent.</p>
-        <ReviewComparisonTable target={target ?? undefined} measurement={measurement} dimensions={unconstrained} compact={compact} />
+      <div className="mt-2 space-y-2 text-xs leading-relaxed">
+        <p className="text-muted-foreground">These fields are not required to match. Their inclusion here does not establish that they are equivalent.</p>
+        <ul className="space-y-2">
+          {unconstrained.map(dimension => <UnrestrictedField
+            key={dimension} target={target} measurement={measurement} dimension={dimension}
+          />)}
+        </ul>
       </div>
     </details>}
     {compact && measurement.ai_review_reason && <div className="border-t border-border/60 pt-3 text-xs">
@@ -92,6 +106,42 @@ export function ScoutComparison({ target, measurement, compact = false }: {
       {measurement.ai_recommendation === "unavailable" ? <InterfaceNote>{measurement.ai_review_reason}</InterfaceNote> : <Reading>{measurement.ai_review_reason}</Reading>}
     </div>}
   </div>;
+}
+
+/** A slot that states something; "not specified" on both sides is what an unrestricted field usually is. */
+function stated(slot: SemanticSlot | undefined): boolean {
+  return Boolean(slot) && slot?.state !== "not_specified";
+}
+
+/**
+ * One unrestricted field on one line: its name, what either side states, and why it is free.
+ *
+ * It was a full three-column card per field, so five fields that neither side specified took
+ * thirty lines to say "not specified" ten times.
+ */
+function UnrestrictedField({ target, measurement, dimension }: {
+  target: QuantitativeTarget;
+  measurement: Measurement;
+  dimension: keyof QuantitativeSemanticProfile;
+}) {
+  const documentSlot = target.semantic_profile[dimension];
+  const evidenceSlot = measurement.semantic_assessment.dimensions[dimension]?.source;
+  const values = [
+    stated(documentSlot) ? `Document: ${semanticSlotLabel(documentSlot)}` : "",
+    stated(evidenceSlot) ? `Evidence: ${semanticSlotLabel(evidenceSlot)}` : "",
+  ].filter(Boolean);
+  const reason = target.comparison_contract[dimension].reason;
+  // Two authors, kept apart: why the target leaves the field free, and what the mapper read
+  // in this source's field.
+  const mapping = measurement.semantic_assessment.dimensions[dimension]?.compatibility.reason;
+  return <li className="min-w-0 break-words">
+    <p>
+      <span className="font-medium text-foreground">{dimensionLabel(dimension)}</span>
+      {values.length > 0 && <span className="text-foreground"> · {values.join(" · ")}</span>}
+    </p>
+    {reason && <Reading className="mt-0.5 text-[11px]">Why: {reason}</Reading>}
+    {mapping && <Reading className="mt-0.5 text-[11px]">{mapping}</Reading>}
+  </li>;
 }
 
 /** Display the mapper's authored fields without merging them with the reviewer's advice. */
@@ -125,9 +175,7 @@ function ReviewComparisonTable({ target, measurement, dimensions, compact }: {
         <div className="min-w-0 break-words text-xs leading-relaxed text-muted-foreground">
           <p className={cn(EYEBROW, "mb-1", !compact && "sm:hidden")}>Mapping and explanation</p>
           <p className="font-medium">{unconstrained ? comparisonRuleLabel(rule) : state === "yes" ? "Aligned" : state === "no" ? "Different" : "Uncertain"}</p>
-          {mapped?.compatibility.reason
-            ? <Reading className="mt-2">{mapped.compatibility.reason}</Reading>
-            : <p className="mt-2 text-[11px]">No field-level explanation was recorded.</p>}
+          {mapped?.compatibility.reason && <Reading className="mt-2">{mapped.compatibility.reason}</Reading>}
         </div>
       </div>;
     })}

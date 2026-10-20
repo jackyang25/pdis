@@ -25,6 +25,16 @@ export type GraphLayoutLink = {
   labelHeight?: number;
 };
 
+/**
+ * How every graph draws its edges: right-angled, with square corners.
+ *
+ * Edges from one node share a trunk, and each is drawn on its own. With rounded corners an
+ * edge turning off the trunk cut inside the one carrying straight on, so a shared path
+ * showed a hook at every branch and read as lines splitting apart. Square corners lay
+ * shared segments exactly on top of each other, and each branch is a clean T.
+ */
+export const GRAPH_EDGE_TYPE = "step";
+
 export function layoutDirectedGraph(
   items: GraphLayoutItem[],
   links: GraphLayoutLink[],

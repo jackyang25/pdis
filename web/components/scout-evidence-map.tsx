@@ -53,6 +53,7 @@ import {
 } from "@/components/ui/select";
 import {
   FitGraphToView,
+  GRAPH_EDGE_TYPE,
   GraphControls,
   GraphInspectorShell,
   GraphNodeFrame,
@@ -179,7 +180,7 @@ function layoutGraph(nodes: EvidenceMapNode[], edges: EvidenceMapEdge[]) {
       id: edge.id,
       source: edge.source,
       target: edge.target,
-      type: "smoothstep",
+      type: GRAPH_EDGE_TYPE,
       style: {
         stroke: color,
         strokeWidth: edge.kind === "supported_by" || edge.kind === "has_target" ? 1 : 1.35,

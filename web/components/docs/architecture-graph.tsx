@@ -40,6 +40,7 @@ import { ToolDetail } from "@/components/docs/tool-detail";
 import {
   FitGraphToView,
   GRAPH_EDGE_TYPE,
+  GRAPH_EDGE_TYPES,
   GraphControls,
   GraphInspectorShell,
   GraphNodeFrame,
@@ -386,6 +387,7 @@ export function ArchitectureGraphs({
             nodes={displayedNodes}
             edges={layout.edges}
             nodeTypes={NODE_TYPES}
+            edgeTypes={GRAPH_EDGE_TYPES}
             onNodeClick={(_, node) => setSelectedId(node.id)}
             nodesDraggable={false}
             nodesConnectable={false}

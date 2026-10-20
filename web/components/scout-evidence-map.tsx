@@ -54,6 +54,7 @@ import {
 import {
   FitGraphToView,
   GRAPH_EDGE_TYPE,
+  GRAPH_EDGE_TYPES,
   GraphControls,
   GraphInspectorShell,
   GraphNodeFrame,
@@ -440,6 +441,7 @@ export function ScoutEvidenceMap({ result }: { result: ScoutResponse }) {
             nodes={displayedNodes}
             edges={graph.edges}
             nodeTypes={NODE_TYPES}
+            edgeTypes={GRAPH_EDGE_TYPES}
             onNodeClick={(_, node) => setSelectedId(node.id)}
             onPaneClick={() => setSelectedId(fieldId)}
             nodesDraggable={false}

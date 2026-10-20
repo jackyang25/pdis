@@ -1,5 +1,9 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import { fileURLToPath } from "node:url";
+import React from "react";
+import { renderToStaticMarkup } from "react-dom/server";
+import { loadComponent } from "../test-support/load-component.ts";
 
 import type { Conformity, ScoutResponse } from "./api.ts";
 import { buildScoutEvidenceMap } from "./scout-evidence-map.ts";
@@ -291,4 +295,14 @@ test("a measurement on any numeric target marks its insight as analysis-backed",
     .filter((node) => node.kind === "insight")
     .map((node) => node.id);
   assert.deepEqual(insightIds, ["insight:i-calibrated"]);
+});
+
+test("edges between the same two columns share one trunk, wherever their targets sit", () => {
+  const { GRAPH_EDGE_TYPES } = loadComponent(fileURLToPath(new URL("../components/graph/graph-primitives.tsx", import.meta.url)));
+  const draw = (targetY: number) => renderToStaticMarkup(React.createElement("svg", null,
+    React.createElement(GRAPH_EDGE_TYPES.trunk, { id: `e${targetY}`, sourceX: 100, sourceY: 400, targetX: 160, targetY }),
+  )).match(/ d="([^"]+)"/)?.[1];
+  // A near target and a far one: the library's step routing put these on different verticals.
+  assert.equal(draw(420), "M 100,400 H 130 V 420 H 160");
+  assert.equal(draw(90), "M 100,400 H 130 V 90 H 160");
 });

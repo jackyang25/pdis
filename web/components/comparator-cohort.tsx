@@ -91,7 +91,6 @@ function AdmittedMeasurement({
   insight?: Insight;
   target?: QuantitativeTarget | null;
 }) {
-  const [open, setOpen] = useState(false);
   const finding = insight?.supporting_findings.find(
     (candidate) => candidate.url === measurement.url,
   );
@@ -130,7 +129,11 @@ function AdmittedMeasurement({
       {identity && <InterfaceNote className="mt-1">{identity}</InterfaceNote>}
       {/* The semantic match is a model's reading too, but per axis and long, so it stays
           collapsed rather than being a fourth line on every entry. */}
-      <details className="mt-1" open={open} onToggle={(event) => setOpen((event.target as HTMLDetailsElement).open)}>
+      {/* Left to the browser, as the same disclosure is in `ExcludedMeasurement`. Held in state
+          through `onToggle`, it closed whenever a disclosure inside it did: React delivers a
+          nested `<details>`'s toggle to its ancestors' handlers, and this one read the inner
+          element's state as its own. */}
+      <details className="mt-1">
         <DisclosureSummary className="w-fit select-none rounded-sm text-[11px] text-muted-foreground outline-none hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/20">
           Comparison details
         </DisclosureSummary>

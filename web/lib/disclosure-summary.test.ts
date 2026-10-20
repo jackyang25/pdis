@@ -31,3 +31,20 @@ test("no disclosure draws the browser's own marker", () => {
   }
   assert.deepEqual(offenders, []);
 });
+
+test("no disclosure takes its open state from whichever details toggled", () => {
+  // React hands a nested `<details>`'s toggle to every ancestor's `onToggle`, so a handler
+  // that reads `event.target` reads the inner element's state as its own. The Comparators
+  // panel's "Comparison details" closed whenever a disclosure inside it did. A disclosure is
+  // left to the browser; one that must be held in state compares target to currentTarget.
+  const offenders: string[] = [];
+  for (const file of [...sources(path.join(WEB, "app")), ...sources(path.join(WEB, "components"))]) {
+    const text = readFileSync(file, "utf8");
+    for (const match of text.matchAll(/onToggle=\{[^}]*\}/g)) {
+      if (/event\.target/.test(match[0]) && !/currentTarget/.test(match[0])) {
+        offenders.push(path.relative(WEB, file));
+      }
+    }
+  }
+  assert.deepEqual(offenders, []);
+});

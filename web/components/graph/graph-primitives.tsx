@@ -3,9 +3,11 @@
 import { useEffect } from "react";
 import dagre from "@dagrejs/dagre";
 import {
+  BaseEdge,
   Panel,
   useNodesInitialized,
   useReactFlow,
+  type EdgeProps,
 } from "@xyflow/react";
 import { Maximize2, Minus, Plus } from "lucide-react";
 import { cn } from "@/lib/utils";
@@ -26,14 +28,42 @@ export type GraphLayoutLink = {
 };
 
 /**
- * How every graph draws its edges: right-angled, with square corners.
+ * How every graph draws its edges: across to the midpoint between the two columns, along
+ * to the target's height, and across into it.
  *
- * Edges from one node share a trunk, and each is drawn on its own. With rounded corners an
- * edge turning off the trunk cut inside the one carrying straight on, so a shared path
- * showed a hook at every branch and read as lines splitting apart. Square corners lay
- * shared segments exactly on top of each other, and each branch is a clean T.
+ * The library's own step routing chooses each edge's vertical separately, from how far its
+ * target sits above or below, so edges leaving one node ran as parallel trunks a few pixels
+ * apart and read as lines splitting. Here the vertical depends only on the two columns, so
+ * every edge between them shares it exactly and each branch is a clean T. The label sits on
+ * the edge's own last run, not the shared trunk, where labels would stack.
  */
-export const GRAPH_EDGE_TYPE = "step";
+function TrunkEdge({
+  sourceX, sourceY, targetX, targetY, style, markerStart, markerEnd, interactionWidth,
+  label, labelStyle, labelShowBg, labelBgStyle, labelBgPadding, labelBgBorderRadius,
+}: EdgeProps) {
+  const trunkX = sourceX + (targetX - sourceX) / 2;
+  return (
+    <BaseEdge
+      path={`M ${sourceX},${sourceY} H ${trunkX} V ${targetY} H ${targetX}`}
+      style={style}
+      markerStart={markerStart}
+      markerEnd={markerEnd}
+      interactionWidth={interactionWidth}
+      label={label}
+      labelX={trunkX + (targetX - trunkX) / 2}
+      labelY={targetY}
+      labelStyle={labelStyle}
+      labelShowBg={labelShowBg}
+      labelBgStyle={labelBgStyle}
+      labelBgPadding={labelBgPadding}
+      labelBgBorderRadius={labelBgBorderRadius}
+    />
+  );
+}
+
+/** Registered once and passed as `edgeTypes`, so React Flow never sees a new object. */
+export const GRAPH_EDGE_TYPES = { trunk: TrunkEdge };
+export const GRAPH_EDGE_TYPE = "trunk";
 
 export function layoutDirectedGraph(
   items: GraphLayoutItem[],

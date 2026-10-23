@@ -27,15 +27,15 @@ export type ToolSection = {
 export const TOOL_SECTIONS: readonly ToolSection[] = [
   {
     id: "pst-workflows",
-    // Reading order, not alphabetical: check a document, test what it claims, check the
-    // documents against each other, and take them to the gate.
-    toolIds: ["inspector", "scout", "aligner", "screener"],
+    // Reading order, not alphabetical: draft a profile, check a document, test what it
+    // claims, check the documents against each other, and take them to the gate.
+    toolIds: ["drafter", "inspector", "scout", "aligner", "screener"],
     title: "PST workflows",
     // The only place the cycle is stated. Each card states what its tool is judged
     // against; none of them repeats this. Keep the clauses in the same order as
     // `toolIds` above - the sentence is what the cards read as.
     description:
-      "Check documents against their rubrics, targets against evidence, and commitments across documents before stage-gate review.",
+      "Draft targets from evidence, then check documents against their rubrics, targets against evidence, and commitments across documents before stage-gate review.",
   },
   {
     id: "shared-utilities",

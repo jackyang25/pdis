@@ -23,6 +23,31 @@ test("context selectors use reader-facing labels in loaded and loading states", 
   }
 });
 
+test("a field whose choices are still loading says so instead of sitting blank", () => {
+  const render = (contexts: unknown) => {
+    const { ContextFields } = loadRealComponent(resolve(root, "components/configuration-fields.tsx"), {
+      "@/lib/use-configuration-catalog": { useSupportedContexts: () => ({ contexts, error: null }) },
+      "@/lib/store": { useHeaderStore: () => ({ header: { org: "bmgf", intervention_class: "drug" }, setHeader: () => {} }) },
+      "@/lib/api": { fetchIndications: () => new Promise(() => {}) },
+    });
+    return renderToStaticMarkup(React.createElement(ContextFields));
+  };
+  // Before the catalog arrives, every context field reads as loading.
+  assert.equal((render(null).match(/Loading…/g) ?? []).length, 3);
+  // Once it has, only the disease list - fetched after a product type is chosen - still is.
+  assert.equal((render([{ org: "bmgf", intervention_class: "drug" }]).match(/Loading…/g) ?? []).length, 1);
+});
+
+test("the document type reads as loading until its catalog arrives", () => {
+  const { SourceTypeField } = loadRealComponent(resolve(root, "components/configuration-fields.tsx"), {
+    "@/lib/use-configuration-catalog": { useSupportedDocumentTypes: () => ({ types: null, error: null }) },
+    "@/lib/store": { useHeaderStore: (select: (state: unknown) => unknown) => select({ header: { org: "bmgf", intervention_class: "drug" } }) },
+    "@/lib/api": {},
+  });
+  const html = renderToStaticMarkup(React.createElement(SourceTypeField, { label: "Document type", value: undefined, onChange: () => {} }));
+  assert.match(html, /Loading…/);
+});
+
 // Node's strip-types runner cannot load TSX or Next aliases. Compile local
 // components in memory, retaining real field rendering and replacing only state
 // and network-backed hooks with a controlled catalog failure.
@@ -141,6 +166,18 @@ test("PDF upload capability changes both the picker and its visible hint, not ot
   assert.doesNotMatch(ordinary, /Prefer DOCX or PPTX when available/);
 });
 
+test("a tool that reads no document shows no upload area and can run", () => {
+  const { RunPanel } = loadComponent(resolve(root, "components/run-panel.tsx"));
+  const runButton = (html: string) => html.match(/<button[^>]*>Run analysis<\/button>/)?.[0] ?? "";
+  const documentless = renderToStaticMarkup(React.createElement(RunPanel, { onRun: () => {}, documents: null }));
+  assert.doesNotMatch(documentless, />Documents</);
+  assert.doesNotMatch(documentless, /Drop a file/);
+  assert.doesNotMatch(runButton(documentless), /disabled=""/);
+  // An empty list is a tool that has not chosen its documents, which cannot run.
+  const undecided = renderToStaticMarkup(React.createElement(RunPanel, { onRun: () => {}, documents: [] }));
+  assert.match(runButton(undecided), /disabled=""/);
+});
+
 test("only a document collection takes several files in one pick or drop", () => {
   const { RunPanel } = loadComponent(resolve(root, "components/run-panel.tsx"));
   const single = renderToStaticMarkup(React.createElement(RunPanel, { onRun: () => {} }));
@@ -236,4 +273,14 @@ test("unsupported visual notice displays source type and location without hiding
   assert.match(html, /It may be decorative or contain information/);
   assert.match(html, /Compare captured content with the original document to check what is missing/);
   assert.match(html, /Review captured text and visuals in the Documents tab/);
+});
+
+test("lists fetched after a page opens say they are loading rather than sit blank", () => {
+  // Searcher's sources and Inspector's product questions arrive a moment after the page; a
+  // grey box or nothing in their place read as a broken page in deployment.
+  const searcher = readFileSync(resolve(root, "app/searcher/page.tsx"), "utf8");
+  assert.match(searcher, /Loading sources…/);
+  assert.doesNotMatch(searcher, /rounded-md border border-border bg-muted" \/>/);
+  const inspector = readFileSync(resolve(root, "app/inspector/page.tsx"), "utf8");
+  assert.match(inspector, /Loading product context…/);
 });

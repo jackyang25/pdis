@@ -22,7 +22,7 @@ const REPO = path.resolve(import.meta.dirname, "..");
 const read = (...parts: string[]) => readFileSync(path.join(REPO, ...parts), "utf8");
 
 /** The four tools that render a finished result. */
-const TOOLS = ["scout", "inspector", "aligner", "screener"] as const;
+const TOOLS = ["scout", "inspector", "aligner", "screener", "drafter"] as const;
 
 /** Every `.tsx` under `app/` and `components/`, so a check can ask "anywhere but here". */
 function tsxFiles(): string[] {
@@ -1003,7 +1003,7 @@ test("a how-to-read panel is a reference, not an essay", () => {
   // The cap is per topic rather than per panel: a tool with five real distinctions
   // should be allowed five, and what makes a panel unreadable is one topic that turns
   // into prose, not the number of them.
-  for (const tool of ["inspector", "scout", "aligner", "screener"]) {
+  for (const tool of ["drafter", "inspector", "scout", "aligner", "screener"]) {
     const source = read("components", `${tool}-signal-help.tsx`);
     const topics = [...source.matchAll(/title: "([^"]+)"[\s\S]*?detail:\s*\n?\s*"([^"]+)"/g)];
     assert.ok(topics.length > 0, `${tool} publishes no topics`);

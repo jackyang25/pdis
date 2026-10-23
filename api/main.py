@@ -42,6 +42,7 @@ from api.routes import (
     assistant,
     chunker,
     configs,
+    drafter,
     screener,
     inspector,
     scout,
@@ -107,8 +108,9 @@ app.add_middleware(
     allow_headers=["*"],
     # The generated ID is only useful to a caller that can read it back and
     # quote it in a bug report; a cross-origin response withholds every header
-    # not named here.
-    expose_headers=["X-Request-ID"],
+    # not named here. `Content-Disposition` carries the name a download is saved
+    # under, which the server decides (Drafter's Word export).
+    expose_headers=["X-Request-ID", "Content-Disposition"],
 )
 
 # Added after CORS, so it runs outside it: Starlette applies middleware in
@@ -124,6 +126,7 @@ app.include_router(inspector.router, prefix="/api/inspector", tags=["inspector"]
 app.include_router(screener.router, prefix="/api/screener", tags=["screener"])
 app.include_router(searcher.router, prefix="/api/searcher", tags=["searcher"])
 app.include_router(scout.router, prefix="/api/scout", tags=["scout"])
+app.include_router(drafter.router, prefix="/api/drafter", tags=["drafter"])
 app.include_router(assistant.router, prefix="/api/assistant", tags=["assistant"])
 
 

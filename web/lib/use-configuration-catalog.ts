@@ -19,6 +19,7 @@ const PATH_TO_TOOL: Record<string, ToolName> = {
   "/scout": "scout",
   "/aligner": "aligner",
   "/screener": "screener",
+  "/drafter": "drafter",
 };
 
 // Separate authorities, cached independently. A rejected request must not poison

@@ -1,0 +1,12 @@
+type_key: bmgf_itpp_device
+org: bmgf
+source_type: itpp
+intervention_class: device
+display_name: "BMGF Intervention TPP - Device"
+sources: [tavily, pubmed, clinicaltrials, ctis, isrctn, semantic_scholar, europepmc, who_guidelines, fda]
+query_guidance: |
+  Search for what existing devices for this indication achieved on this variable -
+  clinical studies, evaluations, labels and regulatory reviews - and for what published
+  specifications ask of a new device (WHO technical specifications and target product
+  profiles, prequalification requirements, procurement specifications). Prefer named
+  devices and named authorities over generic phrasing.

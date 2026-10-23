@@ -33,21 +33,23 @@ import { displayLabel } from "@/lib/display-label";
 export function ContextFields() {
   const { header, setHeader } = useHeaderStore();
   const { contexts, error } = useSupportedContexts();
-  const [indications, setIndications] = useState<string[]>([]);
+  // Keyed by the product type it was fetched for, so a list for the previous type never
+  // shows under the new one and "still loading" is knowable without a second flag.
+  const [indicationList, setIndicationList] = useState<{ for: string; values: string[] } | null>(null);
 
   useEffect(() => {
-    if (!header.intervention_class) {
-      setIndications([]);
-      return;
-    }
+    if (!header.intervention_class) return;
+    const requested = header.intervention_class;
     let live = true;
-    fetchIndications(header.intervention_class)
-      .then((loaded) => live && setIndications(loaded))
-      .catch(() => live && setIndications([]));
+    fetchIndications(requested)
+      .then((loaded) => live && setIndicationList({ for: requested, values: loaded }))
+      .catch(() => live && setIndicationList({ for: requested, values: [] }));
     return () => {
       live = false;
     };
   }, [header.intervention_class]);
+  const indicationsLoading = Boolean(header.intervention_class) && indicationList?.for !== header.intervention_class;
+  const indications = indicationsLoading ? [] : (indicationList?.values ?? []);
 
   const orgs = useMemo(
     () => unique((contexts ?? []).map((item) => item.org)),
@@ -125,6 +127,7 @@ export function ContextFields() {
           value={header.indication}
           searchLabel="Search diseases and conditions"
           options={toOptions(indications)}
+          loading={indicationsLoading}
           disabled={!header.intervention_class}
           onChange={(value) => setHeader({ indication: value })}
         />
@@ -195,6 +198,7 @@ export function SourceTypeField({
       <ConfigSelect
         value={value}
         options={toOptions(options)}
+        loading={ready && types === null && !error}
         disabled={!ready}
         onChange={onChange}
       />
@@ -248,12 +252,13 @@ export function ConfigurationFields({ children }: { children?: React.ReactNode }
 
 const CONTEXT_LABELS = ["Organization", "Health product type", "Disease / condition"] as const;
 
+/** The fields as they will be, each saying it is loading, until the catalog arrives. */
 function FieldPlaceholder({ labels }: { labels: readonly string[] }) {
   return (
     <>
       {labels.map((label) => (
         <ConfigField key={label} label={label} disabled>
-          <div className="h-9 rounded-md border border-input bg-muted" role="status" aria-label={`Loading ${label.toLowerCase()}`} />
+          <ConfigSelect value={undefined} options={[]} loading onChange={() => {}} />
         </ConfigField>
       ))}
     </>

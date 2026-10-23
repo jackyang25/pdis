@@ -1,0 +1,12 @@
+type_key: bmgf_itpp_diagnostic
+org: bmgf
+source_type: itpp
+intervention_class: diagnostic
+display_name: "BMGF Intervention TPP - Diagnostic"
+sources: [tavily, pubmed, clinicaltrials, ctis, isrctn, semantic_scholar, europepmc, who_guidelines, fda]
+query_guidance: |
+  Search for what existing tests for this indication achieved on this variable -
+  diagnostic accuracy studies, evaluations, labels and regulatory reviews - and for what
+  published target profiles ask of a new test (WHO target product profiles, WHO
+  prequalification requirements, FIND and Unitaid landscapes). Prefer named tests and
+  named authorities over generic phrasing.

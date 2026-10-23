@@ -1038,6 +1038,96 @@ class ScreenerRunResponse(BaseModel):
     review: GateReviewOut
 
 
+# --- Drafter -------------------------------------------------------------------------------
+# The service's contract (`services.drafter.validate_result_contract`) decides what a draft
+# may hold; these models only state its wire shape.
+
+
+class DraftObservedValueOut(BaseModel):
+    value: float | None
+    lower: float | None
+    upper: float | None
+    unit: str
+
+
+class DraftObservationOut(BaseModel):
+    id: str
+    basis: Literal["comparable_product", "published_guidance"]
+    url: str
+    title: str
+    source_label: str
+    product: str
+    measure: str
+    quote: str
+    value: DraftObservedValueOut | None
+    numeric_eligible: bool
+
+
+class DraftGroupSummaryOut(BaseModel):
+    unit: str
+    count: int
+    minimum: float
+    maximum: float
+    median: float
+    lower_quartile: float
+    upper_quartile: float
+
+
+class DraftSuggestionOut(BaseModel):
+    kind: Literal["range", "statement", "insufficient"]
+    minimum: str
+    preferred: str
+    statement: str
+    rationale: str
+    #: One of `LEANS_ON`, or blank for insufficient evidence; the service contract checks it.
+    leans_on: str
+    basis_ids: list[str]
+
+
+class DraftFailureOut(BaseModel):
+    code: Literal["search_planning_failed", "evidence_unavailable", "suggestion_failed"]
+    message: str
+
+
+class DraftVariableOut(BaseModel):
+    name: str
+    label: str
+    description: str
+    evidence_domain: str
+    status: Literal["complete", "failed"]
+    failure: DraftFailureOut | None
+    observations: list[DraftObservationOut]
+    statistics: list[DraftGroupSummaryOut]
+    suggestion: DraftSuggestionOut | None
+    unread_findings: int = 0
+
+
+class DraftSourceErrorOut(BaseModel):
+    source: str
+    message: str
+
+
+class DraftResultOut(BaseModel):
+    org: str
+    source_type: str
+    intervention_class: str
+    indication: str
+    display_name: str
+    sources: list[str]
+    failed_sources: list[str]
+    unconfigured_sources: list[str]
+    source_errors: list[DraftSourceErrorOut]
+    variables: list[DraftVariableOut]
+
+
+class DrafterRunResponse(BaseModel):
+    result: DraftResultOut
+
+
+class DrafterExportRequest(BaseModel):
+    result: DraftResultOut
+
+
 class AskMessage(BaseModel):
     role: Literal["user", "assistant"]
     content: str

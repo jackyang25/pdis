@@ -20,7 +20,6 @@ stdlib; no R or numpy.
 from __future__ import annotations
 
 import hashlib
-import html
 import json
 import logging
 import math
@@ -38,6 +37,8 @@ from pydantic import ValidationError
 from services.chunker import ContentBlock
 from services.searcher import Finding
 from services.searcher.controller import SOURCE_REGISTRY
+from shared.quotes import normalize_quote, quote_in_text
+from shared.statistics import empirical_percentile, quantile
 from shared.vocabulary import EVIDENCE_CLASSES
 
 from ..ai import request_structured
@@ -225,7 +226,7 @@ class _MeasurementCandidateKey:
         payload = {
             "target_id": target_id,
             "source_id": source_id,
-            "quote": _normalize_quote(quote),
+            "quote": normalize_quote(quote),
             "expression": {
                 "kind": expression.kind,
                 "unit": _unit_key(expression.unit),
@@ -553,7 +554,7 @@ def _combine(
     ]
     target_meeting_count = sum(met_target)
     target_meeting_rate = target_meeting_count / benchmark_count
-    target_percentile = _empirical_percentile(benchmark_values, target.value)
+    target_percentile = empirical_percentile(benchmark_values, target.value)
     ambition_percentile = (
         None
         if target.comparator == "="
@@ -581,9 +582,9 @@ def _combine(
         benchmark_minimum=round(benchmark_values[0], 3),
         benchmark_maximum=round(benchmark_values[-1], 3),
         benchmark_mean=round(fmean(benchmark_values), 3),
-        benchmark_median=round(_quantile(benchmark_values, 0.5), 3),
-        benchmark_lower_quartile=round(_quantile(benchmark_values, 0.25), 3),
-        benchmark_upper_quartile=round(_quantile(benchmark_values, 0.75), 3),
+        benchmark_median=round(quantile(benchmark_values, 0.5), 3),
+        benchmark_lower_quartile=round(quantile(benchmark_values, 0.25), 3),
+        benchmark_upper_quartile=round(quantile(benchmark_values, 0.75), 3),
         benchmark_standard_deviation=(
             round(stdev(benchmark_values), 3) if benchmark_count >= 2 else None
         ),
@@ -599,28 +600,6 @@ def _combine(
         excluded_measurements=excluded_measurements,
         source_dispositions=source_dispositions,
     )
-
-
-def _quantile(values: list[float], probability: float) -> float:
-    """Return a linearly interpolated empirical quantile for sorted values."""
-    if not values:
-        raise ValueError("at least one benchmark value is required")
-    position = (len(values) - 1) * probability
-    lower_index = math.floor(position)
-    upper_index = math.ceil(position)
-    if lower_index == upper_index:
-        return values[lower_index]
-    fraction = position - lower_index
-    return values[lower_index] + fraction * (
-        values[upper_index] - values[lower_index]
-    )
-
-
-def _empirical_percentile(values: list[float], target: float) -> float:
-    """Midpoint empirical CDF, avoiding an arbitrary all-or-nothing tie rank."""
-    below = sum(value < target for value in values)
-    equal = sum(value == target for value in values)
-    return (below + 0.5 * equal) / len(values)
 
 
 def _calibration_status(measurements: list[Measurement]) -> str:
@@ -1176,7 +1155,7 @@ def _validated_quantitative_ledger_batch(
             if (
                 not target_quote
                 or len(target_quote) > MAX_TARGET_QUOTE_CHARS
-                or not _quote_in_text(target_quote, unit.quote)
+                or not quote_in_text(target_quote, unit.quote)
             ):
                 validation_issues.append("invalid_target_quote")
                 continue
@@ -1569,21 +1548,21 @@ def _merge_document_targets(
             merged[target.id] = target
             continue
         spans = list(existing.provenance_spans)
-        span_keys = {(_normalize_quote(span.quote), tuple(span.block_ids)) for span in spans}
+        span_keys = {(normalize_quote(span.quote), tuple(span.block_ids)) for span in spans}
         spans.extend(
             span for span in target.provenance_spans
-            if (_normalize_quote(span.quote), tuple(span.block_ids)) not in span_keys
+            if (normalize_quote(span.quote), tuple(span.block_ids)) not in span_keys
         )
         semantic_provenance: dict[str, list[DocumentSpan]] = {}
         for field_name in QUANTITATIVE_SEMANTIC_FIELDS:
             field_spans = list(existing.semantic_provenance.get(field_name, []))
             field_keys = {
-                (_normalize_quote(span.quote), tuple(span.block_ids))
+                (normalize_quote(span.quote), tuple(span.block_ids))
                 for span in field_spans
             }
             field_spans.extend(
                 span for span in target.semantic_provenance.get(field_name, [])
-                if (_normalize_quote(span.quote), tuple(span.block_ids)) not in field_keys
+                if (normalize_quote(span.quote), tuple(span.block_ids)) not in field_keys
             )
             semantic_provenance[field_name] = field_spans
         merged[target.id] = replace(
@@ -2036,13 +2015,13 @@ def _validated_targets_with_issues(
             span_quote = str(raw_span.get("quote", "")).strip()
             span_ids = validated_block_ids(raw_span.get("block_ids"), allowed_ids)
             span_text = _text_for_blocks(doc_text, span_ids)
-            span_key = (_normalize_quote(span_quote), tuple(span_ids))
+            span_key = (normalize_quote(span_quote), tuple(span_ids))
             if (
                 span_key in seen_spans
                 or not span_ids
                 or not span_quote
                 or len(span_quote) > MAX_TARGET_QUOTE_CHARS
-                or not _quote_in_text(span_quote, span_text)
+                or not quote_in_text(span_quote, span_text)
             ):
                 continue
             seen_spans.add(span_key)
@@ -2070,24 +2049,24 @@ def _validated_targets_with_issues(
             continue
         merged_spans = list(existing.provenance_spans)
         existing_keys = {
-            (_normalize_quote(span.quote), tuple(span.block_ids)) for span in merged_spans
+            (normalize_quote(span.quote), tuple(span.block_ids)) for span in merged_spans
         }
         merged_spans.extend(
             span
             for span in target.provenance_spans
-            if (_normalize_quote(span.quote), tuple(span.block_ids)) not in existing_keys
+            if (normalize_quote(span.quote), tuple(span.block_ids)) not in existing_keys
         )
         merged_semantic_provenance: dict[str, list[DocumentSpan]] = {}
         for field_name in QUANTITATIVE_SEMANTIC_FIELDS:
             field_spans = [*existing.semantic_provenance.get(field_name, [])]
             field_keys = {
-                (_normalize_quote(span.quote), tuple(span.block_ids))
+                (normalize_quote(span.quote), tuple(span.block_ids))
                 for span in field_spans
             }
             field_spans.extend(
                 span
                 for span in target.semantic_provenance.get(field_name, [])
-                if (_normalize_quote(span.quote), tuple(span.block_ids))
+                if (normalize_quote(span.quote), tuple(span.block_ids))
                 not in field_keys
             )
             merged_semantic_provenance[field_name] = field_spans
@@ -2378,7 +2357,7 @@ def _validated_passage_measurement(
             reason="Measurement was not an object.",
         )
     quote = " ".join(str(raw.get("quote", "")).split())
-    if not quote or not _quote_in_text(quote, passage.text):
+    if not quote or not quote_in_text(quote, passage.text):
         return _PassageMeasurementValidation(
             code="source_quote_not_found",
             reason="The exact quote was not found in its retained source passage.",
@@ -2796,13 +2775,13 @@ def _validated_semantic_provenance(
                 continue
             quote = " ".join(str(item.get("quote", "")).split())
             block_ids = validated_block_ids(item.get("block_ids"), allowed_ids)
-            key = (_normalize_quote(quote), tuple(block_ids))
+            key = (normalize_quote(quote), tuple(block_ids))
             if (
                 not quote
                 or not block_ids
                 or (max_quote_chars is not None and len(quote) > max_quote_chars)
                 or key in seen
-                or not _quote_in_text(quote, _text_for_blocks(context, block_ids))
+                or not quote_in_text(quote, _text_for_blocks(context, block_ids))
             ):
                 continue
             seen.add(key)
@@ -3007,7 +2986,7 @@ def _source_passages(insights: list[Insight]) -> list[_SourcePassage]:
             ):
                 continue
             text = finding.excerpt[:MAX_SOURCE_PASSAGE_CHARS]
-            material = "\n".join((finding.url, _normalize_quote(text)))
+            material = "\n".join((finding.url, normalize_quote(text)))
             source_id = "sp-" + hashlib.sha256(material.encode("utf-8")).hexdigest()[:16]
             if source_id in seen:
                 continue
@@ -3032,47 +3011,6 @@ def _source_passage_batches(
         key=lambda passage: _source_record_identity(passage.finding)[0],
         groups_per_batch=SOURCE_RECORDS_PER_REQUEST,
     )
-
-
-# Characters a word processor renders differently while the words stay the same.
-# An excerpt is compared on its text, not on its typesetting: DOCX autocorrect
-# produces curly quotes and en dashes that a model retypes as ASCII, and the
-# excerpt is then rejected as inexact although it was quoted correctly.
-#
-# Deliberately NOT unicodedata.normalize("NFKC"): that maps "10²" to "102" and
-# "½" to "1/2", which changes a value rather than its rendering and could verify
-# an excerpt the document does not contain. Only marks are folded here; digits,
-# letters, superscripts, and fractions are left exactly as written.
-_TYPOGRAPHIC_EQUIVALENCE = {
-    # Invisible: line-breaking and joining hints that carry no text.
-    0x00AD: None,  # soft hyphen
-    0x200B: None,  # zero width space
-    0x200C: None,  # zero width non-joiner
-    0x200D: None,  # zero width joiner
-    0xFEFF: None,  # zero width no-break space
-    # Quotation marks.
-    0x2018: "'", 0x2019: "'", 0x201A: "'", 0x201B: "'",
-    0x201C: '"', 0x201D: '"', 0x201E: '"', 0x201F: '"',
-    # Hyphens, dashes, and the minus sign.
-    0x2010: "-", 0x2011: "-", 0x2012: "-", 0x2013: "-",
-    0x2014: "-", 0x2015: "-", 0x2212: "-",
-    # Marks with a settled ASCII spelling. Unlike the folds above this is a
-    # judgment that the two spellings mean the same thing, which holds for a
-    # comparison operator and is why the set stops here.
-    0x2026: "...",
-    0x2264: "<=",
-    0x2265: ">=",
-}
-
-
-def _normalize_quote(value: str) -> str:
-    folded = html.unescape(value).translate(_TYPOGRAPHIC_EQUIVALENCE)
-    return " ".join(folded.split()).casefold()
-
-
-def _quote_in_text(quote: str, source_text: str) -> bool:
-    normalized_quote = _normalize_quote(quote)
-    return bool(normalized_quote) and normalized_quote in _normalize_quote(source_text)
 
 
 def _text_for_blocks(document_text: str, block_ids: list[str]) -> str:

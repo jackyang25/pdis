@@ -24,13 +24,15 @@ test("starting a run is running even before its first stage arrives", () => {
 
 test("all session-backed tools are connected, with both Scout review checkpoints", () => {
   const state = { busy: false, stage: null, results: [{}], result: { phase: "target_review" } };
-  const hooks = Object.fromEntries(["Inspector", "Aligner", "Screener", "Scout", "Chunker", "Searcher"]
+  const hooks = Object.fromEntries(["Drafter", "Inspector", "Aligner", "Screener", "Scout", "Chunker", "Searcher"]
     .map(tool => [`use${tool}Session`, (select: (state: unknown) => unknown) => select(state)]));
   const { useToolStatuses } = loadComponent(path, { "@/lib/session": hooks });
   for (const phase of ["target_review", "evidence_review", "final"]) {
     state.result.phase = phase;
     const statuses = useToolStatuses();
     assert.equal(statuses.scout, phase === "final" ? "Results available" : "Ready for review");
+    // Drafter's one checkpoint is its own `review` phase, which a Scout phase never is.
+    assert.equal(statuses.drafter, "Results available");
     for (const tool of ["inspector", "aligner", "screener", "chunker", "searcher"]) {
       assert.equal(statuses[tool], "Results available");
     }

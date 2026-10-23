@@ -6,7 +6,7 @@ export type Header = {
   indication: string;
 };
 
-export type ToolName = "chunker" | "aligner" | "screener" | "inspector" | "scout";
+export type ToolName = "chunker" | "aligner" | "screener" | "inspector" | "scout" | "drafter";
 
 export type ContextOption = {
   org: string;
@@ -1415,6 +1415,106 @@ export async function runScreener(
   documents.forEach((file) => form.append("files", file));
   Object.entries(configuration).forEach(([key, value]) => form.append(key, value));
   return streamRequest("/api/screener/run", form, onStage);
+}
+
+// --- Drafter: suggested iTPP targets, reviewed in the browser ---
+// Mirrors `services/drafter/models.py`; `result-contracts.ts` checks what a saved draft holds.
+
+export type DraftBasis = "comparable_product" | "published_guidance";
+export type DraftSuggestionKind = "range" | "statement" | "insufficient";
+export type DraftLeansOn = "comparable_products" | "guidance" | "both";
+
+export type DraftObservation = {
+  id: string;
+  basis: DraftBasis;
+  url: string;
+  title: string;
+  source_label: string;
+  product: string;
+  measure: string;
+  quote: string;
+  value: { value: number | null; lower: number | null; upper: number | null; unit: string } | null;
+  numeric_eligible: boolean;
+};
+
+export type DraftGroupSummary = {
+  unit: string;
+  count: number;
+  minimum: number;
+  maximum: number;
+  median: number;
+  lower_quartile: number;
+  upper_quartile: number;
+};
+
+export type DraftSuggestion = {
+  kind: DraftSuggestionKind;
+  minimum: string;
+  preferred: string;
+  statement: string;
+  rationale: string;
+  /** Blank only for insufficient evidence. */
+  leans_on: DraftLeansOn | "";
+  basis_ids: string[];
+};
+
+export type DraftVariable = {
+  name: string;
+  label: string;
+  description: string;
+  evidence_domain: string;
+  status: "complete" | "failed";
+  failure: { code: "search_planning_failed" | "evidence_unavailable" | "suggestion_failed"; message: string } | null;
+  observations: DraftObservation[];
+  statistics: DraftGroupSummary[];
+  suggestion: DraftSuggestion | null;
+  unread_findings: number;
+};
+
+export type DraftResult = {
+  org: string;
+  source_type: string;
+  intervention_class: string;
+  indication: string;
+  display_name: string;
+  sources: string[];
+  /** Sources every request to which failed: their evidence is missing from the whole run. */
+  failed_sources: string[];
+  /** Sources this deployment has not configured, so they were never asked. */
+  unconfigured_sources: string[];
+  /** The provider's message for every source that failed at least once. */
+  source_errors: { source: string; message: string }[];
+  variables: DraftVariable[];
+};
+
+export type DrafterResponse = { result: DraftResult };
+
+/** Suggest a target for every iTPP variable of the configured product type. */
+export async function runDrafter(
+  configuration: { org: string; intervention_class: string; indication: string },
+  onStage?: (stage: string, progress?: StageProgress) => void,
+): Promise<DrafterResponse> {
+  const form = new FormData();
+  Object.entries(configuration).forEach(([key, value]) => form.append(key, value));
+  return streamRequest("/api/drafter/run", form, onStage);
+}
+
+/**
+ * A final draft as a Word table; the server refuses a draft still in review.
+ *
+ * The server names the file, so the browser never restates a document extension.
+ */
+export async function exportDrafterDocx(result: DraftResult): Promise<{ blob: Blob; filename: string }> {
+  const res = await fetch(`${API_BASE}/api/drafter/export`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ result }),
+  });
+  if (!res.ok) {
+    throw new Error((await res.text()) || `Export failed: ${res.status}`);
+  }
+  const named = /filename="([^"]+)"/.exec(res.headers.get("Content-Disposition") ?? "");
+  return { blob: await res.blob(), filename: named?.[1] ?? "pdis-drafter" };
 }
 
 // --- Ask: read-only, grounded chat over any result object ---

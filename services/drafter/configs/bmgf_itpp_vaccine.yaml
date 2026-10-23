@@ -1,0 +1,14 @@
+type_key: bmgf_itpp_vaccine
+org: bmgf
+source_type: itpp
+intervention_class: vaccine
+display_name: "BMGF Intervention TPP - Vaccine"
+# Searcher sources read for comparable products and published guidance. `web` is left out:
+# its excerpts are snippets, which can support neither a number nor a quotation.
+sources: [tavily, pubmed, clinicaltrials, ctis, isrctn, semantic_scholar, europepmc, who_guidelines, fda]
+query_guidance: |
+  Search for what licensed and late-stage vaccines for this indication achieved on this
+  variable - trial results, labels and regulatory reviews - and for what published target
+  profiles ask of a new vaccine (WHO preferred product characteristics, prequalification
+  requirements, Gavi and UNICEF programme needs). Prefer named products and named
+  authorities over generic phrasing.

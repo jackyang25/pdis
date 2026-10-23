@@ -1,4 +1,5 @@
 export type ToolIcon =
+  | "drafter"
   | "inspector"
   | "aligner"
   | "scout"
@@ -8,6 +9,7 @@ export type ToolIcon =
 
 export type ToolAudience = "pst" | "shared";
 export type ToolWorkflow =
+  | "drafting"
   | "document_intelligence"
   | "stage_gate"
   | "utility";
@@ -44,10 +46,9 @@ type ToolBase = {
    * Where these sit in a PPL's process is said once, in the section copy in
    * `lib/tool-sections.ts`, not here.
    *
-   * Every workspace tool here renders a verdict, so every one names an authority. A
-   * tool that judges nothing would have none to name and would state what it reports
-   * and where that came from instead - do not invent an authority to make the
-   * sentences match.
+   * Every reading tool here renders a verdict, so every one names an authority. Drafter
+   * judges nothing - it suggests - so it has none to name and states what it reports and
+   * where that came from instead. Do not invent an authority to make the sentences match.
    */
   /**
    * What this tool judges, against what, and what it is not.
@@ -93,13 +94,27 @@ export type ToolDefinition = WorkspaceToolDefinition;
 /**
  * Native tools run inside PDIS and may own workspace configuration.
  *
- * Declared in the order a PPL uses them — check a document, test what it claims,
- * check the documents against each other, take them to the gate — because the
+ * Declared in the order a PPL uses them — draft a profile, check a document, test what
+ * it claims, check the documents against each other, take them to the gate — because the
  * docs page and the Ask catalog both present them in this order and nothing sorts
  * them. The landing page states the same order in its own `toolIds`; keep the two
  * agreeing so one surface never lists the tools differently from another.
  */
 export const WORKSPACE_TOOLS: readonly WorkspaceToolDefinition[] = [
+  {
+    id: "drafter",
+    href: "/drafter",
+    title: "Drafter",
+    description:
+      "Suggested iTPP targets for a product type and disease, each drawn from comparable products' results and published guidance.",
+    // Observed end to end: about nine minutes for a 36-variable vaccine iTPP with no draft.
+    // A draft that states most variables is quicker; source and model latency vary.
+    activity: "10 minutes",
+    icon: "drafter",
+    audience: "pst",
+    workflow: "drafting",
+    availability: "available",
+  },
   {
     id: "inspector",
     href: "/inspector",

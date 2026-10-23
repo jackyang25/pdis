@@ -16,6 +16,34 @@ type Release = {
 
 export const RELEASES: readonly Release[] = [
   {
+    version: "0.7.0",
+    title: "Drafter, and smoother Screener and Scout runs",
+    sections: [
+      {
+        title: "Drafter",
+        changes: [
+          "New tool: Drafter suggests iTPP targets for a product type and disease, each with what comparable products achieved and what published guidance asks, cited to the source.",
+          "Download the draft, or export it as a Word table that lists each suggested target with its sources.",
+        ],
+      },
+      {
+        title: "Screener",
+        changes: [
+          "Drop or choose several documents at once.",
+          "The coverage grid shows required questions as solid squares and anticipatory ones as outlines.",
+        ],
+      },
+      {
+        title: "Scout",
+        changes: [
+          "IPDP runs extract fewer, more checkable claims: progress updates on the programme’s own work are no longer searched.",
+          "Documents whose filenames contain square brackets no longer fail at claim extraction.",
+          "Comparator details and the evidence map read more cleanly.",
+        ],
+      },
+    ],
+  },
+  {
     version: "0.6.0",
     title: "Priorities in every tool and suggested searches in Assistant",
     sections: [{ changes: [

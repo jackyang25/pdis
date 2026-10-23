@@ -30,7 +30,7 @@ test("workspace submits the active review separately, with source blocks, withou
   const { WorkspaceAsk } = loadComponent(fileURLToPath(new URL("../components/assistant/workspace-ask.tsx", import.meta.url)), {
     "next/navigation": { usePathname: () => "/scout" },
     "./ask": { Ask: (value: unknown) => { props = value; return null; } },
-    "@/lib/session": Object.fromEntries(["Chunker", "Inspector", "Aligner", "Screener", "Scout", "Searcher"].map(name => [`use${name}Session`, emptySession])),
+    "@/lib/session": Object.fromEntries(["Chunker", "Inspector", "Aligner", "Screener", "Drafter", "Scout", "Searcher"].map(name => [`use${name}Session`, emptySession])),
     "@/lib/priority-reading": { usePriorityReadingStore: (selector: any) => selector({ entries: {} }) },
     "@/lib/assistant-review-context": {
       ...loadComponent(fileURLToPath(new URL("./assistant-review-context.ts", import.meta.url))),
@@ -59,7 +59,7 @@ test("a draft of a revised same-name document cannot replace a final result's so
   const before = JSON.stringify(draft);
   let props: any;
   const emptySession = (selector: any) => selector({ results: [] });
-  const sessions = Object.fromEntries(["Chunker", "Inspector", "Aligner", "Screener", "Scout", "Searcher"].map(name => [`use${name}Session`, emptySession]));
+  const sessions = Object.fromEntries(["Chunker", "Inspector", "Aligner", "Screener", "Drafter", "Scout", "Searcher"].map(name => [`use${name}Session`, emptySession]));
   // Use the parser's direct output to exercise retained final source collection,
   // independent of Scout final-contract eligibility in this focused test.
   sessions.useChunkerSession = (selector: any) => selector({ results: [{ id: "old", created_at: "2026-09-16", result: { doc_id: "seed-document", blocks: final.blocks } }] });
@@ -81,4 +81,32 @@ test("a draft of a revised same-name document cannot replace a final result's so
   assert.notEqual(reviewBlock.doc_id, "seed-document");
   assert.equal(reviewBlock.structural_meta.source_block_id, "seed-document/target");
   assert.equal(JSON.stringify(draft), before);
+});
+
+test("a Drafter run reaches the assistant as soon as it finishes", () => {
+  const result = {
+    org: "bmgf", source_type: "itpp", intervention_class: "vaccine", indication: "malaria", display_name: "Vaccine",
+    sources: [], failed_sources: [], unconfigured_sources: [], source_errors: [],
+    variables: [],
+  };
+  let props: any;
+  const emptySession = (selector: any) => selector({ results: [] });
+  const sessions = Object.fromEntries(["Chunker", "Inspector", "Aligner", "Screener", "Drafter", "Scout", "Searcher"].map(name => [`use${name}Session`, emptySession]));
+  sessions.useDrafterSession = (selector: any) => selector({ results: [{ id: "draft-1", created_at: "2026-10-21", result }] });
+  const { WorkspaceAsk } = loadComponent(fileURLToPath(new URL("../components/assistant/workspace-ask.tsx", import.meta.url)), {
+    "next/navigation": { usePathname: () => "/drafter" },
+    "./ask": { Ask: (value: unknown) => { props = value; return null; } },
+    "@/lib/session": sessions,
+    "@/lib/priority-reading": { usePriorityReadingStore: (selector: any) => selector({ entries: {} }) },
+    "@/lib/assistant-review-context": {
+      ...loadComponent(fileURLToPath(new URL("./assistant-review-context.ts", import.meta.url))),
+      useAssistantReviewContext: (selector: any) => selector({ active: null }),
+    },
+  });
+  renderToStaticMarkup(React.createElement(WorkspaceAsk));
+  const entry = props.result.results[0];
+  assert.equal(entry.result_type, "drafter");
+  assert.match(entry.label, /^malaria/);
+  assert.equal(entry.analysis.indication, "malaria");
+  assert.deepEqual(entry.document_block_ids, []);
 });

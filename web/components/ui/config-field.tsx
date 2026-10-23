@@ -242,6 +242,7 @@ export function ConfigSelect({
   value,
   options,
   disabled,
+  loading = false,
   onChange,
   searchLabel,
   id,
@@ -252,6 +253,11 @@ export function ConfigSelect({
   value: string | undefined;
   options: { value: string; label: string }[];
   disabled?: boolean;
+  /**
+   * Its choices are still being fetched. The same box, disabled and saying so: an empty
+   * box in its place read as a broken page for the seconds a deployment takes to answer.
+   */
+  loading?: boolean;
   onChange: (value: string) => void;
   /** Opt long lists into local search; short selectors retain the standard menu. */
   searchLabel?: string;
@@ -261,6 +267,20 @@ export function ConfigSelect({
   "aria-describedby"?: string;
 }) {
   const field = useContext(FieldContext);
+  if (loading) {
+    return (
+      <Select value={undefined} disabled>
+        <SelectTrigger
+          id={id ?? field?.controlId}
+          aria-busy="true"
+          aria-label={ariaLabel}
+          aria-labelledby={labelledBy ?? (ariaLabel ? undefined : field?.labelId)}
+        >
+          <SelectValue placeholder="Loading…" />
+        </SelectTrigger>
+      </Select>
+    );
+  }
   if (searchLabel) {
     return (
       <SearchableSelect

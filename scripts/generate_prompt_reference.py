@@ -17,6 +17,8 @@ from services.aligner.prompt_catalog import PROMPT_CATALOG as ALIGNER_CATALOG
 from services.assistant.skills import available_skills
 from services.chunker import available_configs as chunker_configs
 from services.chunker.prompt_catalog import PROMPT_CATALOG as CHUNKER_CATALOG
+from services.drafter import available_configs as drafter_configs
+from services.drafter.prompt_catalog import PROMPT_CATALOG as DRAFTER_CATALOG
 from services.screener.prompt_catalog import PROMPT_CATALOG as SCREENER_CATALOG
 from services.inspector.prompt_catalog import PROMPT_CATALOG as INSPECTOR_CATALOG
 from services.inspector import (
@@ -34,6 +36,7 @@ VERSION = 3
 # Publication order, matching the order a document moves through the suite.
 CATALOGS = (
     CHUNKER_CATALOG,
+    DRAFTER_CATALOG,
     INSPECTOR_CATALOG,
     ALIGNER_CATALOG,
     SCOUT_CATALOG,
@@ -50,6 +53,7 @@ CATALOGS = (
 # `test_every_declared_framing_slot_publishes_its_text` is what notices if it does not.
 CONFIG_SOURCES = {
     "chunker": chunker_configs,
+    "drafter": drafter_configs,
     "inspector": lambda: inspector_document_configs() + inspector_additional_configs(),
     "scout": scout_configs,
 }

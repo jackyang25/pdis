@@ -407,7 +407,7 @@ test("groups block-level connections by reason without losing result IDs", () =>
 test("decodes the scientific entities the server's html.unescape decodes", () => {
   // A source block carrying entities the server folds before matching. Each of
   // these is outside the original six-entity map, so the span would not have
-  // highlighted even though conformity._normalize_quote accepts it.
+  // highlighted even though shared.quotes.normalize_quote accepts it.
   const source = block(
     "document/b-0100",
     1,

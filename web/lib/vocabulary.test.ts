@@ -164,6 +164,8 @@ test("reader-facing copy uses no em dash, in any tool", () => {
   const files = [
     "components/scout-signal-help.tsx",
     "components/screener-signal-help.tsx",
+    "components/drafter-signal-help.tsx",
+    "components/drafter-variable.tsx",
     "components/aligner-signal-help.tsx",
     "components/inspector-signal-help.tsx",
     "components/evidence-provenance.tsx",

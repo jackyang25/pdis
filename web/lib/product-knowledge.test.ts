@@ -79,7 +79,7 @@ test("an undeclared graph falls back rather than throwing", () => {
 // `every published workflow graph declares an icon` already covers.
 test("every tool that runs a pipeline publishes a graph", () => {
   const published = new Set(architectureGraphs().map((graph) => graph.id));
-  for (const tool of ["chunker", "inspector", "aligner", "screener", "scout"]) {
+  for (const tool of ["chunker", "drafter", "inspector", "aligner", "screener", "scout"]) {
     assert.ok(published.has(tool), `${tool} publishes no workflow graph`);
   }
 });

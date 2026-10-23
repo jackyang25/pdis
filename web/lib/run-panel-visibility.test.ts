@@ -30,7 +30,7 @@ function panelIsVisible(tool: string, result: unknown, busy: boolean, opened: bo
     `return (${gate.getText(file)});`)(result, busy, opened, opened, { result, busy }));
 }
 
-for (const tool of ["inspector", "aligner", "scout", "screener"]) {
+for (const tool of ["drafter", "inspector", "aligner", "scout", "screener"]) {
   test(`${tool}: returning to an active run shows progress despite a previous result`, () => {
     assert.equal(panelIsVisible(tool, { id: "previous" }, true, false), true);
   });

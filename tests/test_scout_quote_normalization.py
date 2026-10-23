@@ -10,7 +10,8 @@ from __future__ import annotations
 
 import unittest
 
-from services.scout.stages.conformity import MAX_TARGET_QUOTE_CHARS, _quote_in_text
+from services.scout.stages.conformity import MAX_TARGET_QUOTE_CHARS
+from shared.quotes import quote_in_text
 
 
 class TypographyIsNotAMismatchTests(unittest.TestCase):
@@ -22,7 +23,7 @@ class TypographyIsNotAMismatchTests(unittest.TestCase):
     )
 
     def test_a_verbatim_excerpt_matches(self) -> None:
-        self.assertTrue(_quote_in_text("Efficacy ≥ 80%", self.SOURCE))
+        self.assertTrue(quote_in_text("Efficacy ≥ 80%", self.SOURCE))
 
     def test_ascii_retyping_of_marks_matches(self) -> None:
         for label, quote in {
@@ -33,15 +34,15 @@ class TypographyIsNotAMismatchTests(unittest.TestCase):
             "ellipsis spelled out": "non-inferiority...",
         }.items():
             with self.subTest(case=label):
-                self.assertTrue(_quote_in_text(quote, self.SOURCE))
+                self.assertTrue(quote_in_text(quote, self.SOURCE))
 
     def test_invisible_characters_are_not_a_difference(self) -> None:
         source = "co­administration with routine EPI​ vaccines"
-        self.assertTrue(_quote_in_text("coadministration with routine EPI vaccines", source))
+        self.assertTrue(quote_in_text("coadministration with routine EPI vaccines", source))
 
     def test_whitespace_and_case_still_do_not_matter(self) -> None:
         self.assertTrue(
-            _quote_in_text("EFFICACY   ≥    80%", self.SOURCE),
+            quote_in_text("EFFICACY   ≥    80%", self.SOURCE),
             "the existing whitespace and case folding must survive",
         )
 
@@ -55,23 +56,23 @@ class MeaningIsStillAMismatchTests(unittest.TestCase):
     """
 
     def test_superscripts_are_not_digits(self) -> None:
-        self.assertFalse(_quote_in_text("102 CFU/mL", "titre of 10² CFU/mL"))
+        self.assertFalse(quote_in_text("102 CFU/mL", "titre of 10² CFU/mL"))
 
     def test_fractions_are_not_spelled_out(self) -> None:
-        self.assertFalse(_quote_in_text("1/2 dose", "½ dose at week 4"))
+        self.assertFalse(quote_in_text("1/2 dose", "½ dose at week 4"))
 
     def test_unit_ligatures_are_not_expanded(self) -> None:
-        self.assertFalse(_quote_in_text("50 mg", "50 ㎒ per vial"))
+        self.assertFalse(quote_in_text("50 mg", "50 ㎒ per vial"))
 
     def test_opposite_comparison_operators_do_not_match(self) -> None:
-        self.assertFalse(_quote_in_text("<= 80%", "Efficacy ≥ 80%"))
+        self.assertFalse(quote_in_text("<= 80%", "Efficacy ≥ 80%"))
 
     def test_a_different_number_does_not_match(self) -> None:
-        self.assertFalse(_quote_in_text("Efficacy >= 8%", "Efficacy ≥ 80%"))
+        self.assertFalse(quote_in_text("Efficacy >= 8%", "Efficacy ≥ 80%"))
 
     def test_collapsing_whitespace_does_not_join_separate_numbers(self) -> None:
         self.assertFalse(
-            _quote_in_text("102", "see figure 10 2 for the curve"),
+            quote_in_text("102", "see figure 10 2 for the curve"),
             "whitespace is collapsed, never removed, or adjacent numbers would merge",
         )
 

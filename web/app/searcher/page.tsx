@@ -345,12 +345,10 @@ export default function SearcherPage() {
           <fieldset className="mt-6 min-w-0">
             <Label asChild><legend>Sources</legend></Label>
             <div className="mt-2 flex min-h-8 flex-wrap items-center gap-2">
+            {/* Said, not drawn: blank chips in their place read as a broken page while a
+                deployment answered. */}
             {!sourcesLoaded && (
-              <>
-                <span className="h-8 w-20 rounded-md border border-border bg-muted" />
-                <span className="h-8 w-24 rounded-md border border-border bg-muted" />
-                <span className="h-8 w-16 rounded-md border border-border bg-muted" />
-              </>
+              <span role="status" className="text-xs text-muted-foreground">Loading sources…</span>
             )}
             {sources.map((source) => {
               const on = selected.has(source.key);

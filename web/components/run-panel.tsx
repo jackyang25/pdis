@@ -31,8 +31,14 @@ const SINGLE_DOCUMENT: readonly DocumentSlot[] = [
 type Props = {
   className?: string;
   configuration?: React.ReactNode;
-  /** Upload slots in display order. Defaults to one unlabeled document. */
-  documents?: readonly DocumentSlot[];
+  /**
+   * Upload slots in display order. Defaults to one unlabeled document.
+   *
+   * `null` for a tool that reads no document (Drafter): no upload area, and Run waits only
+   * on the configuration. Distinct from an empty list, which is a tool that has not chosen
+   * its documents yet and so cannot run.
+   */
+  documents?: readonly DocumentSlot[] | null;
   /** One capability governs the picker, drag/drop validation, and format hint. */
   documentFormats?: DocumentFormats;
   /** Explain an empty slot list before the caller has chosen document roles. */
@@ -46,7 +52,7 @@ type Props = {
   disabled?: boolean;
   busy?: boolean;
   startedAt?: number | null;
-  /** Called once every slot holds a supported file, keyed by slot id. */
+  /** Called once every required slot holds a supported file; files are keyed by slot id. */
   onRun: (files: Record<string, File>) => void;
   /** The page owns parsing and saved-result compatibility; this owns the picker. */
   onImport?: (file: File) => void;
@@ -117,7 +123,7 @@ export function RunPanel({
     const { placed, overflow, unsupported, repeated } = placeFiles({
       slotId,
       picked,
-      slotIds: documents.map((slot) => slot.id),
+      slotIds: (documents ?? []).map((slot) => slot.id),
       held: files,
       suffixes: documentFormats.suffixes,
     });
@@ -136,7 +142,7 @@ export function RunPanel({
 
   // `every` is true for an empty list, so a tool that has not decided on its
   // documents yet would otherwise enable Run with nothing attached.
-  const complete = documents.length > 0 && documents.every((slot) => files[slot.id]);
+  const complete = documents === null || (documents.length > 0 && documents.every((slot) => files[slot.id]));
 
   return (
     <section
@@ -156,8 +162,8 @@ export function RunPanel({
           </div>
         )}
         <div className="flex min-w-0 flex-col gap-4">
-          <div className="flex min-h-6 flex-wrap items-center justify-between gap-2">
-            <h2 className="text-sm font-semibold">Documents</h2>
+          <div className={cn("flex min-h-6 flex-wrap items-center gap-2", documents ? "justify-between" : "justify-end")}>
+            {documents && <h2 className="text-sm font-semibold">Documents</h2>}
             {onImport && (
               <>
                 <button
@@ -182,6 +188,8 @@ export function RunPanel({
               </>
             )}
           </div>
+          {documents && (
+            <>
           <div
             className={cn(
               // Two columns at most, whatever the slot count. Three across put each
@@ -231,6 +239,9 @@ export function RunPanel({
           {typeError && <ErrorMessage size="xs">{typeError}</ErrorMessage>}
           {documentFormats.note && (
             <p className="text-xs leading-relaxed text-muted-foreground">{documentFormats.note}</p>
+          )}
+
+            </>
           )}
 
           {/* While running, the checklist is several lines tall, so the button sits at its

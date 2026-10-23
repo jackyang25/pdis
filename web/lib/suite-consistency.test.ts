@@ -12,7 +12,7 @@ import path from "node:path";
 import test from "node:test";
 
 const WEB = path.resolve(import.meta.dirname, "..");
-const TOOL_PAGES = ["inspector", "aligner", "screener", "scout", "chunker", "searcher"]
+const TOOL_PAGES = ["drafter", "inspector", "aligner", "screener", "scout", "chunker", "searcher"]
   .map((tool) => path.join(WEB, "app", tool, "page.tsx"));
 
 function sources(directory: string): string[] {

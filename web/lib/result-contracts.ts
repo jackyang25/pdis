@@ -2,6 +2,8 @@ import { ALIGNMENT_VERDICTS, VERDICTS } from "./api.ts";
 import type {
   AlignerResponse,
   DisciplineReview,
+  DraftResult,
+  DraftVariable,
   ScreenerResponse,
   InspectorResponse,
   QuestionAssessment,
@@ -29,7 +31,7 @@ import type {
  */
 
 /** The tools that produce a downloadable result. */
-export type ResultType = "aligner" | "screener" | "inspector" | "scout";
+export type ResultType = "aligner" | "screener" | "inspector" | "scout" | "drafter";
 
 /** Throws with the reason this analysis cannot be hydrated. */
 export type ResultContract = (result: unknown) => void;
@@ -289,6 +291,59 @@ function assertScreenerReadable(result: unknown): void {
   if (questions === 0) fail("screener", "it carries no question");
 }
 
+// --- Drafter -----------------------------------------------------------------
+
+/**
+ * Every basis a suggestion cites is one of its own observations, and it leans on the basis it
+ * cites. The same pairing rules the service's contract enforces, checked here so a
+ * file edited by hand cannot render a suggestion with nothing behind it.
+ */
+function assertDrafterReadable(result: unknown): void {
+  const draft = result as DraftResult | null;
+  if (!draft || typeof draft !== "object") fail("drafter", "it carries no draft");
+  requireText("drafter", draft.intervention_class, "the product type");
+  requireText("drafter", draft.indication, "the disease / condition");
+  const variables = requireArray("drafter", draft.variables, "variables") as DraftVariable[];
+  if (variables.length === 0) fail("drafter", "it carries no variable");
+  const names = new Set<string>();
+  for (const variable of variables) {
+    requireText("drafter", variable.name, "a variable name");
+    if (names.has(variable.name)) fail("drafter", "it repeats a variable");
+    names.add(variable.name);
+    const observations = new Set(requireArray("drafter", variable.observations, "observations").map(
+      (observation) => (observation as { id: string }).id,
+    ));
+    if (variable.status === "failed") {
+      if (!DRAFT_FAILURE_CODES.has(variable.failure?.code ?? "")) fail("drafter", "a failed variable carries no known failure code");
+      continue;
+    }
+    const suggestion = variable.suggestion;
+    if (!suggestion) fail("drafter", "a suggested row carries no suggestion");
+    if (suggestion.basis_ids.some((id) => !observations.has(id))) {
+      fail("drafter", "a suggestion cites a basis the variable does not hold");
+    }
+    const decidable = suggestion.kind === "range" || suggestion.kind === "statement";
+    if (decidable) {
+      if (suggestion.basis_ids.length === 0) fail("drafter", "a suggestion names no basis");
+      const cited = new Set(variable.observations
+        .filter((observation) => suggestion.basis_ids.includes(observation.id))
+        .map((observation) => observation.basis));
+      const expected = LEANS_ON_BASES[suggestion.leans_on as keyof typeof LEANS_ON_BASES];
+      if (!expected || cited.size !== expected.length || expected.some((basis) => !cited.has(basis))) {
+        fail("drafter", "a suggestion does not cite the basis it leans on");
+      }
+    }
+  }
+}
+
+/** The service's `FAILURE_CODES` and its leans-on pairing, mirrored for a file handed to us. */
+const DRAFT_FAILURE_CODES = new Set(["search_planning_failed", "evidence_unavailable", "suggestion_failed"]);
+const LEANS_ON_BASES = {
+  comparable_products: ["comparable_product"],
+  guidance: ["published_guidance"],
+  both: ["comparable_product", "published_guidance"],
+} as const;
+
 // --- Scout -------------------------------------------------------------------
 
 /**
@@ -325,6 +380,7 @@ export const RESULT_CONTRACTS = {
   screener: assertScreenerReadable,
   inspector: assertInspectorReadable,
   scout: assertScoutReadable,
+  drafter: assertDrafterReadable,
 } as const satisfies Record<ResultType, ResultContract>;
 
 function hasCompleteEvidenceUnitContract(result: ScoutResponse): boolean {

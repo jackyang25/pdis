@@ -26,6 +26,7 @@ change. Background lives in the linked READMEs and is not repeated here.
 | A stage-gate question bank | `services/screener/configs/bmgf_<gate>.yaml` | [Screener](services/screener/README.md#the-bank) |
 | Scout sources, query guidance, institutions, languages | `services/scout/configs/bmgf_<type>_<class>.yaml` | [Scout](services/scout/README.md#development) |
 | Fixed TPP attributes | `shared/attributes.yaml` | [Scout](services/scout/README.md) |
+| Drafter sources and search guidance | `services/drafter/configs/bmgf_itpp_<class>.yaml` | [Drafter](services/drafter/README.md#configuration) |
 | Which documents Aligner compares | `services/aligner/configs/alignment.yaml` | [Aligner](services/aligner/README.md#configuration-is-the-whole-design) |
 | The disease / condition list | `shared/indications.yaml` | [Indication naming](docs/indication-vocabulary.md) |
 | Product documentation and FAQ | `shared/product_knowledge.json` | [README](README.md#configuration) |

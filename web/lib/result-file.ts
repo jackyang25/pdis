@@ -1,6 +1,7 @@
 import type {
   AlignerResponse,
   ContentBlock,
+  DraftResult,
   ScreenerResponse,
   InspectorResponse,
   ScoutResponse,
@@ -60,6 +61,7 @@ const ANALYSIS_VERSIONS = {
   // 2: explicit review/mapping failures, retained reviewer source context,
   // and model-authored numeric presentation metadata.
   scout: 2,
+  drafter: 1,
 } as const satisfies Record<ResultType, number>;
 
 type SourceDocument = {
@@ -155,6 +157,30 @@ export function packScoutResult(result: ScoutResponse): ResultFile<"scout", Scou
   };
 }
 
+/** A draft reads no document, so the analysis is the whole result and no documents travel. */
+type DrafterAnalysis = DraftResult;
+
+export function packDrafterResult(result: DraftResult): ResultFile<"drafter", DrafterAnalysis> {
+  RESULT_CONTRACTS.drafter(result);
+  return {
+    schema: RESULT_SCHEMA,
+    envelope_version: ENVELOPE_VERSION,
+    analysis_version: ANALYSIS_VERSIONS.drafter,
+    state: "final",
+    ...stamp(),
+    result_type: "drafter",
+    analysis: result,
+    source_documents: [],
+  };
+}
+
+export function unpackDrafterResult(value: unknown): DraftResult {
+  const file = requireResultFile(value, "drafter");
+  const result = file.analysis as DrafterAnalysis;
+  RESULT_CONTRACTS.drafter(result);
+  return result;
+}
+
 /**
  * Every tool that keeps finished runs.
  *
@@ -199,6 +225,10 @@ function runLabelParts(result: unknown, type: RunKeepingTool): string[] {
       return alignment.documents
         .map((document) => document.source_type ? displayLabel(document.source_type) : document.doc_id)
         .filter(Boolean);
+    }
+    case "drafter": {
+      // The disease it was drafted for; the product type is the scope line beneath.
+      return [displayLabel((result as DraftResult).indication)].filter(Boolean);
     }
     case "chunker": {
       const parsed = result as { doc_id?: string };
@@ -261,6 +291,8 @@ function runConfiguration(result: unknown, type: RunKeepingTool): string[] {
         ...documentTypes(alignment.documents),
       ];
     }
+    case "drafter":
+      return [(result as DraftResult).intervention_class, "itpp"];
     default:
       // Chunker and searcher keep runs but hold no configuration: one parses a file, the
       // other answers a query. Neither has a scope line to state.
@@ -290,6 +322,7 @@ const FALLBACK_LABEL: Record<RunKeepingTool, string> = {
   scout: "Scout result",
   screener: "Gate review",
   aligner: "Alignment",
+  drafter: "Draft iTPP",
   chunker: "Parsed document",
   searcher: "Search",
 };

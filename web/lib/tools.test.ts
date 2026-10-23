@@ -284,7 +284,7 @@ test("a tool's page says the same thing its card does", () => {
   // header - and the two drifted before: the card said "what is missing, off-template,
   // vague" while the page said "every unit the rubric asks about". One tool, two
   // accounts of what it does.
-  for (const id of ["inspector", "aligner", "scout", "screener"]) {
+  for (const id of ["drafter", "inspector", "aligner", "scout", "screener"]) {
     const page = readFileSync(
       path.resolve(import.meta.dirname, "..", "app", id, "page.tsx"),
       "utf8",

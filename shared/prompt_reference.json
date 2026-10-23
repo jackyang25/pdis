@@ -144,6 +144,50 @@
       "tool": "chunker"
     },
     {
+      "display_name": "BMGF Intervention TPP - Device",
+      "intervention_class": "device",
+      "mirrors": "",
+      "org": "bmgf",
+      "source_type": "itpp",
+      "texts": {
+        "query_guidance": "Search for what existing devices for this indication achieved on this variable -\nclinical studies, evaluations, labels and regulatory reviews - and for what published\nspecifications ask of a new device (WHO technical specifications and target product\nprofiles, prequalification requirements, procurement specifications). Prefer named\ndevices and named authorities over generic phrasing."
+      },
+      "tool": "drafter"
+    },
+    {
+      "display_name": "BMGF Intervention TPP - Diagnostic",
+      "intervention_class": "diagnostic",
+      "mirrors": "",
+      "org": "bmgf",
+      "source_type": "itpp",
+      "texts": {
+        "query_guidance": "Search for what existing tests for this indication achieved on this variable -\ndiagnostic accuracy studies, evaluations, labels and regulatory reviews - and for what\npublished target profiles ask of a new test (WHO target product profiles, WHO\nprequalification requirements, FIND and Unitaid landscapes). Prefer named tests and\nnamed authorities over generic phrasing."
+      },
+      "tool": "drafter"
+    },
+    {
+      "display_name": "BMGF Intervention TPP - Drug",
+      "intervention_class": "drug",
+      "mirrors": "",
+      "org": "bmgf",
+      "source_type": "itpp",
+      "texts": {
+        "query_guidance": "Search for what approved and late-stage drugs for this indication achieved on this\nvariable - trial results, labels and regulatory reviews - and for what published target\nprofiles and treatment guidelines ask of a new drug (WHO target product profiles, WHO\ntreatment guidelines, essential-medicines listings). Prefer named products and named\nauthorities over generic phrasing."
+      },
+      "tool": "drafter"
+    },
+    {
+      "display_name": "BMGF Intervention TPP - Vaccine",
+      "intervention_class": "vaccine",
+      "mirrors": "",
+      "org": "bmgf",
+      "source_type": "itpp",
+      "texts": {
+        "query_guidance": "Search for what licensed and late-stage vaccines for this indication achieved on this\nvariable - trial results, labels and regulatory reviews - and for what published target\nprofiles ask of a new vaccine (WHO preferred product characteristics, prequalification\nrequirements, Gavi and UNICEF programme needs). Prefer named products and named\nauthorities over generic phrasing."
+      },
+      "tool": "drafter"
+    },
+    {
       "display_name": "PDID template: cTPP",
       "intervention_class": "device",
       "mirrors": "PDID Reference Library \u2014 device Candidate TPP template: section list, unit names, and the Minimum / Optimistic / Annotations convention.",
@@ -863,6 +907,56 @@
       "text": "You are labeling document blocks with normalized section names.\n\nYou will receive an ordered list of blocks extracted from a document.\nFor each requested output block, return its id and the section_label it belongs to.\nUnless an output subset is specified, all supplied blocks are requested.\n\nRules:\n- Every requested output block must receive exactly one section_label.\n- Read all supplied blocks as context, including blocks outside an output subset.\n- This is a classification task only. Do not provide medical advice,\n  clinical recommendations, safety assessment, or interpretation.\n- Do not evaluate, endorse, transform, or generate medical claims.\n  Only assign section labels to already-written source text.\n- Group adjacent blocks under the same label when they share a topic,\n  even if a heading boundary falls between them.\n- Prefer semantic fit over literal heading text. A paragraph discussing\n  target population details under a heading called \"Executive Summary\"\n  should still be labeled \"Executive Summary (Core Variables)\" if it\n  appears within that table section.\n- Use the heading_stack as a strong signal but not the final word.\n- Heading blocks should be labeled with the section they introduce,\n  not treated as a separate category.\n- Do not invent section labels outside the provided taxonomy.\n\n{preamble}\n\nSection taxonomy:\n- \"{section_name}\" - {section_description}\n- \"Document Metadata\" - Page numbers, version stamps, headers, footers, template metadata, and other formatting artifacts that are about the document itself, not its substantive content.\n- \"Other\" - Real content that does not fit any taxonomy section above. Use sparingly; prefer a taxonomy section when there's a reasonable fit.\n\nDisambiguation rules:\n- {disambiguation_rule}\n- Blocks containing page numbers, version stamps, template metadata, headers, footers, or formatting artifacts should be labeled 'Document Metadata', not forced into a content section.\n- If a block is real content but does not fit any taxonomy section, label it 'Other'. Do not force-fit content into the wrong section.\n\nReturn one structured labels list with id, section_label, and confidence.\nEvery requested output block id must appear exactly once.\nEvery section_label must be an exact label from the taxonomy above.\nConfidence must be one of: \"high\", \"medium\", \"low\".",
       "title": "Section assignment",
       "tool": "chunker"
+    },
+    {
+      "builder": "build_system_prompt",
+      "framing_slot": "query_guidance",
+      "id": "search_planner.variable",
+      "produces": {
+        "result_fields": [],
+        "ui_labels": []
+      },
+      "stage": "plan",
+      "text": "You plan literature, registry and guidance searches for ONE variable of an intervention target product profile (iTPP) that a team is drafting.\n\nWrite up to 4 short search queries. Each has a purpose:\n- comparable: finds what existing or late-stage products for this disease achieved or specify for this variable.\n- guidance: finds what a published target profile, guideline or programme requirement asks of a new product for this variable.\nWrite at least one of each where the variable could plausibly have both.\n\nFor each query also state its facets: condition, intervention, population and outcome, each blank when the query does not state it. Do not restate the condition in other words.\n\nDomain guidance:\n{query_guidance}",
+      "title": "Planning searches",
+      "tool": "drafter"
+    },
+    {
+      "builder": "build_system_prompt",
+      "framing_slot": null,
+      "id": "evidence_reader.source",
+      "produces": {
+        "result_fields": [
+          "variables[].observations[]"
+        ],
+        "ui_labels": [
+          "comparable_product",
+          "published_guidance"
+        ]
+      },
+      "stage": "evidence",
+      "text": "You read ONE source excerpt for ONE variable of an intervention target product profile (iTPP) that a team is drafting, and report what the excerpt says about that variable.\n\nReport two kinds of observation, and never mix them:\n- comparable_product: what an existing or investigational product achieved, showed or is specified to have for this variable. Name the product.\n- published_guidance: what a target product profile, guideline, prequalification or programme requirement asks of a product for this variable. Name the publisher as product.\n\nFor each, copy the exact words from the excerpt that state it as quote. Give a number only as the excerpt writes it: value for a single figure, lower and upper for a range, the unit exactly as written; leave numbers null for a statement in words. Report nothing when the excerpt does not speak to this variable for this disease.",
+      "title": "Reading evidence",
+      "tool": "drafter"
+    },
+    {
+      "builder": "build_system_prompt",
+      "framing_slot": null,
+      "id": "suggester.variable",
+      "produces": {
+        "result_fields": [
+          "variables[].suggestion"
+        ],
+        "ui_labels": [
+          "range",
+          "statement",
+          "insufficient"
+        ]
+      },
+      "stage": "suggest",
+      "text": "You suggest a target for ONE variable of an intervention target product profile (iTPP) that a team is drafting, from the evidence supplied and nothing else.\n\nChoose a kind:\n- range: for a variable measured in numbers. Give a minimum (the least a product must reach to be worth developing) and a preferred value (what would make it clearly better), each written with its unit. Either may be blank if the evidence supports only one.\n- statement: for a variable described in words. Give one short requirement.\n- insufficient: the evidence cannot support a suggestion. Give no values and no basis.\n\nEvery suggestion cites the observation IDs it rests on in basis_ids, and says which kind of evidence it leans on: comparable_products (what similar products achieved), guidance (what a published profile or guideline asks), or both - and then cites at least one of each. Never state a number the evidence does not support. The rationale is one or two sentences naming the evidence it leans on.",
+      "title": "Suggesting a target",
+      "tool": "drafter"
     },
     {
       "builder": "build_assessment_prompt",

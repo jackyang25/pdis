@@ -381,7 +381,7 @@ test("current Scout artifacts require a complete comparison contract", () => {
 });
 
 test("download suggestions are bounded tool names, independent of source filenames", () => {
-  for (const tool of ["inspector", "scout", "screener", "aligner", "chunker"] as const) {
+  for (const tool of ["inspector", "scout", "screener", "aligner", "drafter", "chunker"] as const) {
     assert.equal(runFilename(tool), `pdis-${tool}.json`);
   }
 });

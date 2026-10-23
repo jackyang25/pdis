@@ -5,6 +5,7 @@ import type {
   ContentBlock,
   AlignerResponse,
   ScreenerResponse,
+  DraftResult,
   ScoutResponse,
   InspectorResponse,
   SearcherResponse,
@@ -196,6 +197,7 @@ export type SearcherResult = SearcherResponse;
 export type ScoutResult = ScoutResponse;
 export type AlignerResult = AlignerResponse;
 export type ScreenerResult = ScreenerResponse;
+export type DrafterResult = DraftResult;
 
 export const useChunkerSession = createToolSession<ChunkerResult>();
 export const useInspectorSession = createToolSession<InspectorResult>();
@@ -203,3 +205,4 @@ export const useSearcherSession = createToolSession<SearcherResult>();
 export const useScoutSession = createToolSession<ScoutResult>();
 export const useAlignerSession = createToolSession<AlignerResult>();
 export const useScreenerSession = createToolSession<ScreenerResult>();
+export const useDrafterSession = createToolSession<DrafterResult>();

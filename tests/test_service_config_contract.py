@@ -4,14 +4,14 @@ from __future__ import annotations
 
 import unittest
 
-from services import chunker, inspector, scout
+from services import chunker, drafter, inspector, scout
 
 
 class ConfigLookupContractTests(unittest.TestCase):
     UNKNOWN = ("nosuchorg", "nosuchtype", "nosuchclass")
 
     def test_every_service_signals_a_missing_config_the_same_way(self) -> None:
-        for module in (chunker, inspector, scout):
+        for module in (chunker, drafter, inspector, scout):
             with self.subTest(service=module.__name__):
                 with self.assertRaises(LookupError):
                     module.find_config(*self.UNKNOWN)

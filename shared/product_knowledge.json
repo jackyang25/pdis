@@ -1017,6 +1017,141 @@
               ]
             },
             {
+              "id": "drafter",
+              "title": "Drafter",
+              "summary": "Suggests a target for each iTPP variable of a product type: a minimum and preferred value, or a short requirement, drawn from what comparable products achieved and what published guidance asks. Every target is labelled a suggestion, with its sources, for the team to check and edit.",
+              "nodes": [
+                {
+                  "id": "inputs",
+                  "title": "Product context",
+                  "kind": "input",
+                  "layer": "Input",
+                  "summary": "The product type selects the iTPP's variables; every one is suggested.",
+                  "inputs": [
+                    "Organization, health product type, and disease / condition"
+                  ],
+                  "outputs": [
+                    "The shared variable list for the product type"
+                  ]
+                },
+                {
+                  "id": "plan",
+                  "title": "Planning searches",
+                  "kind": "model",
+                  "layer": "Retrieval",
+                  "summary": "One call per open variable writes a few queries, each asking either what comparable products achieved or what published guidance asks.",
+                  "inputs": [
+                    "One variable",
+                    "The product type's search guidance"
+                  ],
+                  "outputs": [
+                    "Retrieval intents with search facets"
+                  ]
+                },
+                {
+                  "id": "search",
+                  "title": "Evidence search",
+                  "kind": "integration",
+                  "layer": "Retrieval",
+                  "summary": "Searcher runs the planned queries across the configured literature, registry, regulatory and guidance sources.",
+                  "inputs": [
+                    "Retrieval intents"
+                  ],
+                  "outputs": [
+                    "Findings per variable",
+                    "Sources that could not be searched"
+                  ]
+                },
+                {
+                  "id": "evidence",
+                  "title": "Reading evidence",
+                  "kind": "model",
+                  "layer": "Evidence",
+                  "summary": "One call per source and variable reports what the source says, as a comparable product's result or a guidance target, in the source's own words.",
+                  "inputs": [
+                    "One source excerpt",
+                    "One variable"
+                  ],
+                  "outputs": [
+                    "Observations with their basis and exact quotes"
+                  ],
+                  "guarantee": "Code checks that every quote appears in the source, and only verbatim literature, registry and regulatory text may supply a number."
+                },
+                {
+                  "id": "figures",
+                  "title": "Figures",
+                  "kind": "deterministic",
+                  "layer": "Evidence",
+                  "summary": "Comparable values are described per stated unit: count, median, middle half and range. Units are never converted or pooled.",
+                  "inputs": [
+                    "Comparable products' stated values"
+                  ],
+                  "outputs": [
+                    "Descriptive figures per unit"
+                  ]
+                },
+                {
+                  "id": "suggest",
+                  "title": "Suggesting a target",
+                  "kind": "model",
+                  "layer": "Suggestion",
+                  "summary": "One call per variable proposes a range, a statement, or says the evidence is not enough, citing only that variable's observations and naming the basis it leans on.",
+                  "inputs": [
+                    "One variable",
+                    "Its observations and figures"
+                  ],
+                  "outputs": [
+                    "A suggestion with its rationale and basis"
+                  ],
+                  "guarantee": "A suggestion with no basis is refused, and a variable that cannot be suggested is recorded as such rather than dropped."
+                },
+                {
+                  "id": "result",
+                  "title": "Final draft",
+                  "kind": "output",
+                  "layer": "Result",
+                  "summary": "Every variable with its suggested target, what it leans on and its sources, saved as a portable result and exportable as a Word table.",
+                  "inputs": [
+                    "Every suggested variable"
+                  ],
+                  "outputs": [
+                    "Portable draft result",
+                    "Word table of targets with sources"
+                  ]
+                }
+              ],
+              "edges": [
+                {
+                  "source": "inputs",
+                  "target": "plan"
+                },
+                {
+                  "source": "plan",
+                  "target": "search"
+                },
+                {
+                  "source": "search",
+                  "target": "evidence"
+                },
+                {
+                  "source": "evidence",
+                  "target": "figures"
+                },
+                {
+                  "source": "evidence",
+                  "target": "suggest"
+                },
+                {
+                  "source": "figures",
+                  "target": "suggest"
+                },
+                {
+                  "source": "suggest",
+                  "target": "result"
+                }
+              ]
+            },
+            {
               "id": "chunker",
               "title": "Chunker",
               "summary": "Normalizes documents into one ordered block contract: DOCX/PPTX with retained visuals, and PDF page text and visuals for Screener.",

@@ -89,6 +89,11 @@ export default function ScreenerPage() {
   const session = useScreenerSession();
   const header = useHeaderStore((state) => state.header);
   const [gates, setGates] = useState<GateSpec[]>([]);
+  // Which context the gates on screen were loaded for, so the field can say it is loading
+  // rather than sit empty while a deployment answers.
+  const [gatesFor, setGatesFor] = useState<string | null>(null);
+  const gatesKey = `${header.org ?? ""}/${header.intervention_class ?? ""}`;
+  const gatesLoading = Boolean(header.org && header.intervention_class) && gatesFor !== gatesKey;
   const [gate, setGate] = useState("");
   const [documentIds, setDocumentIds] = useState(["document-1"]);
   const nextDocumentId = useRef(2);
@@ -106,15 +111,18 @@ export default function ScreenerPage() {
     let live = true;
     // Surfaced rather than swallowed: without the declared gates there is nothing
     // to select, so Run would gate with no way for the user to learn why.
+    const requested = `${header.org}/${header.intervention_class}`;
     fetchScreenerGates(header.org, header.intervention_class)
-      .then((loaded) => live && setGates(loaded))
-      .catch(
-        (error: Error) =>
-          live &&
-          session.setError(
-            `Could not load the gates Screener asks about: ${error.message}`,
-          ),
-      );
+      .then((loaded) => {
+        if (!live) return;
+        setGates(loaded);
+        setGatesFor(requested);
+      })
+      .catch((error: Error) => {
+        if (!live) return;
+        setGatesFor(requested);
+        session.setError(`Could not load the gates Screener asks about: ${error.message}`);
+      });
     return () => {
       live = false;
     };
@@ -230,6 +238,7 @@ export default function ScreenerPage() {
                       value: item.id,
                       label: item.label,
                     }))}
+                    loading={gatesLoading}
                     disabled={!header.org || gates.length === 0}
                     onChange={setGate}
                   />

@@ -192,6 +192,11 @@ function InspectorView({ header, ready }: { header: Header; ready: boolean }) {
               </ConfigField>)}
               <ConfigHelp>Unknown facts leave dependent reviews unassessed. Other applicable reviews still run.</ConfigHelp>
             </>}
+            {/* A profile's extra questions arrive a moment after its document type is chosen;
+                saying so keeps the rail from looking finished before they do. */}
+            {ready && !catalog.ready && !catalog.error && (
+              <ConfigHelp>Loading product context…</ConfigHelp>
+            )}
             {catalog.error && <ErrorMessage>{catalog.error}</ErrorMessage>}
           </ConfigurationFields>}
           busy={busy}

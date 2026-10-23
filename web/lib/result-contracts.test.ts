@@ -13,7 +13,7 @@ import test from "node:test";
 
 import { RESULT_CONTRACTS, type ResultType } from "./result-contracts.ts";
 
-const TOOLS: ResultType[] = ["aligner", "screener", "inspector", "scout"];
+const TOOLS: ResultType[] = ["aligner", "screener", "inspector", "scout", "drafter"];
 
 function inspectorSections(sections: unknown[]) {
   return { inspection: { blocks: [], document_findings: [], applicability_facts: {},

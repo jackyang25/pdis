@@ -25,6 +25,7 @@ import re
 import unittest
 
 from services.chunker.formats import SOURCE_FORMATS
+from services.drafter import models as drafter_models
 from services.scout import models as scout_models
 from services.searcher.models import (
     DEVELOPMENT_RECORD_TYPES,
@@ -58,13 +59,14 @@ def domain_vocabularies() -> dict[str, frozenset[str]]:
         "EVIDENCE_DOMAINS": frozenset(EVIDENCE_DOMAINS),
         "SOURCE_FORMATS": SOURCE_FORMATS,
     }
-    for name in dir(scout_models):
-        if not name.isupper():
-            continue
-        value = getattr(scout_models, name)
-        if isinstance(value, (frozenset, set, tuple, list)) and value:
-            if all(isinstance(item, str) for item in value):
-                found[name] = frozenset(value)
+    for module in (scout_models, drafter_models):
+        for name in dir(module):
+            if not name.isupper():
+                continue
+            value = getattr(module, name)
+            if isinstance(value, (frozenset, set, tuple, list)) and value:
+                if all(isinstance(item, str) for item in value):
+                    found.setdefault(name, frozenset(value))
     return found
 
 

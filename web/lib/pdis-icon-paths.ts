@@ -12,9 +12,10 @@
  */
 export const PDIS_ICON_PATHS = {
   // Native workspace tools
+  drafter: "freehand/edit-pen-write-paper--Streamline-Freehand.svg",
   inspector: "freehand/form-edition-clipboard-check--Streamline-Freehand.svg",
   aligner: "freehand/strategy-business-success-peak--Streamline-Freehand.svg",
-  scout: "freehand/hierarchy-web--Streamline-Freehand.svg",
+  scout: "freehand/view-binocular--Streamline-Freehand.svg",
   screener: "freehand/human-resources-rating-man--Streamline-Freehand.svg",
   chunker: "freehand/data-transfer-document-module--Streamline-Freehand.svg",
   searcher: "freehand/search-magnifier--Streamline-Freehand.svg",
@@ -36,6 +37,7 @@ export type PdisIconName = keyof typeof PDIS_ICON_PATHS;
  * `product-knowledge.test.ts` fails so it does not stay wrong.
  */
 const GRAPH_ICONS: Record<string, PdisIconName> = {
+  drafter: "drafter",
   inspector: "inspector",
   aligner: "aligner",
   screener: "screener",

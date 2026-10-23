@@ -28,6 +28,7 @@ export type ArchitectureNode = {
 
 export type ArchitectureGraph = {
   id:
+    | "drafter"
     | "inspector"
     | "aligner"
     | "screener"

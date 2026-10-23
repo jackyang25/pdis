@@ -210,7 +210,8 @@ web/ → api/ → services/ → shared/
 
 Each tool judges a document against a different authority: Inspector against an
 authored rubric, Aligner against a second document, Scout against external
-evidence. Those comparison targets are not interchangeable.
+evidence. Those comparison targets are not interchangeable. Drafter judges nothing:
+it suggests targets a reviewer decides on, so its description names no authority.
 
 Every user-facing description of these tools states that in one shape — *what it
 reads* against *the authority it is judged by* — so a reader can tell the tools
@@ -614,13 +615,43 @@ supplied material answers and which it does not.
 - Do not restore holistic “basis” labels or present descriptive cohort statistics
   as confidence intervals, success probabilities, or causal estimates.
 
+### Drafter
+
+Drafter suggests iTPP targets for a product type and disease. It judges nothing: a
+suggestion is a proposal for a reviewer, never a finding about a document, so Drafter has
+no priority card, no verdicts and no score, and reads no other tool's output.
+
+- Its variables are the shared attribute list for the product type, so a Drafter row and
+  a Scout field are the same variable. Drafter reads no document: a draft is Inspector's
+  and Scout's to judge, and a second reader of it would be a second authority over it.
+- Evidence has two bases, `comparable_product` and `published_guidance` - what has been
+  done and what is being asked - and they are never blended. A suggestion names the basis
+  it leans on and cites only its own variable's observations. `contract.check_suggestion`
+  is the one pairing rule for kind, values and basis, applied to the model's reply and to
+  every saved result.
+- A number enters the figures only from a comparable product's verbatim literature,
+  registry or regulatory text - Scout's rule. Figures are per stated unit, never converted
+  or pooled, and descriptive only. `web` is not a Drafter source: its excerpts are snippets.
+- `insufficient` is a suggestion's outcome; `status: failed` with a code is a pipeline
+  failure, and the two never share a value. A variable no source spoke to is recorded
+  `insufficient` without a model call and with an empty rationale, which the interface
+  states in its own voice rather than as a model's sentence.
+- Published guidance is found by searching, never stored in configuration: a copy of a
+  document that is revised goes stale without anyone noticing.
+- A run is final when it finishes and is exported as it is, every target labelled a
+  suggestion with its sources; the Word table is built by the server from the result. There
+  is no review step: a checkpoint earns its place only before something it controls, and
+  nothing in a Drafter run follows its suggestions.
+- Quote matching (`shared/quotes.py`) and descriptive statistics (`shared/statistics.py`)
+  are shared with Scout; Drafter uses Searcher and Chunker only through their packages.
+
 ## Results, Ask, and API
 
 - A prompt that inserts configured text declares the slot on its catalog entry, and
   `scripts/generate_prompt_reference.py` reads the slots from the catalogs rather
   than a list of its own. A declared slot that publishes nothing, or inserted text no
   entry declares, is a documentation gap the generator can no longer hide.
-- Inspector, Aligner, Screener, and Scout use the versioned `pdis.result` envelope in
+- Inspector, Aligner, Screener, Scout, and Drafter use the versioned `pdis.result` envelope in
   `web/lib/result-file.ts`, separating `analysis` from `source_documents`.
 - A saved file carries two versions, and they answer different questions.
   `ENVELOPE_VERSION` covers the wrapper all three tools share, so bumping it

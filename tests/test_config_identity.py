@@ -16,9 +16,9 @@ from __future__ import annotations
 
 import unittest
 
-from services import chunker, inspector, scout
+from services import chunker, drafter, inspector, scout
 
-SERVICES = (chunker, inspector, scout)
+SERVICES = (chunker, drafter, inspector, scout)
 
 
 class ConfigIdentityTests(unittest.TestCase):
@@ -64,7 +64,7 @@ class ConfigIdentityTests(unittest.TestCase):
         shared triple, which is what an unnoticed rename produces.
         """
         parseable = {config.type_key for config in chunker.available_configs()}
-        for service in (inspector, scout):
+        for service in (drafter, inspector, scout):
             with self.subTest(service=service.__name__):
                 unknown = sorted(
                     {config.type_key for config in service.available_configs()} - parseable

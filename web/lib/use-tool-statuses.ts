@@ -2,7 +2,7 @@
 
 import { QUEUED_STAGE } from "@/lib/api";
 import {
-  useAlignerSession, useChunkerSession, useInspectorSession,
+  useAlignerSession, useChunkerSession, useDrafterSession, useInspectorSession,
   useScoutSession, useScreenerSession, useSearcherSession,
 } from "@/lib/session";
 
@@ -24,6 +24,7 @@ export function toolStatus(session: SessionStatusInput, needsReview = false): To
 /** Select primitive values so progress ticks do not rerender the tool catalog. */
 export function useToolStatuses(): Record<string, ToolStatus | null> {
   return {
+    drafter: useDrafterSession(toolStatus),
     inspector: useInspectorSession(toolStatus),
     aligner: useAlignerSession(toolStatus),
     screener: useScreenerSession(toolStatus),

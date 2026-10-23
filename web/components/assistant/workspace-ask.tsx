@@ -12,6 +12,7 @@ import {
   useAlignerSession,
   useChunkerSession,
   useScreenerSession,
+  useDrafterSession,
   useInspectorSession,
   useSearcherSession,
   useScoutSession,
@@ -31,6 +32,7 @@ type WorkspaceResult = {
     | "inspector"
     | "aligner"
     | "screener"
+    | "drafter"
     | "scout"
     | "chunker"
     | "searcher";
@@ -57,6 +59,7 @@ export function WorkspaceAsk() {
   const inspector = useInspectorSession((state) => state.results);
   const aligner = useAlignerSession((state) => state.results);
   const screener = useScreenerSession((state) => state.results);
+  const drafter = useDrafterSession((state) => state.results);
   const scout = useScoutSession((state) => state.results);
   const searcher = useSearcherSession((state) => state.results);
   const activeReview = useAssistantReviewContext(state => state.active);
@@ -152,6 +155,10 @@ export function WorkspaceAsk() {
       );
     }
 
+    for (const entry of drafter) {
+      addResult(entry.id, "drafter", runLabel(entry.result.indication || "Draft iTPP", entry.created_at), entry.result);
+    }
+
     for (const entry of screener) {
       const screener = entry.result;
       // Named by the gate, because the same documents are triaged again at every one
@@ -238,7 +245,7 @@ export function WorkspaceAsk() {
       },
       resultCount: results.length,
     };
-  }, [aligner, chunker, readings, screener, inspector, scout, searcher, activeReview]);
+  }, [aligner, chunker, drafter, readings, screener, inspector, scout, searcher, activeReview]);
 
   return (
     <Ask

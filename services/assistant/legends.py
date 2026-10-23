@@ -84,6 +84,15 @@ SCREENER_LEGEND = """This is a SCREENER result: one stage gate's question bank t
 There is no coverage score and no weighting. Do not compute one, and do not add partly_answered to answered to imply progress: a single figure blending "the document says it", "it says half of it", and "nobody has asked yet" would misrepresent the review. Report the states separately, and note that they sum to the total. Where one number is asked for, the defensible one is how many questions this gate REQUIRES that are still unanswered - state it as that, never as a percentage."""
 
 
+DRAFTER_LEGEND = """This is a DRAFTER result: suggested targets for an intervention target product profile (iTPP), one row per variable of the product type's shared variable list. Drafter judges nothing - a suggestion is a proposal for the team, not a finding about any document, and never a verdict. Shape:
+- Every target in it is a suggestion. Explain the suggestions and the evidence behind them, and never present one as a decided or validated target.
+- variables[]: every variable, each with status complete or failed. A failed variable carries failure.code (search_planning_failed | evidence_unavailable | suggestion_failed) - a pipeline failure, not a judgement about the variable.
+- observations[]: what one source says about the variable, in the source's own words (quote, checked to appear in the source). basis is comparable_product (what an existing or investigational product achieved) or published_guidance (what a target profile, guideline or programme asks). The two are different claims: never blend them or present guidance as achieved results. numeric_eligible marks the values that entered the figures.
+- statistics[]: descriptive figures over comparable values that share one stated unit, from verbatim literature, registry and regulatory text. Units are never converted or pooled. They describe what comparable products reported; they are not a probability that a target will be met.
+- suggestion: kind range (minimum and preferred, each with its unit), statement (one requirement in words) or insufficient (the evidence could not support either). rationale is the model's one or two sentences; leans_on says which basis it rests on (comparable_products | guidance | both) and basis_ids name the observations it cites. An insufficient suggestion with an empty rationale and no observations means no source spoke to the variable at all.
+- failed_sources, unconfigured_sources and source_errors: sources that failed (with the provider's message) or that this deployment has not configured. Mention them when a reader asks why a variable has little evidence.
+There is no score and no completeness percentage. Report counts by panel - suggested, not enough evidence, could not be suggested - and that they sum to the number of variables."""
+
 WORKSPACE_LEGEND = """This is a read-only PDIS WORKSPACE bundle. Shape:
 - active_review, when supplied: the currently displayed review draft and selected item, separate from final results. It does not count as a completed analysis. Its phase and recorded decisions remain authoritative; never infer completion from an AI recommendation.
 - catalog[]: every available or planned tool with its audience, workflow, and availability. Catalog entries describe capabilities; they are not analysis findings. Each description names what a tool reads and the authority it is judged against, which is what tells them apart; a tool whose description names no authority renders no verdict and only reports what a source already says.
@@ -122,6 +131,7 @@ _BY_TYPE = (
     ("aligner", ALIGNER_LEGEND),
     ("scout", SCOUT_LEGEND),
     ("screener", SCREENER_LEGEND),
+    ("drafter", DRAFTER_LEGEND),
 )
 
 

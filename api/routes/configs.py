@@ -10,6 +10,7 @@ from services.scout import (
     load_attributes as load_scout_attributes,
 )
 from services.chunker import available_configs as available_chunker_configs
+from services.drafter import has_config as has_drafter_config
 from services.inspector import has_config as has_inspector_config
 from services.inspector.configuration import find_profile, profile_catalog
 from services.screener import available_configs as available_screener_configs
@@ -46,6 +47,7 @@ def list_document_types() -> DocumentTypesResponse:
                     "aligner": True,
                     "inspector": _has_inspector_config(org, source_type, intervention),
                     "scout": _has_scout_config(org, source_type, intervention),
+                    "drafter": has_drafter_config(org, source_type, intervention),
                 },
             )
         )

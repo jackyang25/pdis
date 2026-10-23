@@ -4,6 +4,7 @@ import { ChevronDown } from "lucide-react";
 import { PromptReference } from "@/components/docs/prompt-reference";
 import { ALIGNER_TOPIC_LIST } from "@/components/aligner-signal-help";
 import { SCREENER_TOPIC_LIST } from "@/components/screener-signal-help";
+import { DRAFTER_TOPIC_LIST } from "@/components/drafter-signal-help";
 import { INSPECTOR_TOPIC_LIST } from "@/components/inspector-signal-help";
 import { SCOUT_TOPIC_LIST } from "@/components/scout-signal-help";
 import type { SignalTopic } from "@/components/ui/signal-help";
@@ -23,6 +24,7 @@ import { toolReference, type KnowledgeBlock } from "@/lib/product-knowledge";
 /** Tools that send model instructions of their own. */
 const PUBLISHED_TOOLS: readonly string[] = [
   "chunker",
+  "drafter",
   "inspector",
   "aligner",
   "screener",
@@ -41,6 +43,7 @@ const TOOL_TOPICS: Partial<Record<ToolKey, readonly SignalTopic[]>> = {
   inspector: INSPECTOR_TOPIC_LIST,
   aligner: ALIGNER_TOPIC_LIST,
   screener: SCREENER_TOPIC_LIST,
+  drafter: DRAFTER_TOPIC_LIST,
 };
 
 function isPublished(toolId: string): toolId is ToolKey {

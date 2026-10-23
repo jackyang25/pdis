@@ -40,6 +40,13 @@ class PromptTests(unittest.TestCase):
         self.assertNotIn("This is an ALIGNER result", text)
         self.assertIn("ACTIVE REVIEW DRAFT", text)
 
+    def test_a_held_draft_brings_the_drafter_legend(self):
+        text = legends_for(frozenset({"drafter"}), has_review=False)
+        self.assertIn("This is a DRAFTER result", text)
+        # A suggestion is not a finding, and only the review panel records a decision.
+        self.assertIn("not a finding", text)
+        self.assertIn("never present one as a decided", text)
+
     def test_a_review_draft_brings_the_scout_legend_once(self):
         draft_only = legends_for(frozenset(), has_review=True)
         self.assertIn("This is a SCOUT result", draft_only)

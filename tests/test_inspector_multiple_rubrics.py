@@ -276,6 +276,9 @@ class AggregateRunTests(unittest.TestCase):
         ) for index, section in enumerate(template.sections)]
         lock = threading.Lock()
         guideline_started = threading.Event()
+        # The fake calls return at once, so without this the pool may never hold two at a
+        # time and the peak would measure scheduling luck rather than the bound.
+        first_pair = threading.Barrier(2)
         active = peak = calls = 0
         consistency_calls = 0
         progress = []
@@ -293,7 +296,13 @@ class AggregateRunTests(unittest.TestCase):
                     active += 1
                     peak = max(peak, active)
                     calls += 1
+                    index = calls
                 try:
+                    if index <= 2:
+                        try:
+                            first_pair.wait(timeout=3)
+                        except threading.BrokenBarrierError:
+                            pass  # a pool of one: the peak assertion below reports it
                     if len(ids) == len(blocks):
                         guideline_started.set()
                     elif not guideline_started.wait(timeout=3):

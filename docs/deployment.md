@@ -108,5 +108,5 @@ builds of the same version show the same notes.
   Preserve older entries as history, even when newer versions replace that behavior.
 - Run the web tests and type check. Confirm the release label and notes during
   the deployment smoke check. No provider credentials or feedback are stored by
-  this feature; the feedback popover directs users to Jack Yang or Shyam Bhaskaran
-  on Teams.
+  this feature; feedback and finding reports open an email to
+  jack.yang@gatesfoundation.org in the reader's own mail client.

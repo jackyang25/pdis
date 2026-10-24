@@ -35,10 +35,26 @@ export function DrafterVariableRow({ variable }: { variable: DraftVariable }) {
   const target = panel === "suggested" && suggestion ? suggestionLines(suggestion).join(" · ") : "";
   return (
     <li className="group/variable min-w-0 py-4 first:pt-0 last:pb-0">
-      <span className={cn("block min-w-0 break-words", ROW_TITLE)}>
-        {/* The shared variable name, so this row and Scout's field read the same. */}
-        {displayAttributeLabel(variable.name)}
-      </span>
+      <div className="flex items-start justify-between gap-3">
+        <span className={cn("min-w-0 break-words", ROW_TITLE)}>
+          {/* The shared variable name, so this row and Scout's field read the same. */}
+          {displayAttributeLabel(variable.name)}
+        </span>
+        {/* Beside the name and revealed on hover or focus: thirty rows each carrying a visible
+            action was a column of noise for something a reader does rarely, and a hidden one on
+            its own line left a blank band under every row. Always shown where there is no hover. */}
+        <div className="-my-1 shrink-0 transition-opacity duration-base motion-reduce:transition-none sm:opacity-0 sm:group-hover/variable:opacity-100 sm:group-focus-within/variable:opacity-100">
+          <ReportFinding
+            className="-mr-2.5 ml-0"
+            report={{
+              finding: `${DRAFTER_PANELS.find((entry) => entry.id === panel)?.title}: ${displayAttributeLabel(variable.name)}`,
+              detail: [target, suggestion?.rationale].filter(Boolean).join(" · "),
+              reference: variable.name,
+              location: countLabel(variable.observations.length, "observation"),
+            }}
+          />
+        </div>
+      </div>
 
       {/* The target and its rationale are one contribution, so the second hangs off the first
           rather than carrying a second mark. */}
@@ -79,18 +95,6 @@ export function DrafterVariableRow({ variable }: { variable: DraftVariable }) {
           )}
         </div>
       )}
-      {/* Revealed on hover or focus: thirty rows each carrying a visible link was a column of
-          noise for an action a reader takes rarely. Always shown where there is no hover. */}
-      <div className="mt-1 transition-opacity duration-base motion-reduce:transition-none sm:opacity-0 sm:group-hover/variable:opacity-100 sm:group-focus-within/variable:opacity-100">
-        <ReportFinding
-          report={{
-            finding: `${DRAFTER_PANELS.find((entry) => entry.id === panel)?.title}: ${displayAttributeLabel(variable.name)}`,
-            detail: [target, suggestion?.rationale].filter(Boolean).join(" · "),
-            reference: variable.name,
-            location: countLabel(variable.observations.length, "observation"),
-          }}
-        />
-      </div>
     </li>
   );
 }

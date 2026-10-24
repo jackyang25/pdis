@@ -38,7 +38,7 @@ export const RELEASES: readonly Release[] = [
       {
         title: "Everywhere",
         changes: [
-          "Report a problem with any finding: the report is copied, ready to paste into Teams.",
+          "Report a problem with any finding: an email opens with the finding’s details filled in.",
           "Clicking a highlighted passage in a PDF opens its details, and each tool’s Documents view opens on a layer with marks.",
           "Clearer error messages, a visible keyboard focus, and one consistent look for buttons, counts and lists.",
           "Closing a tab now stops its run, and a dropped connection no longer leaves a run waiting.",

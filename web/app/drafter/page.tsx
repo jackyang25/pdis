@@ -196,8 +196,8 @@ function DraftNotices({ result, counts }: { result: DraftResult; counts: ReturnT
     <ResultNotices>
       {counts.failed > 0 && (
         <WarningNotice label="Variables not suggested">
-          {countLabel(counts.failed, "variable")} could not be suggested. Run the draft
-          again, or write {counts.failed === 1 ? "its target" : "their targets"} yourself.
+          {countLabel(counts.failed, "variable")} could not be suggested because of an error.
+          Run the draft again, or fill in {counts.failed === 1 ? "that row" : "those rows"} in the exported Word table.
         </WarningNotice>
       )}
       {/* A source that failed is missing from every suggestion, which changes what the draft

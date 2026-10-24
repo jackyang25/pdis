@@ -1,14 +1,19 @@
 /**
- * A report of one result a reader believes is wrong, written for pasting into Teams.
+ * A report of one result a reader believes is wrong, sent as an email the reader writes.
  *
- * PDIS keeps no server state, so there is nowhere to send a report to; what a pilot needs
- * is for the reader's complaint to arrive with enough to find the finding again - which
- * tool, which finding, its own words, where it points in the document. Building that by
- * hand is where reports lose the detail that makes them actionable.
+ * PDIS keeps no server state, so a report leaves through the reader's own mail client;
+ * what a pilot needs is for the complaint to arrive with enough to find the finding
+ * again - which tool, which finding, its own words, where it points in the document.
+ * Building that by hand is where reports lose the detail that makes them actionable.
  */
 
-/** Who reads feedback. Named once: the header's feedback panel says the same. */
-export const FEEDBACK_CONTACTS = "Jack Yang or Shyam Bhaskaran";
+/** Where feedback goes. Named once: the header's feedback panel uses it too. */
+export const FEEDBACK_EMAIL = "jack.yang@gatesfoundation.org";
+
+export function feedbackMailto(subject: string, body = ""): string {
+  const query = [`subject=${encodeURIComponent(subject)}`, body && `body=${encodeURIComponent(body)}`];
+  return `mailto:${FEEDBACK_EMAIL}?${query.filter(Boolean).join("&")}`;
+}
 
 export type FindingReport = {
   /** The tool the reader is in, as its catalog names it. */
@@ -35,4 +40,8 @@ export function findingReportText(report: FindingReport): string {
     report.location?.trim() && `Where: ${report.location.trim()}`,
     `What is wrong: ${report.note?.trim() || "(not stated)"}`,
   ].filter(Boolean).join("\n");
+}
+
+export function findingReportMailto(report: FindingReport): string {
+  return feedbackMailto(`PDIS finding report: ${report.tool}`, findingReportText(report));
 }

@@ -51,7 +51,9 @@ def build_system_prompt() -> str:
         "the ones your suggestion actually leans on. Only observations marked as figures may supply "
         "a number; the others are context. Never state a number the evidence does not support. "
         "Every answer gives a rationale of one or two sentences: for a range or a statement, "
-        "naming the evidence it leans on; for insufficient, saying what the evidence lacks."
+        "naming the evidence it leans on; for insufficient, saying what the evidence lacks. "
+        "The rationale is read by the team, who never see observation IDs: name evidence by "
+        "its product or its source, and keep the IDs to basis_ids."
     )
 
 

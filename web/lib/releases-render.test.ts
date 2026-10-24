@@ -53,8 +53,9 @@ test("header identifies the bundled version and keeps feedback independent", () 
   assert.doesNotMatch(other, /aria-current="page"/);
 });
 
-test("feedback directs readers to Teams without an email action or form", () => {
+test("feedback is one email address, opened in the reader's own mail client", () => {
   const html = renderToStaticMarkup(React.createElement(FeedbackDetails));
-  assert.match(html, /Message Jack Yang or Shyam Bhaskaran on Teams to request a feature, send feedback, or set up a user session\./);
-  assert.doesNotMatch(html, /mailto:|@gatesfoundation\.org|<a\b|<form\b/);
+  assert.match(html, /href="mailto:jack\.yang@gatesfoundation\.org\?subject=PDIS%20feedback"/);
+  assert.match(html, /to request a feature, send feedback, or set up a user session\./);
+  assert.doesNotMatch(html, /Teams|<form\b/);
 });

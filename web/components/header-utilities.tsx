@@ -1,6 +1,6 @@
 "use client";
 
-import { FEEDBACK_CONTACTS } from "@/lib/finding-report";
+import { FEEDBACK_EMAIL, feedbackMailto } from "@/lib/finding-report";
 import Link from "next/link";
 import { BookOpen, Megaphone, MessageSquare } from "lucide-react";
 import { ThemeToggle } from "@/components/theme-toggle";
@@ -59,7 +59,10 @@ function FeedbackDetails() {
     <div className="space-y-3">
       <HelpHeading>Share your feedback</HelpHeading>
       <p>We’d love to hear how you’re using PDIS and what you’d like it to do next.</p>
-      <p>Message {FEEDBACK_CONTACTS} on Teams to request a feature, send feedback, or set up a user session.</p>
+      <p>
+        Email <a href={feedbackMailto("PDIS feedback")} className="font-medium text-foreground underline underline-offset-2">{FEEDBACK_EMAIL}</a>{" "}
+        to request a feature, send feedback, or set up a user session.
+      </p>
     </div>
   );
 }

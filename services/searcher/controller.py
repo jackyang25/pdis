@@ -2,14 +2,16 @@
 
 from __future__ import annotations
 
+import contextvars
 import logging
 import threading
-import time
 from collections import deque
 from concurrent.futures import FIRST_COMPLETED, Future, ThreadPoolExecutor, wait
 from dataclasses import replace
 from typing import Callable, Iterable
 
+from .calls import collecting_notes
+from .errors import RetrievalError
 from .models import (
     RetrievalIntent,
     RetrievalPath,
@@ -21,9 +23,6 @@ from .models import (
 from .sources import SOURCE_REGISTRY
 
 logger = logging.getLogger(__name__)
-
-_RATE_RESERVATION_LOCK = threading.Lock()
-_NEXT_SOURCE_START: dict[str, float] = {}
 
 
 def source_specs() -> list[SourceSpec]:
@@ -246,13 +245,16 @@ def run_requests(
     *,
     runtime: SearchRuntime,
     max_tokens: int,
-    max_uses: int,
     progress: Callable[[int, int], None] | None = None,
 ) -> list[SearchOutcome]:
     """Execute requests by source with adapter-owned concurrency limits.
 
     Results preserve request order. A failing adapter request becomes a failed
     outcome and cannot abort or relabel successful requests from another source.
+
+    Pacing is not done here. A provider's quota is spent per call, and one request can
+    make several, so adapters pace each call against their spec's `rate_group` (see
+    `calls.provider_call`).
     """
     if not requests:
         return []
@@ -269,24 +271,26 @@ def run_requests(
             return
         with lock:
             completed_count += 1
-            progress(completed_count, total)
+            completed = completed_count
+        # Outside the lock: a caller's callback may block (MCP waits on its client),
+        # and holding the lock through it would stall every worker that finishes.
+        progress(completed, total)
 
     def execute(request: SearchRequest) -> SearchOutcome:
         adapter = SOURCE_REGISTRY[request.source]
         try:
             if request.applicability == "not_applicable":
                 return SearchOutcome(request=request, status="skipped")
-            _wait_for_source_start(
-                request.source,
-                adapter.spec.request_interval_seconds,
-            )
-            findings = adapter.search(
-                request,
-                runtime,
-                max_tokens=max_tokens,
-                max_uses=max_uses,
-            )
+            with collecting_notes() as notes:
+                findings = adapter.search(
+                    request,
+                    runtime,
+                    max_tokens=max_tokens,
+                )
             for finding in findings:
+                if not adapter.spec.excerpt_is_verbatim and finding.excerpt:
+                    # The spec is the authority on what this lane's excerpts are.
+                    finding.excerpt_kind = "generated"
                 # The adapter key is authoritative. Stage parsers do not own
                 # catalog metadata, and future adapters need no UI changes.
                 finding.source = request.source
@@ -328,7 +332,12 @@ def run_requests(
                     finding.excerpt_source_lane = request.source
                 if finding.published_at and finding.published_source_lane in {"", "unknown"}:
                     finding.published_source_lane = request.source
-            return SearchOutcome(request=request, findings=findings)
+            return SearchOutcome(
+                request=request,
+                findings=findings,
+                provider_query=notes.provider_query,
+                warnings=list(notes.warnings),
+            )
         except Exception as exc:  # noqa: BLE001 - sources degrade independently
             logger.warning(
                 "%s retrieval failed for %r (%s)",
@@ -343,6 +352,7 @@ def run_requests(
                 request=request,
                 status="failed",
                 error=f"{type(exc).__name__}: {detail}" if detail else type(exc).__name__,
+                error_code=exc.code if isinstance(exc, RetrievalError) else "adapter_error",
             )
         finally:
             report()
@@ -384,7 +394,10 @@ def run_requests(
                     return
                 index, request = pending[selected_source].popleft()
                 active[selected_source] += 1
-                in_flight[executor.submit(execute, request)] = (
+                # Each request runs in a copy of the caller's context, so the request
+                # ID the logging filter reads from a ContextVar reaches what it logs.
+                context = contextvars.copy_context()
+                in_flight[executor.submit(context.run, execute, request)] = (
                     index,
                     selected_source,
                 )
@@ -401,16 +414,3 @@ def run_requests(
     if any(result is None for result in results):
         raise RuntimeError("retrieval scheduler failed to complete every request")
     return [result for result in results if result is not None]
-
-
-def _wait_for_source_start(source: str, interval_seconds: float) -> None:
-    """Reserve a process-wide start slot for one rate-constrained adapter."""
-    if interval_seconds <= 0:
-        return
-    with _RATE_RESERVATION_LOCK:
-        now = time.monotonic()
-        start_at = max(now, _NEXT_SOURCE_START.get(source, now))
-        _NEXT_SOURCE_START[source] = start_at + interval_seconds
-    wait_seconds = start_at - now
-    if wait_seconds > 0:
-        time.sleep(wait_seconds)

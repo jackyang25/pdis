@@ -124,9 +124,51 @@ its docstring first, and ask before merging a first attempt.
 | While editing | `uv run pytest tests -q -k <tool>` |
 | Before merging | `make check` and `git diff --check` |
 | To see it working | `docker compose up --build`, then run the tool on a real document |
+| Before shipping a prompt, rubric or model change | `python -m scripts.evaluate`, [below](#checking-quality-before-you-ship-a-change) |
 
 Tests do not call models. A rubric or prompt change is only shown to work by running the
 tool on a real document.
+
+## Checking quality before you ship a change
+
+`scripts/evaluate` re-runs the real cases in `scripts/evaluate/cases.yaml` through each
+tool's pipeline and reports three things: quality signals read from result fields (verdict,
+state and grounding distributions; unit-by-unit and question-by-question maps), what changed
+against an earlier run, and wall time and tokens per stage from the `model_call` and
+`model_retry` log lines. It calls the providers, so it costs a full run of every tool:
+about an hour in all, most of it Scout (about 33 minutes) and Screener (about 15).
+
+1. Run it before your change, into a new directory, and keep that `report.json` as the
+   baseline. The documents are not in the repository; the manifest names them relative to
+   `--documents`. In the `pdis-diag` image, which has LibreOffice:
+
+   ```sh
+   docker run --rm --env-file .env --network pdis_default \
+     -e TOOLUNIVERSE_BASE_URL=http://pdis-tooluniverse:8080 -e PYTHONPATH=/app \
+     -v $PWD/services:/app/services -v $PWD/shared:/app/shared \
+     -v $PWD/api:/app/api -v $PWD/scripts:/app/scripts \
+     -v "<documents>":/docs:ro -v "<runs>":/out -w /app \
+     pdis-diag python -m scripts.evaluate --documents /docs --out /out/before
+   ```
+
+   `--network` and `TOOLUNIVERSE_BASE_URL` reach the ToolUniverse container that
+   `docker compose up` starts, for Scout's and Drafter's sources; without them those
+   lanes fail and the run says so.
+2. Make the change, then run again with `--out /out/after --baseline /out/before/report.json`.
+   `--only scout,rsv-inspector` limits a run to some tools or cases.
+3. Read `summary.md`. Agreement below 100% is expected, since models vary between runs;
+   compare it with the agreement of two baseline runs before reading a drop as a regression.
+   Each `<case>.json` beside the report is the full result, for inspecting what moved.
+4. Keep runs worth comparing against beside the documents, one dated folder each, so the
+   cases and their results stay in one place: `<documents>/Results/<date> <label>/`, holding
+   `report.json`, `summary.md` and the `<case>.json` files. The next run's `--baseline` is the
+   newest kept `report.json`; older folders can be deleted once nothing compares against them.
+
+Scout's target review is settled by a fixed policy (`runners.settle_target_review`), so
+runs compare. Scout's result is what the server publishes after it, often the evidence-review
+checkpoint; admission and the statistics that follow it run in the browser and are not
+evaluated. To add a case, add an entry to the manifest; `tests/test_evaluate.py` checks
+its shape.
 
 ## Releasing and deploying
 

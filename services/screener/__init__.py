@@ -33,10 +33,9 @@ from .models import (
     load_config,
     resolve_questions,
 )
-from .pipeline import DEFAULT_MAX_OUTPUT_TOKENS, SUPPORTED_DOCUMENT_SUFFIXES, run_pipeline
+from .pipeline import SUPPORTED_DOCUMENT_SUFFIXES, run_pipeline
 
 __all__ = [
-    "DEFAULT_MAX_OUTPUT_TOKENS",
     "SUPPORTED_DOCUMENT_SUFFIXES",
     "DisciplineReview",
     "DisciplineSpec",

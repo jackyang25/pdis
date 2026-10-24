@@ -25,7 +25,8 @@ text. Selection, empty results, keyboard navigation and focus restoration live i
 `ui/searchable-select.tsx`, composed with the existing popover primitive.
 
 Organization, health product type, document type and stage gate options reflect
-implemented configurations. Disease / condition is different: `shared/indications.yaml`
+implemented configurations. Organization is selected automatically and not shown
+while only one is configured. Disease / condition is different: `shared/indications.yaml`
 supplies one curated context list for every supported class, not a disease-specific
 support matrix. Add MeSH-aligned canonical keys and reviewed citations following
 the [naming guide](../../docs/indication-vocabulary.md); the same key is stored with

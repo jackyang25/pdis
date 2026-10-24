@@ -20,5 +20,4 @@ class SourceAdapter(Protocol):
         runtime: SearchRuntime,
         *,
         max_tokens: int,
-        max_uses: int,
     ) -> list[Finding]: ...

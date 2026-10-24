@@ -14,18 +14,16 @@ from ..models import (
     SourceSpec,
 )
 from .literature import active_tracks
-from .planning import facet_groups, request_lineage
+from .planning import facet_groups, planned_variants, request_lineage
 from .tooluniverse_records import (
     TOOLUNIVERSE_INTEGRATION,
-    ranked_records,
-    relevant_excerpt,
     result_records,
     run_tool,
+    structured_excerpt,
     text,
 )
 
 SEARCH_TOOL = "ISRCTN_search_trials_fielded"
-MAX_CANDIDATES = 50
 MAX_RESULTS = 10
 
 
@@ -51,8 +49,7 @@ class ISRCTNSource:
     )
 
     def plan(self, intent: RetrievalIntent) -> list[SearchRequest]:
-        requests: list[SearchRequest] = []
-        for scope, queries in facet_groups(
+        groups = facet_groups(
             intent,
             fields=("condition", "intervention"),
             fallbacks={
@@ -60,6 +57,14 @@ class ISRCTNSource:
                 "intervention": intent.intervention_class,
             },
             anchors=("condition",),
+        )
+        requests: list[SearchRequest] = []
+        # Unscoped first, then the region-narrowed twin, never instead of it. ISRCTN
+        # compiles `country` to `recruitmentCountry`, so the narrowed request asks
+        # where a trial actually recruited rather than where its text mentions.
+        for scope, queries, location in planned_variants(
+            groups,
+            region=intent.scope("region"),
             limit=self.spec.max_requests_per_intent,
         ):
             intent_ids, input_queries, document_refs = request_lineage(queries)
@@ -68,35 +73,26 @@ class ISRCTNSource:
             native_query = f"condition:{condition}"
             if intervention:
                 native_query += f" AND intervention:{intervention}"
-            region = intent.scope("region")
-            # Unscoped first, then the region-narrowed twin, never instead of it. ISRCTN
-            # compiles `country` to `recruitmentCountry`, so the narrowed request asks
-            # where a trial actually recruited rather than where its text mentions.
-            for location in ("", region) if region else ("",):
-                requests.append(
-                    SearchRequest(
-                        scope_ref=intent.scope_ref,
-                        source=self.spec.key,
-                        query=(
-                            f"{native_query} AND recruitmentCountry:{location}"
-                            if location
-                            else native_query
-                        ),
-                        tracks=tuple(active_tracks(intent)),
-                        document_refs=document_refs,
-                        intent_ids=intent_ids,
-                        input_queries=input_queries,
-                        connector=TOOLUNIVERSE_INTEGRATION,
-                        operation=SEARCH_TOOL,
-                        options=(
-                            ("condition", condition),
-                            ("intervention", intervention),
-                            ("region", location),
-                            ("limit", str(MAX_CANDIDATES)),
-                            ("ranking", "all_input_queries"),
-                        ),
-                    )
+            if location:
+                native_query += f" AND recruitmentCountry:{location}"
+            requests.append(
+                SearchRequest(
+                    scope_ref=intent.scope_ref,
+                    source=self.spec.key,
+                    query=native_query,
+                    tracks=tuple(active_tracks(intent)),
+                    document_refs=document_refs,
+                    intent_ids=intent_ids,
+                    input_queries=input_queries,
+                    connector=TOOLUNIVERSE_INTEGRATION,
+                    operation=SEARCH_TOOL,
+                    options=(
+                        ("condition", condition),
+                        ("intervention", intervention),
+                        ("region", location),
+                    ),
                 )
+            )
         return requests
 
     def search(
@@ -105,22 +101,17 @@ class ISRCTNSource:
         runtime: SearchRuntime,
         *,
         max_tokens: int,
-        max_uses: int,
     ) -> list[Finding]:
         arguments: dict[str, object] = {
             "condition": request.option("condition"),
-            "limit": int(request.option("limit", str(MAX_CANDIDATES))),
+            "limit": self.spec.max_results,
         }
         if intervention := request.option("intervention"):
             arguments["intervention"] = intervention
         if region := request.option("region"):
             arguments["country"] = region
-        result = run_tool(runtime, SEARCH_TOOL, arguments)
-        records = ranked_records(
-            result_records(result, "data"),
-            request,
-            limit=MAX_RESULTS,
-        )
+        result = run_tool(runtime, self.spec, SEARCH_TOOL, arguments)
+        records = result_records(result, "data")
         retrieved_at = datetime.now(timezone.utc)
         findings: list[Finding] = []
         for record in records:
@@ -133,7 +124,7 @@ class ISRCTNSource:
                     title=text(record.get("title")) or isrctn_id,
                     query=request.query,
                     retrieved_at=retrieved_at,
-                    excerpt=relevant_excerpt(
+                    excerpt=structured_excerpt(
                         record,
                         (
                             ("scientific_title", "Scientific title"),
@@ -149,8 +140,17 @@ class ISRCTNSource:
                             ("target_enrolment", "Target enrollment"),
                             ("sponsors", "Sponsors"),
                         ),
-                        request,
                     ),
+                    excerpt_kind="structured_fields",
+                    # The registry's own cross-references: the same trial registered
+                    # elsewhere is the same record, so it merges with that registry's copy.
+                    identifiers={
+                        "isrctn": isrctn_id,
+                        "nct": text(record.get("clinicaltrials_gov_number")),
+                        "eudract": text(record.get("eudract_number")),
+                        "doi": text(record.get("doi")),
+                    },
+                    record_key=f"isrctn:{isrctn_id}",
                     source=self.spec.key,
                     development_records=_development_records(record, isrctn_id),
                 )

@@ -7,7 +7,7 @@ Scout parses docs for drift context, searches per shared attribute
 variable, and emits doc-aware Matches.
 """
 
-from .contract import result_from_target_review
+from .contract import FieldSelectionError, result_from_target_review
 from .models import (
     available_configs,
     Attribute,
@@ -63,6 +63,7 @@ from .pipeline import continue_pipeline, run_pipeline
 
 __all__ = [
     "available_configs",
+    "FieldSelectionError",
     "result_from_target_review",
     "Attribute",
     "ComparisonRule",

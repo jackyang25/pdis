@@ -38,3 +38,27 @@ export function isPromptAnchorFor(id: string, tool: ToolKey): boolean {
 export function promptHref(tool: ToolKey, stage: string): string {
   return `/docs#${promptAnchor(tool, stage)}`;
 }
+
+/** Where the generated reference is published. */
+const REFERENCE_URL = "/prompt-reference.json";
+
+let reference: Promise<unknown> | null = null;
+
+/**
+ * The published prompt reference, fetched once per page for every reader.
+ *
+ * Each tool's prompt section and the skills list read the same 100 KB file, and each used
+ * to request it for itself. A failure is not remembered, so a reader's retry asks again.
+ * The caller names the slice of the file it reads.
+ */
+export function loadPromptReference<T>(): Promise<T> {
+  reference ??= (async () => {
+    const response = await fetch(REFERENCE_URL);
+    if (!response.ok) throw new Error(String(response.status));
+    return response.json();
+  })().catch((error: unknown) => {
+    reference = null;
+    throw error;
+  });
+  return reference as Promise<T>;
+}

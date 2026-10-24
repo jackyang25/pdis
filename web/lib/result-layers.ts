@@ -40,16 +40,3 @@
 export const RESULT_LAYERS = ["card", "group", "row", "leaf"] as const;
 
 export type ResultLayer = (typeof RESULT_LAYERS)[number];
-
-/**
- * Which component draws each level.
- *
- * Exported so a test can name them, and so a reader arriving at any one of the four finds
- * the other three.
- */
-export const LAYER_COMPONENT: Record<ResultLayer, string> = {
-  card: "CollapsibleCard",
-  group: "DisclosureRow",
-  row: "EXPANDABLE_ROW",
-  leaf: "divide-y",
-};

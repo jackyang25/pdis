@@ -35,6 +35,15 @@ carry their explicit document-part identity, not guessed page numbers, and
 headers/footers do not inherit body heading context. Unsupported native drawings,
 charts, SmartArt and embedded objects carry a limitation warning rather than invented
 text. This is structured extraction, not a pixel-identical Word rendering.
+Content controls (`w:sdt`) and custom XML (`w:customXml`) are read through at block,
+row, cell and run level: they describe what they wrap and are never a reason to drop
+it. A control showing its placeholder keeps that text; judging it is a reviewer's job.
+Every paragraph, including table cells, is read by one text reader, so tracked
+insertions, simple fields and smart tags keep their text. A heading is a paragraph
+with a declared outline level (`w:outlineLvl`), directly or through its style's
+`basedOn` chain, so a custom style based on Heading 1 is a level-1 heading and an
+explicit body-text level is not one; a "Heading N" style with no declared level keeps
+its name-derived level.
 Unsupported-visual warnings retain the detected object kind and source-part
 location. These describe structure, not importance: even a header drawing remains
 flagged, and consumers do not guess whether it is decoration. Older saved blocks
@@ -63,6 +72,21 @@ bytes per document, with a 120-second LibreOffice conversion timeout. PDFium cal
 are serialized within each process; incomplete rendered coverage is refused.
 These are resource guards, not a hard memory sandbox.
 
+Hidden slides are exported and rendered (LibreOffice's PDF export skips them by
+default, which once left fewer pages than slides and lost every slide's render); their
+blocks carry `structural_meta.slide_hidden: true`. Grouped shapes report slide-relative
+positions through each group's child coordinate space. When no slide render exists,
+charts, SmartArt and embedded objects get the same `unsupported_document_visual`
+image block DOCX uses, with `unsupported_visual_kind`, slide and shape path.
+
+Retained DOCX images and PPTX fallback pictures carry the rendered-page bounds: none
+over 20 million pixels (checked from the header before any decode), and at most
+100 MiB of image bytes per document, after which later images are marked
+`document_image_unavailable`. Identical image bytes are converted once, and every
+vector image of a document (EMF/WMF/SVG) goes through one LibreOffice start. A
+LibreOffice timeout kills its whole process group, not only the launcher. PDFium
+work is serialized; PNG encoding happens outside that lock.
+
 Saved results preserve the extraction they actually received. Historical
 `pdf_limited_structure` warnings remain readable; imports do not invent full-page
 or full-slide assets. Rerun the original document for improved coverage.
@@ -84,6 +108,9 @@ Multi-column table rows retain both their canonical searchable `content` and
 ordered `table_cells` with exact content offsets. Consumers render columns from
 those cells and fall back to canonical text when structured cells are not
 available; they never reconstruct cells by splitting prose.
+
+A table nested in a multi-column cell follows its row as its own blocks rather than
+being dropped; the row's text holds only that cell's own paragraphs.
 
 DOCX table blocks also carry `structural_meta.table_group`, derived from the owning
 XML part and table path. It distinguishes supplementary tables whose numeric

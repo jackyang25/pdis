@@ -16,7 +16,7 @@ from typing import TYPE_CHECKING, Any, Literal, Protocol
 
 import yaml
 
-from shared.openai_client import ModelTask
+from shared.ai import Effort, FailureCode, ModelTask, Verbosity
 from shared.vocabulary import search_term
 
 if TYPE_CHECKING:
@@ -34,7 +34,11 @@ class LLMClientProtocol(Protocol):
         schema_name: str,
         schema: dict[str, Any],
         images: list[dict[str, str]] | None = None,
+        trailing_text: str = "",
         task: ModelTask = "reasoning",
+        effort: Effort | None = None,
+        verbosity: Verbosity | None = None,
+        cache_key: str | None = None,
     ) -> dict[str, Any] | None:
         ...
 
@@ -335,21 +339,18 @@ class AggregateInspectionResult:
     applicability_facts: dict[str, ProductFact]
     document_findings: list[Assessment]
     consistency_status: ConsistencyStatus
+    consistency_failure_code: FailureCode | None = None
+    """Why the consistency pass failed, set exactly when its status is `failed`.
+
+    A machine-readable code from `shared.ai.FAILURE_CODES` beside the status, so a
+    reader can tell a cut-off answer from an invalid one without parsing prose.
+    """
     assessment_status: Literal["complete"] = "complete"
     org: str | None = None
     source_type: str | None = None
     intervention_class: str | None = None
     indication: str | None = None
     blocks: list["ContentBlock"] = field(default_factory=list)
-
-
-@dataclass
-class BatchInspectionResult:
-    """Per-document result of inspect_blocks_batch."""
-
-    doc_key: str
-    inspection: InspectionResult | None = None
-    error: str | None = None
 
 
 # --- Rubric configuration ----------------------------------------------------

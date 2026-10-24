@@ -9,7 +9,7 @@ from services.searcher import SearchReport, SearchRuntime
 
 
 class _Client:
-    def search_web(self, query, *, max_tokens, max_uses):
+    def search_web(self, query, *, max_tokens):
         return []
 
 

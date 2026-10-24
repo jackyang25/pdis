@@ -2,6 +2,7 @@
 
 from .configuration import available_configs, find_config, has_config, load_config
 from .contract import validate_result_contract
+from .export import export_docx
 from .models import DraftResult, DrafterConfig, LLMClientProtocol
 from .pipeline import run_pipeline
 
@@ -10,6 +11,7 @@ __all__ = [
     "DrafterConfig",
     "LLMClientProtocol",
     "available_configs",
+    "export_docx",
     "find_config",
     "has_config",
     "load_config",

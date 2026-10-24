@@ -56,9 +56,13 @@ function Cell({
     <button
       type="button"
       onClick={() => onSelect?.(question)}
+      // Out of the tab order: a gate holds fifty squares, so a keyboard reader tabbed fifty
+      // times to reach the answers. Each square is a pointer shortcut to a passage the
+      // question's own row below opens too.
+      tabIndex={-1}
       title={`${title} · open the passage`}
       aria-label={`${title}. Open the passage.`}
-      className={`${shape} transition-opacity hover:opacity-70 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40 motion-reduce:transition-none`}
+      className={`${shape} transition-opacity hover:opacity-70 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/60 motion-reduce:transition-none`}
     />
   );
 }
@@ -117,7 +121,6 @@ export function ScreenerCoverageStrip({
         {/* Said in words, not keyed with swatches: a neutral swatch for "required" would be
             the same square as "not found" beside it, and the shape is the only difference. */}
         {mixed && <span>Solid squares are required questions; outlines are anticipatory.</span>}
-        <span>Bank order, left to right. Every question the gate asks appears.</span>
       </p>
     </section>
   );

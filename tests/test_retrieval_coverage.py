@@ -47,15 +47,13 @@ from services.scout.models import (
     load_config,
     valid_query_tracks,
 )
-from services.scout.stages.query_extractor import (
-    build_system_prompt_for_adjacent_variable,
-    build_system_prompt_for_precedent_variable,
-)
+from services.scout.stages.query_extractor import TRACKS, build_track_system_prompt, track_budget
 from services.scout.stages.intent_builder import build_retrieval_intents
 from services.searcher import (
     source_keys,
     Finding,
     RetrievalIntent,
+    SearchRuntime,
     SourceQueryIntent,
     plan_requests,
     source_specs,
@@ -604,12 +602,14 @@ class DateBoundTests(unittest.TestCase):
     def _esearch_parameters(self, **kwargs) -> dict[str, str]:
         captured: dict[str, dict[str, str]] = {}
 
-        def fake_request_xml(endpoint, parameters, *, api_key=None):
+        def fake_request_xml(runtime, endpoint, parameters):
             captured[endpoint] = dict(parameters)
             return ElementTree.fromstring("<eSearchResult><IdList/></eSearchResult>")
 
         with patch.object(pubmed_stage, "_request_xml", fake_request_xml):
-            pubmed_stage.search_pubmed("melanoma", **kwargs)
+            pubmed_stage.search_pubmed(
+                "melanoma", SearchRuntime(llm_client=None), max_results=20, **kwargs
+            )
         return captured["esearch.fcgi"]
 
     def test_a_bound_becomes_api_parameters(self) -> None:
@@ -646,7 +646,11 @@ class DateBoundTests(unittest.TestCase):
 #: `active_tracks` from the same module, so folding in `literature.py` on any import at
 #: all made every lane look like it read every dimension the module mentions - which is
 #: how the first version of this test called FDA a subject-addressed lane.
-QUERY_COMPILERS = ("build_pubmed_query", "build_semantic_scholar_query")
+QUERY_COMPILERS = (
+    "build_pubmed_query",
+    "build_europepmc_query",
+    "build_semantic_scholar_query",
+)
 
 
 def _lane_source(key: str) -> str:
@@ -776,11 +780,11 @@ class AdjacentTrackTests(unittest.TestCase):
         """
         attribute = Attribute(name="vaccine.efficacy", description="Efficacy target.")
         config = load_config(str(CONFIG_DIR / "bmgf_itpp_vaccine.yaml"))
-        precedent = build_system_prompt_for_precedent_variable(
-            config, indication="malaria", attribute=attribute, precedent_queries_per_variable=3
+        precedent = build_track_system_prompt(
+            "precedent", config, indication="malaria", attribute=attribute, count=3
         )
-        adjacent = build_system_prompt_for_adjacent_variable(
-            config, indication="malaria", attribute=attribute, adjacent_queries_per_variable=2
+        adjacent = build_track_system_prompt(
+            "adjacent", config, indication="malaria", attribute=attribute, count=2
         )
         self.assertIn("FOR THIS INDICATION", precedent)
         self.assertIn("adjacent track covers that", precedent)
@@ -795,8 +799,8 @@ class AdjacentTrackTests(unittest.TestCase):
         """
         attribute = Attribute(name="vaccine.efficacy", description="Efficacy target.")
         config = load_config(str(CONFIG_DIR / "bmgf_itpp_vaccine.yaml"))
-        adjacent = build_system_prompt_for_adjacent_variable(
-            config, indication="malaria", attribute=attribute, adjacent_queries_per_variable=2
+        adjacent = build_track_system_prompt(
+            "adjacent", config, indication="malaria", attribute=attribute, count=2
         )
         self.assertIn("Every query must remain about THIS variable", adjacent)
         self.assertIn("One step away, not several", adjacent)
@@ -808,11 +812,8 @@ class AdjacentTrackTests(unittest.TestCase):
         passed - a track that runs nothing is indistinguishable from one that finds
         nothing, which is the failure this whole split exists to prevent.
         """
-        source = (
-            pathlib.Path(__file__).resolve().parents[1]
-            / "services" / "scout" / "stages" / "query_extractor.py"
-        ).read_text()
-        dispatched = set(re.findall(r'track="([a-z_]+)"', source))
+        config = load_config(str(CONFIG_DIR / "bmgf_itpp_vaccine.yaml"))
+        dispatched = {track for track in TRACKS if track_budget(config, track) > 0}
         self.assertEqual(
             dispatched,
             set(QUERY_TRACK_BUDGET),

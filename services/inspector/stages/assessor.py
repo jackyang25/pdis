@@ -16,17 +16,25 @@ independent requests; scheduling never changes their evidence or authored order.
 
 from __future__ import annotations
 
-import threading
 from collections import defaultdict
 from dataclasses import dataclass, replace
 from itertools import zip_longest
-from typing import Any
+from typing import Any, NamedTuple
 
-from shared.ai import request_structured
-from shared.references import reference_array
-from shared.errors import ModelResponseError
+from shared.ai import (
+    RECORDABLE_FAILURES,
+    Effort,
+    FailureCode,
+    ModelTask,
+    failure_code,
+    request_validated,
+)
 from shared.batching import map_ordered
-from shared.document_metadata import extraction_context
+from shared.references import reference_array
+from shared.request_budget import check_request
+from shared.schemas import non_empty_text
+from shared.source_blocks import image_inputs, render_block, render_blocks
+from shared.vocabulary import search_term
 
 from services.chunker import ContentBlock
 
@@ -47,6 +55,17 @@ from ..models import (
 # One assessment per rubric unit, so an unrelated unit can never sit in this
 # decision's prompt. Throughput comes from fan-out, never from packing units.
 UNITS_PER_REQUEST = 1
+#: The reasoning tier: a verdict is a judgement of coverage against usability, the one
+#: boundary readers and models most often get wrong.
+UNIT_TASK: ModelTask = "reasoning"
+#: Low: one unit against its own section, answered in one closed verdict and a sentence
+#: of at most 20 words. The rubric's expectations and the boundary note carry the
+#: judgement; more effort spent the budget re-reading the section.
+UNIT_EFFORT: Effort = "low"
+#: The answer is under a hundred tokens; the rest is reasoning room. A unit cut off at it
+#: is asked again with twice the room (`shared.ai.after_truncation`). The route used to
+#: send 32000 for a three-field verdict.
+UNIT_MAX_TOKENS = 8000
 # Preserve the former upper bound (4 section pools × 6 unit calls), now across
 # ALL included rubrics rather than multiplying pools as rubrics are added.
 MAX_PARALLEL_UNIT_CALLS = 24
@@ -103,27 +122,8 @@ class _UnitWork:
     blocks: list[ContentBlock]
     blocks_text: str
     stage_guidance: str
+    context: str
     absent: Assessment | None = None
-
-
-def assess_document(
-    labeled_blocks: list[ContentBlock],
-    config: InspectionConfig,
-    llm_client: LLMClientProtocol,
-    *,
-    max_tokens: int,
-    progress=None,
-    evidence_scope: str | None = None,
-) -> tuple[list[Assessment], dict[str, list[str]]]:
-    """Single-rubric entry point using the same queue as multi-rubric runs."""
-    effective_config = (
-        replace(config, evidence_scope=evidence_scope)
-        if evidence_scope is not None else config
-    )
-    return assess_rubrics(
-        labeled_blocks, [effective_config], llm_client,
-        max_tokens=max_tokens, progress=progress,
-    )[0]
 
 
 def assess_rubrics(
@@ -131,7 +131,7 @@ def assess_rubrics(
     configs: list[InspectionConfig],
     llm_client: LLMClientProtocol,
     *,
-    max_tokens: int,
+    indication: str | None = None,
     progress=None,
 ) -> list[tuple[list[Assessment], dict[str, list[str]]]]:
     """Assess independent units with one run-wide limit and progress counter.
@@ -139,7 +139,8 @@ def assess_rubrics(
     Results retain rubric/section/unit order regardless of completion order.
     Each rubric retains its own evidence mapping; whole-document topics never
     become physical section mappings. A failed unit raises instead of returning
-    a partial collection.
+    a partial collection. Every distinct request is measured against the request
+    budget before any unit is sent.
     """
     grouped = _group_blocks_by_section(labeled_blocks)
     section_context = {
@@ -152,6 +153,7 @@ def assess_rubrics(
         if any(config.evidence_scope == "whole_document" for config in configs)
         else ""
     )
+    checked: set[str | None] = set()
     plans: list[list[_UnitWork]] = []
     results: list[tuple[list[Assessment], dict[str, list[str]]]] = []
     for index, config in enumerate(configs):
@@ -168,9 +170,18 @@ def assess_rubrics(
             ]
             units = section.variables or [None]
             absent = absent_unit_assessments(config, section.name) if not blocks else []
+            # Measured once per distinct request, before any unit is sent.
+            scope = None if whole_document else section.name
+            if blocks and scope not in checked:
+                checked.add(scope)
+                check_request(
+                    f"Inspector's {'whole-document review' if scope is None else scope + ' section'}",
+                    text=text, images=image_inputs(blocks),
+                )
+            context = review_context(config, indication)
             for unit_index, unit in enumerate(units):
                 work.append(_UnitWork(
-                    index, section, unit, blocks, text, config.stage_guidance,
+                    index, section, unit, blocks, text, config.stage_guidance, context,
                     absent[unit_index] if absent else None,
                 ))
         plans.append(work)
@@ -179,29 +190,26 @@ def assess_rubrics(
     # Interleave rubrics so a large template does not queue every guideline behind
     # itself. This changes submission order only, never request contents or ranking.
     tasks = [task for row in zip_longest(*plans) for task in row if task is not None]
-    total = len(tasks)
-    done = 0
-    lock = threading.Lock()
     if progress:
-        progress("assess", completed=0, total=total)
+        progress("assess", completed=0, total=len(tasks))
 
     def run(task: _UnitWork) -> Assessment:
-        nonlocal done
-        assessment = task.absent
-        if assessment is None:
-            assessment = _assess_unit(
-                section_spec=task.section, unit=task.unit,
-                blocks_text=task.blocks_text, section_blocks=task.blocks,
-                llm_client=llm_client, max_tokens=max_tokens,
-                stage_guidance=task.stage_guidance,
-            )
-        if progress:
-            with lock:
-                done += 1
-                progress("assess", completed=done, total=total)
-        return assessment
+        if task.absent is not None:
+            return task.absent
+        return _assess_unit(
+            section_spec=task.section, unit=task.unit,
+            blocks_text=task.blocks_text, section_blocks=task.blocks,
+            llm_client=llm_client, stage_guidance=task.stage_guidance,
+            context=task.context,
+        )
 
-    assessed = map_ordered(tasks, run, workers=MAX_PARALLEL_UNIT_CALLS)
+    assessed = map_ordered(
+        tasks, run, workers=MAX_PARALLEL_UNIT_CALLS,
+        on_progress=(
+            (lambda done, total: progress("assess", completed=done, total=total))
+            if progress else None
+        ),
+    )
     for task, assessment in zip(tasks, assessed):
         results[task.rubric_index][0].append(assessment)
     return results
@@ -214,8 +222,8 @@ def _assess_unit(
     blocks_text: str,
     section_blocks: list[ContentBlock],
     llm_client: LLMClientProtocol,
-    max_tokens: int,
     stage_guidance: str = "",
+    context: str = "",
 ) -> Assessment:
     """Build one schema-bound decision for one unit and validate its lineage.
 
@@ -223,45 +231,46 @@ def _assess_unit(
     unit it asked about. The accounting that a three-call shape needed - every
     expected name present exactly once - goes away with it.
     """
-    system_prompt = build_assessment_prompt(section_spec, unit, stage_guidance)
-    user_message = _build_user_message(section_spec, unit, blocks_text)
-    schema = assessment_schema(section_blocks)
-    images = _image_inputs(section_blocks)
+    system_prompt = build_assessment_prompt(stage_guidance)
     unit_name = unit.name if unit else None
+    optional = section_spec.optional or bool(unit and unit.optional)
+    schema = assessment_schema(section_blocks, optional=optional)
+    images = image_inputs(section_blocks)
 
-    first_error = "model returned no structured decision"
-    for attempt in range(2):
-        message = user_message
-        if attempt:
-            message += (
-                "\n\nThe prior decision failed the Inspector contract: "
-                f"{first_error}. Return exactly one verdict, and cite the exact "
-                "supplied block IDs unless the unit is absent."
-            )
-        payload = request_structured(
-            llm_client,
-            system_prompt,
-            message,
-            max_tokens=max_tokens,
-            schema_name="inspector_unit_assessment",
-            schema=schema,
-            images=images or None,
+    def parse(payload: dict[str, Any] | None) -> Assessment:
+        if payload is None:
+            raise ValueError("model returned no structured decision")
+        return _parse_unit_payload(
+            payload,
+            section_name=section_spec.name,
+            variable_name=unit_name,
+            optional=optional,
+            section_blocks=section_blocks,
         )
-        try:
-            if payload is None:
-                raise ValueError("model returned no structured decision")
-            return _parse_unit_payload(
-                payload,
-                section_name=section_spec.name,
-                variable_name=unit_name,
-                optional=section_spec.optional or bool(unit and unit.optional),
-                section_blocks=section_blocks,
-            )
-        except ValueError as exc:
-            first_error = str(exc)
-    raise ModelResponseError(
-        f"Inspector could not assess {unit_name or section_spec.name} "
-        f"in {section_spec.name}: {first_error}"
+
+    # The section's blocks and images lead, identical for every unit of the section;
+    # the unit being asked about follows them, so the shared prefix stays reusable.
+    return request_validated(
+        llm_client,
+        system_prompt,
+        _build_user_message(blocks_text, context),
+        trailing_text=unit_request(section_spec, unit),
+        max_tokens=UNIT_MAX_TOKENS,
+        task=UNIT_TASK,
+        effort=UNIT_EFFORT,
+        schema_name="inspector_unit_assessment",
+        schema=schema,
+        images=images or None,
+        parse=parse,
+        failure=(
+            f"Inspector could not assess {unit_name or section_spec.name} "
+            f"in {section_spec.name}"
+        ),
+        repair=lambda error: (
+            "\n\nThe prior decision failed the Inspector contract: "
+            f"{error}. Return exactly one verdict, and cite the exact "
+            "supplied block IDs unless the unit is absent."
+        ),
     )
 
 
@@ -270,11 +279,12 @@ def _assess_unit(
 # ---------------------------------------------------------------------------
 
 
-def build_assessment_prompt(
-    section_spec: SectionSpec,
-    unit: VariableSpec | None = None,
-    stage_guidance: str = "",
-) -> str:
+def build_assessment_prompt(stage_guidance: str = "") -> str:
+    """The unit-assessment system prompt: fixed for a rubric, whatever the unit.
+
+    The unit being asked about travels in the user message (`unit_request`), after
+    the section's content, so every request for one rubric shares this prompt.
+    """
     verdicts = "\n".join(f"- {verdict}: {text}" for verdict, text in _VERDICT_GUIDANCE)
     preamble = f"""You are inspecting one unit of a product-development document against its authored rubric.
 
@@ -283,8 +293,6 @@ Scope boundary:
 - If the rubric expects risks, judge whether the document identifies, rates, and mitigates them. Do not independently assign program risk levels.
 - Do not recommend funding decisions, prioritize an investment portfolio, or propose organizational support.
 - Do not assume external facts or evidence that are absent from the supplied document and rubric.
-
-Return ONLY valid JSON. No markdown fences, no preamble, no explanation.
 
 Return exactly one verdict for this unit. One question, one answer: if more than one
 label could apply, choose the one that names the unit's condition best. They are
@@ -317,8 +325,17 @@ Style:
     parts = [preamble]
     if stage_guidance.strip():
         parts.append("# ASSESSMENT BAR (document stage)\n" + stage_guidance.strip())
-    parts.append(_expectations_block(section_spec, unit))
     return "\n\n".join(parts)
+
+
+def unit_request(section_spec: SectionSpec, unit: VariableSpec | None = None) -> str:
+    """The one unit a request asks about: its name, its section, its expectations."""
+    subject = unit.name if unit else section_spec.name
+    return "\n\n".join([
+        f"Assess: {subject}",
+        f"Section: {section_spec.name}",
+        _expectations_block(section_spec, unit),
+    ])
 
 
 def _expectations_block(section_spec: SectionSpec, unit: VariableSpec | None) -> str:
@@ -342,7 +359,18 @@ def _expectations_block(section_spec: SectionSpec, unit: VariableSpec | None) ->
     return "\n".join(lines)
 
 
-def assessment_schema(section_blocks: list[ContentBlock]) -> dict[str, Any]:
+def offered_verdicts(optional: bool) -> tuple[str, ...]:
+    """The verdicts one unit may receive. Absence has one name, and the rubric picks it.
+
+    A required unit that is absent is `not_present`; an optional one is `not_applicable`.
+    Offering both let the model file an optional absence as a shortfall, or a required one
+    as acceptable, and the parser had to correct one direction and refuse the other.
+    """
+    excluded = "not_present" if optional else "not_applicable"
+    return tuple(verdict for verdict in UNIT_VERDICTS if verdict != excluded)
+
+
+def assessment_schema(section_blocks: list[ContentBlock], *, optional: bool = False) -> dict[str, Any]:
     """The closed shape one unit's answer must take."""
     return {
         "type": "object",
@@ -352,27 +380,33 @@ def assessment_schema(section_blocks: list[ContentBlock]) -> dict[str, Any]:
         # of them the unit was.
         "required": ["verdict", "statement", "block_ids"],
         "properties": {
-            "verdict": {"type": "string", "enum": list(UNIT_VERDICTS)},
+            "verdict": {"type": "string", "enum": list(offered_verdicts(optional))},
+            # Empty on a sound unit and written on a defective one. A conditional
+            # requirement is the one thing this schema cannot say, so the verdict
+            # carries the condition and the parser checks the pairing.
             "statement": {"type": "string"},
             "block_ids": reference_array([block.id for block in section_blocks]),
         },
     }
 
 
-def _build_user_message(
-    section_spec: SectionSpec,
-    unit: VariableSpec | None,
-    blocks_text: str,
-) -> str:
-    subject = unit.name if unit else section_spec.name
-    return "\n\n".join(
-        [
-            f"Assess: {subject}",
-            f"Section: {section_spec.name}",
-            "Actual document blocks for this section:",
-            blocks_text,
-        ]
-    )
+def review_context(config: InspectionConfig, indication: str | None) -> str:
+    """What the document is about, as the user selected it. Context, never evidence.
+
+    The same for every unit of a run, so it leads the shared prefix. A rubric unit about
+    the target population or dosing is read against the disease it is for.
+    """
+    lines = ["Review context (user-selected, not evidence):",
+             f"Intervention class: {config.intervention_term}"]
+    if indication:
+        lines.append(f"Disease / condition: {search_term(indication)}")
+    return "\n".join(lines)
+
+
+def _build_user_message(blocks_text: str, context: str = "") -> str:
+    return "\n\n".join(part for part in (
+        context, "Actual document blocks for this section:", blocks_text,
+    ) if part)
 
 
 # ---------------------------------------------------------------------------
@@ -394,7 +428,7 @@ def _parse_unit_payload(
     valid_block_ids = {block.id for block in section_blocks}
     subject = variable_name or section_name
 
-    verdict = _closed_value(parsed.get("verdict"), set(UNIT_VERDICTS), "verdict")
+    verdict = _closed_value(parsed.get("verdict"), set(offered_verdicts(optional)), "verdict")
     statement = _string_value(parsed.get("statement"))
     block_ids = list(dict.fromkeys(_string_list(parsed.get("block_ids"))))
     if any(block_id not in valid_block_ids for block_id in block_ids):
@@ -415,22 +449,9 @@ def _parse_unit_payload(
     elif not statement:
         raise ValueError(f"{subject} returned {verdict} with no statement")
 
-    # The rubric decides what absence means, not the model. Both `not_present` and
-    # `not_applicable` say nothing is there; which one it is follows from whether the
-    # rubric asked, and that is recorded on the unit before the model is called.
-    #
-    # The two directions are not symmetrical. A required unit called `not_applicable`
-    # is refused and asked again, because letting it stand drops a real shortfall out
-    # of the worklist silently. An optional unit called `not_present` is corrected in
-    # place: the model saw the same thing the rubric did and filed it under the wrong
-    # one of two words, which is not worth a second request. Left alone, two optional
-    # units both absent in one section came back wearing different verdicts.
-    if verdict == "not_applicable" and not optional:
-        raise ValueError(f"{subject} is required and cannot be not_applicable")
-    if verdict == "not_present" and optional:
-        verdict = "not_applicable"
-        statement = ""
-
+    # The rubric decides what absence means, not the model: `offered_verdicts` gives an
+    # optional unit `not_applicable` and a required one `not_present`, never both, so
+    # the closed value above already refused the other.
     return Assessment(
         id=unit_id(section_name, variable_name),
         verdict=verdict,  # type: ignore[arg-type]
@@ -456,28 +477,11 @@ def _group_blocks_by_section(blocks: list[ContentBlock]) -> dict[str, list[Conte
 
 
 def _format_blocks(blocks: list[ContentBlock]) -> str:
-    if not blocks:
-        return "(none)"
-    return "\n\n".join(_format_block(b) for b in blocks)
+    return render_blocks(blocks)
 
 
 def _format_block(block: ContentBlock) -> str:
-
-    heading_stack = " > ".join(block.heading_stack) if block.heading_stack else "none"
-    metadata = extraction_context(block.structural_meta)
-    return (
-        f"[{block.id} | {block.block_type} | headings: {heading_stack}]\n"
-        + (f"Source location: {metadata}\n" if metadata else "")
-        + block.content
-    )
-
-
-def _image_inputs(blocks: list[ContentBlock]) -> list[dict[str, str]]:
-    return [
-        {"block_id": block.id, "data_url": block.image.data_url()}
-        for block in blocks
-        if block.image
-    ]
+    return render_block(block)
 
 
 def _string_value(value: Any) -> str:
@@ -504,22 +508,40 @@ def _closed_value(value: Any, allowed: set[str], label: str) -> str:
 # long document never silently loses its tail in this pass.
 MAX_DOC_CONTEXT_CHARS = 120000
 
+#: One request for the whole document: whether two sections disagree is a statement
+#: about the set of sections, the case the one-item-per-request rule exempts.
+DOCUMENTS_PER_REQUEST = 1
+#: The reasoning tier at medium effort: the pass compares every section against every
+#: other for the same attribute, which is the most reading any Inspector call does.
+CONSISTENCY_TASK: ModelTask = "reasoning"
+CONSISTENCY_EFFORT: Effort = "medium"
+#: Findings are few and short; the budget is reasoning room over up to 120k characters.
+CONSISTENCY_MAX_TOKENS = 16000
+
+
+class ConsistencyCheck(NamedTuple):
+    """The consistency pass's findings and the process facts about the pass itself."""
+
+    findings: list[Assessment]
+    status: ConsistencyStatus
+    failure_code: FailureCode | None = None
+    """Why the pass failed, from `shared.ai.FAILURE_CODES`; set exactly when failed."""
+
 
 def check_cross_section(
     labeled_blocks: list[ContentBlock],
     config: InspectionConfig,
     llm_client: LLMClientProtocol,
-    *,
-    max_tokens: int,
-) -> tuple[list[Assessment], ConsistencyStatus]:
+) -> ConsistencyCheck:
     """Find consistency problems that span MORE THAN ONE section.
 
     Per-unit assessment is deliberately isolated, so it cannot catch "Section A
     targets >=80%, Section B says 90%". This pass sees every section together and
-    reports conflicts as ordinary findings under the `conflicting` reason - they used
-    to be a fourth shape with their own field names for the same concepts. It is an
-    additive layer: a parse failure returns a failed status and never masquerades as
-    a completed no-conflict result.
+    reports conflicts as ordinary findings under the `section_conflict` verdict. It
+    is an additive layer that runs after every unit is assessed, so its failure - an
+    answer that stayed invalid or was cut off - is recorded as a failed status with
+    its code and never discards the assessment, nor masquerades as a completed
+    no-conflict result.
     """
     # Scoped to rubric sections, in rubric order. Chunker labels blocks with its own
     # taxonomy, which adds "Document Metadata" and "Other" beyond the rubric, and
@@ -533,7 +555,8 @@ def check_cross_section(
         if labeled_by_section.get(section.name)
     }
     if len(blocks_by_section) < 2:
-        return [], "not_applicable"  # need two sections for a cross-section conflict
+        # Two sections are needed for a cross-section conflict.
+        return ConsistencyCheck([], "not_applicable")
 
     system_prompt = build_cross_section_prompt(config)
     user_message, context_blocks_by_section, context_limited = _cross_section_user_message(
@@ -541,32 +564,33 @@ def check_cross_section(
     )
     context_blocks = [b for blocks in context_blocks_by_section.values() for b in blocks]
     schema = cross_section_schema(context_blocks_by_section)
-    images = _image_inputs(context_blocks)
+    images = image_inputs(context_blocks)
+    check_request("Inspector's consistency check", text=user_message, images=images)
 
-    findings = None
-    for attempt in range(2):
-        message = user_message
-        if attempt:
-            message += (
-                "\n\nThe prior response failed the consistency contract. Return only "
-                "cross-section conflicts, each citing exact supplied block IDs from at "
-                "least two different sections."
-            )
-        payload = request_structured(
+    try:
+        findings = request_validated(
             llm_client,
             system_prompt,
-            message,
-            max_tokens=max_tokens,
+            user_message,
+            max_tokens=CONSISTENCY_MAX_TOKENS,
+            task=CONSISTENCY_TASK,
+            effort=CONSISTENCY_EFFORT,
             schema_name="inspector_cross_section_consistency",
             schema=schema,
             images=images or None,
+            parse=lambda payload: _parse_cross_section_payload(
+                payload, context_blocks_by_section,
+            ),
+            failure="Inspector could not check cross-section consistency",
+            repair=lambda error: (
+                f"\n\nThe prior response failed the consistency contract: {error}. Return "
+                "only cross-section conflicts, each citing exact supplied block IDs from at "
+                "least two different sections."
+            ),
         )
-        findings = _parse_cross_section_payload(payload, context_blocks_by_section)
-        if findings is not None:
-            break
-    if findings is None:
-        return [], "failed"
-    return findings, "partial" if context_limited else "complete"
+    except RECORDABLE_FAILURES as exc:
+        return ConsistencyCheck([], "failed", failure_code(exc))
+    return ConsistencyCheck(findings, "partial" if context_limited else "complete")
 
 
 def build_cross_section_prompt(config: InspectionConfig) -> str:
@@ -614,8 +638,10 @@ def cross_section_schema(
                     "additionalProperties": False,
                     "required": ["statement", "block_ids"],
                     "properties": {
-                        "statement": {"type": "string"},
-                        "block_ids": reference_array(block_ids),
+                        "statement": non_empty_text(),
+                        # Two blocks at least: a conflict cites each of the two or
+                        # more sections that disagree.
+                        "block_ids": {**reference_array(block_ids), "minItems": 2},
                     },
                 },
             }
@@ -702,12 +728,13 @@ def _bounded_cross_section_blocks(
 def _parse_cross_section_payload(
     payload: object,
     blocks_by_section: dict[str, list[ContentBlock]],
-) -> list[Assessment] | None:
+) -> list[Assessment]:
+    """Validate one consistency answer, raising ``ValueError`` naming what is wrong."""
     if not isinstance(payload, dict):
-        return None
+        raise ValueError("model returned no structured decision")
     parsed = payload.get("findings")
     if not isinstance(parsed, list):
-        return None
+        raise ValueError("findings must be an array")
     section_by_block_id = {
         block.id: section_name
         for section_name, blocks in blocks_by_section.items()
@@ -716,17 +743,17 @@ def _parse_cross_section_payload(
     out: list[Assessment] = []
     for index, item in enumerate(parsed):
         if not isinstance(item, dict):
-            return None
+            raise ValueError("each finding must be an object")
         statement = _string_value(item.get("statement"))
         block_ids = list(dict.fromkeys(_string_list(item.get("block_ids"))))
         if not statement or not block_ids:
-            return None
+            raise ValueError("each finding needs a statement and cited blocks")
         if any(block_id not in section_by_block_id for block_id in block_ids):
-            return None
+            raise ValueError("a finding cited an unknown block ID")
         # The citations decide whether this is cross-section, so the sections are
         # read back from them rather than asked for and then checked against them.
         if len({section_by_block_id[block_id] for block_id in block_ids}) < 2:
-            return None
+            raise ValueError("a finding must cite blocks from two different sections")
         out.append(
             Assessment(
                 id=f"conflict|{index}",

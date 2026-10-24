@@ -34,6 +34,11 @@ from services.screener.stages.assessor import (
 )
 
 
+def sent_text(user_message: str, trailing_text: str = "") -> str:
+    """Everything a request said, in the order the model reads it."""
+    return "\n\n".join(part for part in (user_message, trailing_text) if part)
+
+
 def write_docx(path: Path, paragraphs: list[str]) -> None:
     document = Document()
     for text in paragraphs:
@@ -54,8 +59,10 @@ class ScriptedClient:
         self.selection_calls: list[str] = []
 
     def call_structured(
-        self, system_prompt, user_message, max_tokens, *, schema_name, schema, **_
+        self, system_prompt, user_message, max_tokens, *, schema_name, schema,
+        trailing_text="", **_
     ):
+        user_message = sent_text(user_message, trailing_text)
         if schema_name == "screener_question_evidence":
             self.selection_calls.append(user_message)
             return {"block_ids": schema["properties"]["block_ids"]["items"]["enum"]}
@@ -102,7 +109,8 @@ class PipelineTests(unittest.TestCase):
             calls = []
 
             def call_structured(self, system_prompt, user_message, max_tokens,
-                                *, schema_name, schema, images=None, **kwargs):
+                                *, schema_name, schema, images=None, trailing_text="", **kwargs):
+                user_message = sent_text(user_message, trailing_text)
                 if schema_name == "screener_question_evidence":
                     return {"block_ids": schema["properties"]["block_ids"]["items"]["enum"]}
                 if schema_name != "screener_question_triage":
@@ -133,8 +141,9 @@ class PipelineTests(unittest.TestCase):
             self.assertIn("Dosing regimen", message)
             self.assertIn("Independent laboratory findings", message)
             self.assertIn("pdf_text_layout", message)
-            self.assertEqual(images, [{"block_id": block.id,
-                                       "data_url": block.image.data_url()} for block in retained_images])
+            # The assessment reads its selected visuals at high detail.
+            self.assertEqual(images, [{"block_id": block.id, "data_url": block.image.data_url(),
+                                       "detail": "high"} for block in retained_images])
         for block in review.blocks:
             self.assertEqual((block.org, block.intervention_class, block.indication),
                              ("bmgf", "drug", "malaria"))
@@ -314,10 +323,14 @@ class PipelineTests(unittest.TestCase):
         self.assertEqual(review.assessments()[0].cited_block_ids,
                          ["profile/b-0001", "report/b-0000", "report/b-0001"])
         self.assertEqual(len(review.blocks), 6)
-        self.assertEqual(stages[:2], [("resolve", {}), ("parse", {})])
+        self.assertEqual(stages[0], ("resolve", {}))
+        # Parsing is counted per document, which is also where a closed stream is noticed.
+        self.assertEqual([counts for stage, counts in stages if stage == "parse"],
+                         [{"completed": n, "total": 2} for n in range(3)])
         self.assertEqual([counts for stage, counts in stages if stage == "select"],
                          [{"completed": n, "total": 4} for n in range(5)])
-        self.assertEqual(stages[-1], ("assess", {}))
+        self.assertEqual([counts for stage, counts in stages if stage == "assess"],
+                         [{"completed": n, "total": 2} for n in range(3)])
 
     def test_no_selected_evidence_still_reaches_final_assessor(self):
         client = PairClient({("Q1", "profile"): []})
@@ -375,7 +388,7 @@ class PipelineTests(unittest.TestCase):
                     if self.active >= 6:
                         self.wave.set()
                 assert self.wave.wait(timeout=5), "model calls were not parallelized"
-                time.sleep(0.003 if "Q1)" in args[1] else 0.001)
+                time.sleep(0.003 if "Q1)" in kwargs.get("trailing_text", "") else 0.001)
                 try:
                     return super().call_structured(*args, schema_name=schema_name, **kwargs)
                 finally:
@@ -392,7 +405,8 @@ class PipelineTests(unittest.TestCase):
         )
         self.assertEqual(client.finished, 16)
         self.assertGreater(client.peak, 1)
-        self.assertLessEqual(client.peak, 6)
+        from services.screener.pipeline import MAX_PARALLEL_QUESTIONS
+        self.assertLessEqual(client.peak, MAX_PARALLEL_QUESTIONS)
         self.assertEqual([q.id for q in review.assessments()], [f"Q{i}" for i in range(8)])
 
     def test_an_answer_carries_the_blocks_the_document_produced(self) -> None:
@@ -478,7 +492,10 @@ class PairClient:
         self.selections = {}
         self.triage = {}
 
-    def call_structured(self, system_prompt, user_message, max_tokens, *, schema_name, schema, **kwargs):
+    def call_structured(self, system_prompt, user_message, max_tokens, *, schema_name, schema,
+                        trailing_text="", **kwargs):
+        assert "Question (" not in user_message, "the question must follow the shared prefix"
+        user_message = sent_text(user_message, trailing_text)
         question = user_message.split("Question (")[1].split("):")[0]
         domain = schema["properties"]["block_ids"]["items"].get("enum", [])
         if schema_name == "screener_question_evidence":

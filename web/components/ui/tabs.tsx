@@ -30,7 +30,7 @@ const TabsTrigger = React.forwardRef<
     // holds the tabs scrolls sideways, and a scroll box clips anything past its edge, so an
     // underline pushed a pixel below drew at 1px or 2px depending on zoom.
     className={cn(
-      "inline-flex h-9 items-center border-b-2 border-transparent text-xs font-medium text-muted-foreground outline-none transition-colors hover:text-foreground focus-visible:rounded-sm focus-visible:ring-2 focus-visible:ring-ring/20 data-[state=active]:border-foreground data-[state=active]:text-foreground motion-reduce:transition-none",
+      "inline-flex h-9 items-center border-b-2 border-transparent text-xs font-medium text-muted-foreground outline-none transition-colors hover:text-foreground focus-visible:rounded-sm focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring/60 data-[state=active]:border-foreground data-[state=active]:text-foreground motion-reduce:transition-none",
       className,
     )}
     {...props}

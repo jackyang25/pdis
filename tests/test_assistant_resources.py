@@ -143,6 +143,12 @@ class SkillContractTests(unittest.TestCase):
             "not_found/not_applicable",
             "not_assessable": "Screener's states are answered/partly_answered/"
             "not_found/not_applicable",
+            "not_checked": "Scout records a check that obtained no answer as "
+            "`not_assessed`, with a failure code",
+            "title_fallback": "Scout identifies a source as `canonical` or "
+            "`url_fallback`; it no longer matches by title",
+            "independent_review_unavailable": "an `unavailable` review carries a "
+            "`shared.ai.FAILURE_CODES` code",
         }
         for skill in skills.available_skills():
             for token, replacement in retired.items():

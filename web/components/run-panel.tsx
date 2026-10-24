@@ -1,6 +1,6 @@
 "use client";
 
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Check, Loader2, Plus, Upload, X } from "lucide-react";
 import { Button } from "./ui/button";
 import { Label } from "./ui/label";
@@ -13,6 +13,7 @@ import {
   isSupportedDocument,
 } from "@/lib/document-formats";
 import { placeFiles } from "@/lib/document-slots";
+import { TEXT_TOGGLE } from "@/lib/typography";
 import { cn } from "@/lib/utils";
 
 /** One upload slot, identified by a role or by its place in a document collection. */
@@ -70,6 +71,12 @@ type Props = {
   runLabel?: string;
   /** Present tense shown while running, e.g. `Aligning`. Defaults to `Running`. */
   busyLabel?: string;
+  /**
+   * Leaves setup for the result already on screen. Given only when there is one: opened
+   * from "New analysis", the panel was a door that closed behind the reader, gone only by
+   * running again or switching runs.
+   */
+  onCancel?: () => void;
 };
 
 export function RunPanel({
@@ -92,10 +99,22 @@ export function RunPanel({
   hint,
   runLabel = "Run analysis",
   busyLabel = "Running",
+  onCancel,
 }: Props) {
   const [files, setFiles] = useState<Record<string, File>>({});
   const [typeError, setTypeError] = useState<string | null>(null);
   const importRef = useRef<HTMLInputElement>(null);
+  const sectionRef = useRef<HTMLElement>(null);
+
+  // Opened from a result's header, which may be scrolled far below: brought into view, or
+  // "New analysis" looked like it did nothing. Only when it mounts that way - a panel
+  // already on screen that gains a result, as an import does, stays where it is.
+  const openedOverResult = useRef(Boolean(onCancel));
+  useEffect(() => {
+    if (!openedOverResult.current) return;
+    const reduceMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    sectionRef.current?.scrollIntoView({ behavior: reduceMotion ? "auto" : "smooth", block: "start" });
+  }, []);
 
   function chooseFile(slotId: string, picked: File | null) {
     const rejected = picked !== null && !isSupportedDocument(picked.name, documentFormats.suffixes);
@@ -146,8 +165,9 @@ export function RunPanel({
 
   return (
     <section
+      ref={sectionRef}
       className={cn(
-        "rounded-lg bg-card p-5 shadow-raised sm:p-6",
+        "scroll-mt-6 rounded-lg bg-card p-5 shadow-raised sm:p-6",
         className,
       )}
     >
@@ -170,7 +190,7 @@ export function RunPanel({
                   type="button"
                   onClick={() => importRef.current?.click()}
                   disabled={disabled || busy}
-                  className="min-h-6 rounded-sm px-2 text-xs font-medium text-muted-foreground underline decoration-border underline-offset-4 hover:text-foreground focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring disabled:opacity-50"
+                  className={cn(TEXT_TOGGLE, "px-2 text-xs disabled:opacity-50")}
                 >
                   Import result
                 </button>
@@ -260,6 +280,12 @@ export function RunPanel({
                 <p className="text-xs text-muted-foreground">{hint}</p>
               ) : null}
             </div>
+            <div className="flex items-center justify-end gap-2">
+            {onCancel && !busy && (
+              <Button variant="quiet" size="toolbar" onClick={onCancel}>
+                Back to result
+              </Button>
+            )}
             <Button
               className="min-w-[7.5rem]"
               onClick={() => complete && onRun(files)}
@@ -276,6 +302,7 @@ export function RunPanel({
                 runLabel
               )}
             </Button>
+            </div>
           </div>
 
         </div>
@@ -304,27 +331,27 @@ function DocumentField({
   onRemove?: () => void;
 }) {
   const inputRef = useRef<HTMLInputElement>(null);
+  const [dragging, setDragging] = useState(false);
 
   return (
     <div className="flex min-w-0 flex-col gap-2">
-      <div className="flex items-baseline justify-between gap-4">
+      <div className="flex min-h-6 items-center justify-between gap-4">
         <Label>{slot.label}</Label>
-        <span className="text-[10px] text-muted-foreground">
+        <span className="flex items-center gap-1 text-[10px] text-muted-foreground">
           {formats.hint}
+          {onRemove && (
+            <Button
+              variant="quiet"
+              type="button"
+              onClick={onRemove}
+              disabled={disabled}
+              aria-label={`Remove ${slot.label.toLowerCase()}`}
+              className="h-6 w-6 p-0"
+            >
+              <X aria-hidden="true" className="h-3.5 w-3.5" />
+            </Button>
+          )}
         </span>
-        {onRemove && (
-          <Button
-            variant="ghost"
-            size="icon"
-            type="button"
-            onClick={onRemove}
-            disabled={disabled}
-            aria-label={`Remove ${slot.label.toLowerCase()}`}
-            className="shrink-0 text-muted-foreground"
-          >
-            <X aria-hidden="true" className="h-3.5 w-3.5" />
-          </Button>
-        )}
       </div>
       {slot.helper && (
         <p className="text-[11px] leading-4 text-muted-foreground">{slot.helper}</p>
@@ -332,16 +359,23 @@ function DocumentField({
       <button
         type="button"
         onClick={() => inputRef.current?.click()}
-        onDragOver={(event) => event.preventDefault()}
+        onDragOver={(event) => {
+          event.preventDefault();
+          if (!disabled) setDragging(true);
+        }}
+        onDragLeave={() => setDragging(false)}
         onDrop={(event) => {
           event.preventDefault();
+          setDragging(false);
           if (!disabled) onChange(Array.from(event.dataTransfer.files ?? []));
         }}
         disabled={disabled}
         className={cn(
           // Grows for a wrapped prompt in a narrow slot; one line stays 60px.
-          "flex min-h-[60px] w-full items-center gap-3 rounded-md border border-dashed border-input bg-foreground/[0.045] px-4 py-3 text-left transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/20 motion-reduce:transition-none",
-          !disabled && "hover:border-foreground/25 hover:bg-foreground/[0.045]",
+          "flex min-h-[60px] w-full items-center gap-3 rounded-md border border-dashed border-input bg-foreground/[0.045] px-4 py-3 text-left transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/60 motion-reduce:transition-none",
+          !disabled && "hover:border-foreground/25 hover:bg-foreground/[0.07]",
+          // A file held over the zone: it will land here.
+          dragging && "border-foreground/40 bg-foreground/[0.07]",
           disabled && "cursor-not-allowed opacity-60",
         )}
       >

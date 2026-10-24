@@ -28,8 +28,9 @@ test("workspace submits the active review separately, with source blocks, withou
   let props: any;
   const emptySession = (selector: any) => selector({ results: [] });
   const { WorkspaceAsk } = loadComponent(fileURLToPath(new URL("../components/assistant/workspace-ask.tsx", import.meta.url)), {
-    "next/navigation": { usePathname: () => "/scout" },
-    "./ask": { Ask: (value: unknown) => { props = value; return null; } },
+    "next/navigation": { usePathname: () => "/ask" },
+    // The full-page display, because a closed panel builds no bundle and mounts no chat.
+    "next/dynamic": () => (value: unknown) => { props = value; return null; },
     "@/lib/session": Object.fromEntries(["Chunker", "Inspector", "Aligner", "Screener", "Drafter", "Scout", "Searcher"].map(name => [`use${name}Session`, emptySession])),
     "@/lib/priority-reading": { usePriorityReadingStore: (selector: any) => selector({ entries: {} }) },
     "@/lib/assistant-review-context": {
@@ -64,8 +65,9 @@ test("a draft of a revised same-name document cannot replace a final result's so
   // independent of Scout final-contract eligibility in this focused test.
   sessions.useChunkerSession = (selector: any) => selector({ results: [{ id: "old", created_at: "2026-09-16", result: { doc_id: "seed-document", blocks: final.blocks } }] });
   const { WorkspaceAsk } = loadComponent(fileURLToPath(new URL("../components/assistant/workspace-ask.tsx", import.meta.url)), {
-    "next/navigation": { usePathname: () => "/scout" },
-    "./ask": { Ask: (value: unknown) => { props = value; return null; } },
+    "next/navigation": { usePathname: () => "/ask" },
+    // The full-page display, because a closed panel builds no bundle and mounts no chat.
+    "next/dynamic": () => (value: unknown) => { props = value; return null; },
     "@/lib/session": sessions,
     "@/lib/priority-reading": { usePriorityReadingStore: (selector: any) => selector({ entries: {} }) },
     "@/lib/assistant-review-context": {
@@ -94,8 +96,9 @@ test("a Drafter run reaches the assistant as soon as it finishes", () => {
   const sessions = Object.fromEntries(["Chunker", "Inspector", "Aligner", "Screener", "Drafter", "Scout", "Searcher"].map(name => [`use${name}Session`, emptySession]));
   sessions.useDrafterSession = (selector: any) => selector({ results: [{ id: "draft-1", created_at: "2026-10-21", result }] });
   const { WorkspaceAsk } = loadComponent(fileURLToPath(new URL("../components/assistant/workspace-ask.tsx", import.meta.url)), {
-    "next/navigation": { usePathname: () => "/drafter" },
-    "./ask": { Ask: (value: unknown) => { props = value; return null; } },
+    "next/navigation": { usePathname: () => "/ask" },
+    // The full-page display, because a closed panel builds no bundle and mounts no chat.
+    "next/dynamic": () => (value: unknown) => { props = value; return null; },
     "@/lib/session": sessions,
     "@/lib/priority-reading": { usePriorityReadingStore: (selector: any) => selector({ entries: {} }) },
     "@/lib/assistant-review-context": {

@@ -140,7 +140,9 @@ test("no two maps in the suite disagree about one word", () => {
   // by side. "Unrelated" is a relation to a target and a relation to a product; "Not
   // comparable" is a source that cannot be measured against a target and a requirement that
   // cannot be measured across two documents. Naming them differently would be the drift.
-  const SHARED_BY_DESIGN = new Set(["Unrelated", "Not comparable", "Could be stronger", "Not met"]);
+  // "Not searched" is one fact on Scout's three evidence axes - the reviewer left the field
+  // out - so it reads the same on each, and precedent names it once.
+  const SHARED_BY_DESIGN = new Set(["Unrelated", "Not comparable", "Could be stronger", "Not met", "Not searched"]);
   const seen = new Map<string, string[]>();
   for (const [name, map] of Object.entries(VOCABULARY)) {
     for (const label of Object.values(map)) {

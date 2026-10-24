@@ -11,6 +11,8 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from typing import Any
 
+from ..dates import iso_partial_date, partial_date
+from ..errors import RetrievalError
 from ..models import (
     Finding,
     RetrievalIntent,
@@ -19,10 +21,10 @@ from ..models import (
     SourceAttribution,
     SourceSpec,
 )
-from .literature import active_tracks, build_semantic_scholar_query, queries_for_track
+from .literature import active_tracks, build_europepmc_query, queries_for_track
 from .planning import request_lineage
+from .tooluniverse_records import TOOLUNIVERSE_INTEGRATION, run_tool
 
-TOOLUNIVERSE_INTEGRATION = "tooluniverse"
 SEARCH_TOOL = "EuropePMC_search_articles"
 MAX_RESULTS = 10
 MAX_EXCERPT_CHARS = 16_000
@@ -43,8 +45,7 @@ class EuropePMCSource:
         ),
         evidence_class="literature",
         jurisdiction="global",
-        # The same grammar as the other literature lanes: a plain-text expression built
-        # from the intent's anchor and each query's subject phrase.
+        # The same Boolean shape as PubMed: the intent's anchor AND any query's subject.
         reads=(
             "text",
             "condition",
@@ -68,19 +69,14 @@ class EuropePMCSource:
                 SearchRequest(
                     scope_ref=intent.scope_ref,
                     source=self.spec.key,
-                    # Europe PMC accepts a Lucene-like expression, so the plain-text
-                    # compiler is the right grammar rather than a fielded one.
-                    query=build_semantic_scholar_query(intent, track, queries),
+                    query=build_europepmc_query(intent, track, queries),
                     tracks=(track,),
                     document_refs=document_refs,
                     intent_ids=intent_ids,
                     input_queries=input_queries,
                     connector=TOOLUNIVERSE_INTEGRATION,
                     operation=SEARCH_TOOL,
-                    options=(
-                        ("limit", str(MAX_RESULTS)),
-                        ("published_since", intent.published_since),
-                    ),
+                    options=(("published_since", intent.published_since),),
                 )
             )
         return requests
@@ -91,35 +87,45 @@ class EuropePMCSource:
         runtime: SearchRuntime,
         *,
         max_tokens: int,
-        max_uses: int,
     ) -> list[Finding]:
-        connector = runtime.integrations.get(TOOLUNIVERSE_INTEGRATION)
-        if connector is None or not callable(getattr(connector, "run", None)):
-            raise RuntimeError("ToolUniverse connector is not configured")
-        result = connector.run(
+        result = run_tool(
+            runtime,
+            self.spec,
             SEARCH_TOOL,
             {
                 "query": _bounded(request.query, request.option("published_since")),
-                "limit": int(request.option("limit", str(MAX_RESULTS))),
+                "limit": self.spec.max_results,
             },
         )
         retrieved_at = datetime.now(timezone.utc)
         findings: list[Finding] = []
         for record in _records(result):
+            source_db = _text(record.get("source_db"))
+            article_id = _text(record.get("article_id"))
             url = _text(record.get("doi_url")) or _text(record.get("url"))
-            if not url:
+            # Europe PMC's own record identity. A record without one cannot be told
+            # apart from another, so it is not kept - as a trial without an NCT ID is not.
+            if not url or not (source_db and article_id):
                 continue
             excerpt = _text(record.get("abstract"))
             if len(excerpt) > MAX_EXCERPT_CHARS:
                 excerpt = excerpt[:MAX_EXCERPT_CHARS].rstrip() + "..."
+            published_at, precision = _published(record)
             findings.append(
                 Finding(
                     url=url,
                     title=_text(record.get("title")) or url,
                     query=request.query,
                     retrieved_at=retrieved_at,
-                    published_at=_published(record),
+                    published_at=published_at,
+                    published_precision=precision,
                     excerpt=excerpt or None,
+                    identifiers={
+                        "doi": _text(record.get("doi")),
+                        "pmid": _text(record.get("pmid")),
+                        "pmcid": _text(record.get("pmcid")),
+                    },
+                    record_key=f"europepmc:{source_db}/{article_id}",
                     source=self.spec.key,
                 )
             )
@@ -144,26 +150,40 @@ def _bounded(query: str, published_since: str) -> str:
 
 
 def _records(result: Any) -> list[dict[str, Any]]:
+    """The tool's article list, or a stated failure.
+
+    The tool reports an upstream failure as a single article titled "Error" whose `error`
+    field holds the reason, inside a successful envelope. Read as records, that became a
+    record with no URL, was skipped, and the request reported success with nothing found.
+    """
     if isinstance(result, dict):
         if result.get("status") == "error" or result.get("error"):
-            raise RuntimeError(str(result.get("error") or "Europe PMC failed"))
+            raise RetrievalError(
+                "Europe PMC", "tool_error", str(result.get("error") or "search failed")
+            )
         result = result.get("data", [])
     if not isinstance(result, list):
-        raise RuntimeError("Europe PMC returned an unexpected result shape")
-    return [item for item in result if isinstance(item, dict)]
+        raise RetrievalError("Europe PMC", "invalid_response", "unexpected result shape")
+    records = [item for item in result if isinstance(item, dict)]
+    for record in records:
+        if record.get("error"):
+            raise RetrievalError("Europe PMC", "tool_error", str(record["error"]))
+    return records
 
 
-def _published(record: dict[str, Any]) -> datetime | None:
-    """Europe PMC states a publication year, not a date.
+def _published(record: dict[str, Any]) -> tuple[datetime | None, str]:
+    """The first publication date when the tool returns one, else the year alone.
 
-    Read as 1 January of that year, which is the earliest date consistent with it. A
-    window is a lower bound, so the earliest reading is the one that cannot exclude a
-    record the caller asked for.
+    A year is kept as a year: it is not 1 January, and a window starting mid-year must
+    not drop a record that may have been published after it.
     """
-    year = _text(record.get("year"))
+    published_at, precision = iso_partial_date(record.get("first_publication_date"))
+    if published_at is not None:
+        return published_at, precision
+    year = str(record.get("year") or "").strip()
     if not year.isdigit() or len(year) != 4:
-        return None
-    return datetime(int(year), 1, 1, tzinfo=timezone.utc)
+        return None, ""
+    return partial_date(int(year))
 
 
 def _text(value: Any) -> str:

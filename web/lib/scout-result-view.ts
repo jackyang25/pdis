@@ -19,69 +19,24 @@
 import type {
   Conformity,
   EvidenceAssessment,
+  Finding,
+  IdentityReconciliation,
   Match,
   PrecedentSignal,
+  RetrievalScope,
+  RunScopeDimension,
+  ScoutResponse,
   Variable,
   EvidenceStrength,
   NumericDisplay,
   NumericExpression,
   QuantitativeTarget,
 } from "./api.ts";
-
-/**
- * A number with its unit, spaced.
- *
- * `%` and `°` close up against the number; every other unit takes a space. Shared because
- * two call sites had already diverged - `formatNumericExpression` spaced it and the
- * benchmark formatter did not, which is where `1injections` and `0.6administration
- * occasions` came from.
- */
-export function formatMeasure(value: number | null | undefined, unit: string, display?: NumericDisplay): string {
-  if (value == null || !Number.isFinite(value)) return "—";
-  const formatted = formatMagnitude(value, display);
-  if (display?.kind === "calendar_year") return formatted;
-  unit = (Math.abs(value) === 1 ? display?.unit_singular : display?.unit_plural) || unit;
-  if (!unit) return formatted;
-  return /^[%°]/.test(unit) ? `${formatted}${unit}` : `${formatted} ${unit}`;
-}
-
-function formatMagnitude(value: number, display?: NumericDisplay): string {
-  return value.toLocaleString(undefined, {
-    // Keep established two-decimal presentation, without turning a small
-    // nonzero measurement into zero.
-    ...(value !== 0 && Math.abs(value) < 0.01
-      ? { maximumSignificantDigits: 2 }
-      : { maximumFractionDigits: 2 }),
-    useGrouping: display?.kind !== "calendar_year",
-  });
-}
-
-/**
- * Two numbers that share a unit, with the unit said once.
- *
- * A range was built by formatting each end on its own, which printed the unit twice:
- * "1 administration occasions-2 administration occasions" for what a reader reads as
- * "1 to 2". The mean and its deviation had the same shape. With a long unit the repetition
- * was most of the cell, and the two numbers, which are the content, were the hardest part
- * to find in it.
- *
- * If either end is missing, both are formatted separately, so the em dash placeholder
- * cannot be read as belonging to the other number's unit.
- */
-export function formatMeasurePair(
-  first: number | null | undefined,
-  second: number | null | undefined,
-  unit: string,
-  separator: string,
-  display?: NumericDisplay,
-): string {
-  const usable = (value: number | null | undefined) => value != null && Number.isFinite(value);
-  if (!usable(first) || !usable(second)) {
-    return `${formatMeasure(first, unit, display)}${separator}${formatMeasure(second, unit, display)}`;
-  }
-  const lead = formatMagnitude(first as number, display);
-  return `${lead}${separator}${formatMeasure(second, unit, display)}`;
-}
+import { RUN_SCOPE_DIMENSIONS } from "./api.ts";
+import { countLabel } from "./count-label.ts";
+import { displayLabel } from "./display-label.ts";
+import { displayAttributeLabel } from "./scout-labels.ts";
+import { formatMeasure, formatMeasurePair } from "./measure-format.ts";
 
 /** A numeric expression in one short line: "≥ 80%", or "2–8 °C" for a range. */
 export function formatNumericExpression(expression: NumericExpression): string {
@@ -248,6 +203,9 @@ export const RELATION_READING_ORDER: Match["relation"][] = [
   "confirms",
   "extends",
   "unrelated",
+  // Last and kept: no relation was obtained, which says nothing about the target, but a
+  // group order without it would drop the insight from its field without a trace.
+  "not_assessed",
 ];
 
 export type RelationGroup = {
@@ -260,6 +218,139 @@ export function relationGroups(matches: Match[]): RelationGroup[] {
     relation,
     matches: matches.filter((match) => match.relation === relation),
   })).filter((group) => group.matches.length > 0);
+}
+
+// --- Sources -----------------------------------------------------------------
+
+/**
+ * Who a cited source is: its record identity, or its URL where a saved finding states none.
+ *
+ * Not the URL alone. One trial reached through its registry page and a mirror is one record,
+ * and counting links would count it twice - the service contract keys lineage the same way.
+ */
+export function sourceIdentity(finding: Pick<Finding, "url" | "record_key">): string {
+  return finding.record_key ? `record:${finding.record_key}` : `url:${finding.url}`;
+}
+
+/** Distinct sources cited anywhere in the result, one per record. */
+export function distinctSourceCount(
+  result: Pick<
+    ScoutResponse,
+    "matches" | "assessments" | "precedents" | "conformity" | "development_landscape" | "safety_observations"
+  >,
+): number {
+  const findings: Finding[] = [
+    ...(result.matches ?? []).flatMap((match) => match.insight.supporting_findings ?? []),
+    ...(result.assessments ?? []).flatMap((item) => item.supporting_findings ?? []),
+    ...(result.precedents ?? []).flatMap((item) => item.supporting_findings ?? []),
+    ...(result.development_landscape ?? []).flatMap((item) => item.supporting_findings ?? []),
+    ...(result.safety_observations ?? []).flatMap((item) => item.supporting_findings ?? []),
+  ].filter((finding) => finding.url || finding.record_key);
+  const byUrl = new Map(findings.map((finding) => [finding.url, sourceIdentity(finding)]));
+  const sources = new Set(findings.map(sourceIdentity));
+  // A measurement names only the page it was read from, so it is counted as the record
+  // that page belongs to.
+  for (const score of result.conformity ?? []) {
+    for (const measurement of score.measurements ?? []) {
+      if (measurement.url) sources.add(byUrl.get(measurement.url) ?? `url:${measurement.url}`);
+    }
+  }
+  return sources.size;
+}
+
+// --- Retrieval scope ---------------------------------------------------------
+
+/** One scope dimension as the reviewer reads it, with the blocks a document value cites. */
+export type ScopePart = { dimension: RunScopeDimension; text: string; blockIds: string[] };
+
+/**
+ * What the run searches for, one part per dimension in run order.
+ *
+ * An unset dimension stays, as "any region": nobody narrowed it, which widens the search
+ * and is worth seeing before it runs. A header value is a configuration key, shown the way
+ * the selector shows it; a document value is the document's own words and says where it
+ * came from.
+ */
+export function retrievalScopeParts(scope: RetrievalScope | undefined): ScopePart[] {
+  const entries = new Map((scope?.entries ?? []).map((entry) => [entry.dimension, entry]));
+  return RUN_SCOPE_DIMENSIONS.flatMap((dimension) => {
+    const entry = entries.get(dimension);
+    if (!entry) return [];
+    const text = entry.provenance === "unset" || !entry.value
+      ? `any ${dimension}`
+      : entry.provenance === "header"
+        ? displayLabel(entry.value)
+        : entry.provenance === "document"
+          ? `${entry.value} (from the document)`
+          : `${entry.value} (configured default)`;
+    return [{ dimension, text, blockIds: entry.block_ids ?? [] }];
+  });
+}
+
+// --- Identity layers ---------------------------------------------------------
+
+/** What each identity layer partitions, in a reader's words. */
+const IDENTITY_SET_LABEL: Record<IdentityReconciliation["layer"], string> = {
+  document_units: "document claims",
+  quantitative_targets: "numeric targets",
+  insights: "insights",
+  projections: "development and safety records",
+};
+
+/**
+ * The sets whose duplicate check did not complete, in run order.
+ *
+ * A layer that fails leaves its set unmerged and the run goes on, so a duplicate there can
+ * be counted twice. Derived from the records, never carried as a count beside them.
+ */
+export function unreconciledSets(
+  reconciliations: IdentityReconciliation[] | undefined,
+): string[] {
+  return (reconciliations ?? [])
+    .filter((record) => record.status === "not_reconciled")
+    .map((record) =>
+      record.layer === "insights" && record.scope
+        ? `${IDENTITY_SET_LABEL.insights} for ${displayAttributeLabel(record.scope)}`
+        : IDENTITY_SET_LABEL[record.layer],
+    );
+}
+
+// --- Checks that could not be completed --------------------------------------
+
+/**
+ * What a run's stages could not decide, counted by what each was about.
+ *
+ * `not_assessed` is recorded by code when a model call failed, on whichever subject it was
+ * deciding; the subject is kept and marked where it appears. This sums them for the one
+ * notice that says a run is partly unread, because a result whose checks did not all run
+ * must not read as a completed one. Derived from the lists, never carried beside them: a
+ * stored count is a second authority that can disagree with its own list. Context
+ * validation is absent - it has its own notice.
+ */
+export function unassessedChecks(result: {
+  matches: Pick<Match, "relation">[];
+  assessments: Pick<EvidenceAssessment, "strength">[];
+  precedents: Pick<PrecedentSignal, "precedent">[];
+  development_landscape: { target_relationship: string }[];
+  safety_observations: { target_relationship: string }[];
+}): { total: number; parts: string[] } {
+  const counts: [number, string, string][] = [
+    [result.matches.filter((item) => item.relation === "not_assessed").length,
+      "evidence relation", "evidence relations"],
+    [result.assessments.filter((item) => item.strength === "not_assessed").length,
+      "field grounding", "field groundings"],
+    [result.precedents.filter((item) => item.precedent === "not_assessed").length,
+      "precedent check", "precedent checks"],
+    [[...result.development_landscape, ...result.safety_observations]
+      .filter((item) => item.target_relationship === "not_assessed").length,
+      "record relation", "record relations"],
+  ];
+  return {
+    total: counts.reduce((sum, [count]) => sum + count, 0),
+    parts: counts
+      .filter(([count]) => count > 0)
+      .map(([count, singular, plural]) => countLabel(count, singular, plural)),
+  };
 }
 
 // --- The insight registry ---------------------------------------------------
@@ -478,11 +569,16 @@ export type RunHeadline = {
    * The buckets are `EvidenceStrength` plus one for a field the document never stated a
    * target for. Those are not `unknown`: "we looked and could not tell" and "there was
    * nothing to look at" are different answers, and folding them together would hide the
-   * figure that decides whether a run is worth reading at all.
+   * figure that decides whether a run is worth reading at all. `not_assessed` is a third
+   * answer - the check did not run - and is kept apart from both for the same reason.
+   * `not_searched` is a fourth: the reviewer left the field out of search, so the bucket
+   * counts a choice made at review rather than anything the evidence did.
    */
   groundingCounts: Record<EvidenceStrength | "not_stated", number>;
   wellGroundedCount: number;
   notStatedCount: number;
+  /** Fields the reviewer left out of search, which hold `not_searched` and nothing else. */
+  notSearchedCount: number;
   unresolvedCount: number;
   fieldCount: number;
   /** Numeric targets that could not be calibrated for want of a comparable measurement. */
@@ -495,9 +591,10 @@ export function runHeadline(rows: FieldSummaryInput[]): RunHeadline {
     rows.filter(predicate).map((row) => row.variable.name);
   const conformities = rows.flatMap((row) => row.conformities);
 
-  const groundingCounts = {
-    well_grounded: 0, partial: 0, thin: 0, unsupported: 0, unknown: 0, not_stated: 0,
-  } as Record<EvidenceStrength | "not_stated", number>;
+  const groundingCounts: Record<EvidenceStrength | "not_stated", number> = {
+    well_grounded: 0, partial: 0, thin: 0, unsupported: 0, unknown: 0, no_evidence: 0,
+    not_searched: 0, not_assessed: 0, not_stated: 0,
+  };
   for (const row of rows) {
     // Order matters: a field with no target has no grounding to report, whatever an
     // assessment left over from an earlier state might say.
@@ -517,6 +614,7 @@ export function runHeadline(rows: FieldSummaryInput[]): RunHeadline {
     notStatedCount: rows.filter(
       (row) => !(row.variable.document_target || "").trim(),
     ).length,
+    notSearchedCount: groundingCounts.not_searched,
     unresolvedCount: rows.filter((row) => !row.variable.target_resolved).length,
     fieldCount: rows.length,
     uncalibratedTargets: conformities.filter((item) => item.benchmark_count === 0).length,

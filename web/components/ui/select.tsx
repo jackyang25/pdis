@@ -10,7 +10,7 @@ const SelectValue = SelectPrimitive.Value;
 
 // The value stays on one left-aligned line: a trigger is a button, which centres and wraps
 // its text, so a long document name broke into two centred lines beside single-line peers.
-export const SELECT_TRIGGER_CLASS = "flex h-9 w-full items-center justify-between gap-2 text-left [&>span]:min-w-0 [&>span]:truncate rounded-md border border-input bg-card px-3 py-2 text-xs font-medium transition-colors placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring/20 disabled:cursor-not-allowed disabled:opacity-50 motion-reduce:transition-none";
+export const SELECT_TRIGGER_CLASS = "flex h-9 w-full items-center justify-between gap-2 text-left [&>span]:min-w-0 [&>span]:truncate rounded-md border border-input bg-card px-3 py-2 text-xs font-medium transition-colors placeholder:text-muted-foreground focus:outline-none focus:border-ring/60 focus:ring-2 focus:ring-ring/15 disabled:cursor-not-allowed disabled:opacity-50 motion-reduce:transition-none";
 
 const SelectTrigger = React.forwardRef<
   React.ElementRef<typeof SelectPrimitive.Trigger>,

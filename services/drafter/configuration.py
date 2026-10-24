@@ -2,8 +2,9 @@
 
 A config names the sources a product type reads and the guidance for planning its searches.
 `load_config` refuses anything the run could not honour - a product type with no shared
-variables, or a source Searcher does not register - because each would surface later as a
-silent gap.
+variables, a source Searcher does not register, or a source whose excerpts are not the
+source's own words - because each would surface later as a silent gap or an unquotable
+reading. A config that does not load is a broken product type, never one to skip.
 """
 
 from __future__ import annotations
@@ -12,7 +13,7 @@ from pathlib import Path
 
 import yaml
 
-from services.searcher import validate_source_keys
+from services.searcher import source_specs, validate_source_keys
 from shared.vocabulary import attribute_definitions
 
 from .models import CONFIGS_DIR, DrafterConfig
@@ -38,6 +39,13 @@ def load_config(config_path: str) -> DrafterConfig:
         raise ValueError(f"{path.name}: {exc}") from exc
     if not sources:
         raise ValueError(f"{path.name}: at least one source is required")
+    verbatim = {spec.key for spec in source_specs() if spec.excerpt_is_verbatim}
+    snippets = [key for key in sources if key not in verbatim]
+    if snippets:
+        raise ValueError(
+            f"{path.name}: {', '.join(snippets)} returns snippets rather than the source's own words, "
+            "which can support neither a quotation nor a number"
+        )
     return DrafterConfig(
         type_key=_text(data, "type_key", path),
         org=org,
@@ -52,31 +60,33 @@ def load_config(config_path: str) -> DrafterConfig:
 def available_configs() -> list[DrafterConfig]:
     """Every product type Drafter can draft for, in stable order.
 
-    Decided by whether a file loads as a config, not by the shape of its name, as
-    Scout's and Inspector's are.
+    Every file in the directory is a config and must load: a malformed one raises, as
+    Screener's and Inspector's do, rather than quietly removing a product type.
     """
     configs: list[DrafterConfig] = []
+    seen: set[tuple[str, str, str]] = set()
     for path in sorted(CONFIGS_DIR.glob("*.yaml")):
-        try:
-            config = load_config(str(path))
-        except (ValueError, KeyError, TypeError):
-            continue
-        if config.type_key == path.stem:
-            configs.append(config)
+        config = load_config(str(path))
+        if config.type_key != path.stem:
+            raise ValueError(f"{path.name}: type_key {config.type_key!r} must match its filename")
+        identity = (config.org, config.source_type, config.intervention_class)
+        if identity in seen:
+            raise ValueError(f"{path.name}: a second config for {identity}")
+        seen.add(identity)
+        configs.append(config)
     return configs
 
 
 def find_config(org: str, source_type: str, intervention_class: str) -> DrafterConfig:
-    """The config for one product type, or LookupError when there is none."""
+    """The config declaring this triple, or LookupError when there is none.
+
+    Found by what each config declares, never by building a filename from the keys.
+    """
     expected = (org, source_type, intervention_class)
-    path = CONFIGS_DIR / f"{'_'.join(expected)}.yaml"
-    if not path.exists():
-        raise LookupError(f"No Drafter config for ({org}, {source_type}, {intervention_class}).")
-    config = load_config(str(path))
-    actual = (config.org, config.source_type, config.intervention_class)
-    if actual != expected or config.type_key != "_".join(expected):
-        raise LookupError(f"Drafter config identity mismatch: requested {expected}, file declares {actual}")
-    return config
+    for config in available_configs():
+        if (config.org, config.source_type, config.intervention_class) == expected:
+            return config
+    raise LookupError(f"No Drafter config for ({org}, {source_type}, {intervention_class}).")
 
 
 def has_config(org: str, source_type: str, intervention_class: str) -> bool:

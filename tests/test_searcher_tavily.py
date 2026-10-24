@@ -152,7 +152,7 @@ class SearchTests(unittest.TestCase):
                 "content": "Treatment  should   continue for six months.",
             }]
         })
-        findings = TavilySource().search(request(), runtime(connector), max_tokens=1, max_uses=1)
+        findings = TavilySource().search(request(), runtime(connector), max_tokens=1)
         self.assertEqual(len(findings), 1)
         self.assertEqual(findings[0].url, "https://who.int/tb")
         self.assertEqual(findings[0].title, "WHO TB guidance")
@@ -161,23 +161,11 @@ class SearchTests(unittest.TestCase):
         self.assertEqual(findings[0].source, "tavily")
         self.assertEqual(findings[0].query, request().query)
 
-    def test_the_fuller_text_is_preferred_when_present(self):
-        """A longer passage is likelier to contain the sentence a number sits in."""
-        connector = _FakeConnector({
-            "results": [{
-                "url": "https://who.int/tb",
-                "content": "short",
-                "raw_content": "the fuller extracted page text",
-            }]
-        })
-        findings = TavilySource().search(request(), runtime(connector), max_tokens=1, max_uses=1)
-        self.assertEqual(findings[0].excerpt, "the fuller extracted page text")
-
     def test_a_long_passage_is_truncated_rather_than_dropped(self):
         connector = _FakeConnector({
             "results": [{"url": "https://a.test", "content": "x" * (MAX_EXCERPT_CHARS + 500)}]
         })
-        findings = TavilySource().search(request(), runtime(connector), max_tokens=1, max_uses=1)
+        findings = TavilySource().search(request(), runtime(connector), max_tokens=1)
         self.assertTrue(findings[0].excerpt.endswith("..."))
         self.assertLessEqual(len(findings[0].excerpt), MAX_EXCERPT_CHARS + 3)
 
@@ -188,7 +176,7 @@ class SearchTests(unittest.TestCase):
         fact from a page whose text could not be extracted.
         """
         connector = _FakeConnector({"results": [{"url": "https://a.test", "title": "A"}]})
-        findings = TavilySource().search(request(), runtime(connector), max_tokens=1, max_uses=1)
+        findings = TavilySource().search(request(), runtime(connector), max_tokens=1)
         self.assertIsNone(findings[0].excerpt)
 
     def test_a_record_with_no_url_is_skipped(self):
@@ -196,34 +184,34 @@ class SearchTests(unittest.TestCase):
         connector = _FakeConnector({
             "results": [{"title": "no url"}, {"url": "https://a.test", "title": "A"}]
         })
-        findings = TavilySource().search(request(), runtime(connector), max_tokens=1, max_uses=1)
+        findings = TavilySource().search(request(), runtime(connector), max_tokens=1)
         self.assertEqual([f.url for f in findings], ["https://a.test"])
 
     def test_a_missing_title_falls_back_to_the_url_never_to_a_generated_one(self):
         connector = _FakeConnector({"results": [{"url": "https://a.test"}]})
-        findings = TavilySource().search(request(), runtime(connector), max_tokens=1, max_uses=1)
+        findings = TavilySource().search(request(), runtime(connector), max_tokens=1)
         self.assertEqual(findings[0].title, "https://a.test")
 
     def test_the_declared_result_cap_is_what_is_asked_for(self):
         """So the spec's number and the request's number cannot disagree."""
         connector = _FakeConnector({"results": []})
-        TavilySource().search(request(), runtime(connector), max_tokens=1, max_uses=1)
+        TavilySource().search(request(), runtime(connector), max_tokens=1)
         self.assertEqual(connector.calls, [(request().query, MAX_RESULTS)])
 
     def test_generation_bounds_are_ignored_rather_than_reinterpreted(self):
-        """`max_tokens` and `max_uses` bound a model, not a search API.
+        """`max_tokens` bounds a model, not a search API.
 
-        Turning them into a result limit would silently disagree with the cap the spec
+        Turning it into a result limit would silently disagree with the cap the spec
         declares, which is the kind of difference nobody finds until they compare counts.
         """
         connector = _FakeConnector({"results": []})
-        TavilySource().search(request(), runtime(connector), max_tokens=99, max_uses=99)
+        TavilySource().search(request(), runtime(connector), max_tokens=99)
         self.assertEqual(connector.calls[0][1], MAX_RESULTS)
 
     def test_an_absent_connector_is_a_stated_failure(self):
         with self.assertRaises(RuntimeError) as raised:
             TavilySource().search(
-                request(), SearchRuntime(llm_client=None), max_tokens=1, max_uses=1
+                request(), SearchRuntime(llm_client=None), max_tokens=1
             )
         self.assertIn("not configured", str(raised.exception))
 
@@ -235,7 +223,7 @@ class SearchTests(unittest.TestCase):
         """
         connector = _FakeConnector({"error": "rate limited"})
         with self.assertRaises(RuntimeError) as raised:
-            TavilySource().search(request(), runtime(connector), max_tokens=1, max_uses=1)
+            TavilySource().search(request(), runtime(connector), max_tokens=1)
         self.assertIn("rate limited", str(raised.exception))
 
     def test_an_unexpected_shape_is_a_failure(self):
@@ -243,13 +231,13 @@ class SearchTests(unittest.TestCase):
             with self.subTest(shape=shape):
                 with self.assertRaises(RuntimeError):
                     TavilySource().search(
-                        request(), runtime(_FakeConnector(shape)), max_tokens=1, max_uses=1
+                        request(), runtime(_FakeConnector(shape)), max_tokens=1
                     )
 
     def test_a_search_that_genuinely_returns_nothing_is_not_a_failure(self):
         connector = _FakeConnector({"results": []})
         self.assertEqual(
-            TavilySource().search(request(), runtime(connector), max_tokens=1, max_uses=1), []
+            TavilySource().search(request(), runtime(connector), max_tokens=1), []
         )
 
 
@@ -287,12 +275,12 @@ class ConnectorTests(unittest.TestCase):
             def __exit__(self, *exc):
                 return False
 
-        def fake_urlopen(req, timeout=None):
+        def fake_urlopen(req, *, timeout=None):
             captured["headers"] = dict(req.headers)
             captured["body"] = json.loads(req.data.decode())
             return _Response()
 
-        with patch("services.searcher.connectors.tavily.urlopen", fake_urlopen):
+        with patch("services.searcher.transport._open", fake_urlopen):
             TavilyHTTPConnector(api_key="secret-key").search("a query")
 
         self.assertEqual(captured["headers"].get("Authorization"), "Bearer secret-key")
@@ -312,14 +300,16 @@ class ConnectorTests(unittest.TestCase):
             def __exit__(self, *exc):
                 return False
 
-        def fake_urlopen(req, timeout=None):
+        def fake_urlopen(req, *, timeout=None):
             captured.update(json.loads(req.data.decode()))
             return _Response()
 
-        with patch("services.searcher.connectors.tavily.urlopen", fake_urlopen):
+        with patch("services.searcher.transport._open", fake_urlopen):
             TavilyHTTPConnector(api_key="k").search("a query", max_results=4)
 
         self.assertIs(captured["include_answer"], False)
+        # The excerpt reads `content`; a page's raw text would only be carried and discarded.
+        self.assertIs(captured["include_raw_content"], False)
         self.assertEqual(captured["query"], "a query")
         self.assertEqual(captured["max_results"], 4)
         self.assertEqual(captured["search_depth"], DEFAULT_SEARCH_DEPTH)
@@ -335,7 +325,7 @@ class ConnectorTests(unittest.TestCase):
             def __exit__(self, *exc):
                 return False
 
-        with patch("services.searcher.connectors.tavily.urlopen", lambda *a, **k: _Response()):
+        with patch("services.searcher.transport._open", lambda *a, **k: _Response()):
             with self.assertRaises(RuntimeError) as raised:
                 TavilyHTTPConnector(api_key="k").search("a query")
         self.assertIn("invalid JSON", str(raised.exception))

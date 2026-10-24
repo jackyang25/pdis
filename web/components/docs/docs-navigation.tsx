@@ -35,7 +35,7 @@ export function DocsNavigation({ entries }: { entries: readonly (readonly [strin
         <div className="mt-3 space-y-1">
           {entries.map(([id, label]) => (
             <a key={id} href={`#${id}`} aria-current={active === id ? "location" : undefined}
-              className={cn("block border-s-2 border-transparent px-3 py-2 text-xs text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-offset-2 motion-reduce:transition-none",
+              className={cn("block border-s-2 border-transparent px-3 py-2 text-xs text-muted-foreground transition-colors hover:text-foreground rounded-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/60 motion-reduce:transition-none",
                 active === id && "border-foreground font-medium text-foreground")}>
               {label}
             </a>

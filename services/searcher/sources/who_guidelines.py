@@ -21,10 +21,12 @@ than a model's summary, so it can support a quantitative claim like any other do
 
 from __future__ import annotations
 
-import logging
 from datetime import datetime, timezone
 from typing import Any
 
+from ..calls import note_warning
+from ..dates import iso_partial_date
+from ..errors import RetrievalError
 from ..models import (
     Finding,
     RetrievalIntent,
@@ -34,9 +36,9 @@ from ..models import (
     SourceSpec,
 )
 from .literature import active_tracks
-from .planning import facet_groups, request_lineage
+from .planning import request_lineage
+from .tooluniverse_records import TOOLUNIVERSE_INTEGRATION, run_tool
 
-TOOLUNIVERSE_INTEGRATION = "tooluniverse"
 SEARCH_TOOL = "WHO_Guidelines_Search"
 FULL_TEXT_TOOL = "WHO_Guideline_Full_Text"
 #: Deliberately small. The search returns a title and a URL and no text at all, so every
@@ -45,8 +47,6 @@ FULL_TEXT_TOOL = "WHO_Guideline_Full_Text"
 #: a literature corpus, so the top few by relevance is the whole useful answer.
 MAX_RESULTS = 5
 MAX_EXCERPT_CHARS = 8_000
-
-logger = logging.getLogger(__name__)
 
 
 class WHOGuidelinesSource:
@@ -72,34 +72,24 @@ class WHOGuidelinesSource:
     )
 
     def plan(self, intent: RetrievalIntent) -> list[SearchRequest]:
-        requests: list[SearchRequest] = []
-        for scope, queries in facet_groups(
-            intent,
-            fields=("condition",),
-            fallbacks={"condition": intent.indication or intent.topic},
-            anchors=("condition",),
-            limit=self.spec.max_requests_per_intent,
-        ):
-            intent_ids, input_queries, document_refs = request_lineage(queries)
-            condition = scope["condition"]
-            requests.append(
-                SearchRequest(
-                    scope_ref=intent.scope_ref,
-                    source=self.spec.key,
-                    query=f"condition:{condition}",
-                    tracks=tuple(active_tracks(intent)),
-                    document_refs=document_refs,
-                    intent_ids=intent_ids,
-                    input_queries=input_queries,
-                    connector=TOOLUNIVERSE_INTEGRATION,
-                    operation=SEARCH_TOOL,
-                    options=(
-                        ("condition", condition),
-                        ("limit", str(MAX_RESULTS)),
-                    ),
-                )
+        # The condition is the whole request and is the intent's anchor, so no query can
+        # vary it: one request per intent, carrying every query in its lineage.
+        intent_ids, input_queries, document_refs = request_lineage(list(intent.queries))
+        condition = (intent.indication or intent.topic).strip()
+        return [
+            SearchRequest(
+                scope_ref=intent.scope_ref,
+                source=self.spec.key,
+                query=f"condition:{condition}",
+                tracks=tuple(active_tracks(intent)),
+                document_refs=document_refs,
+                intent_ids=intent_ids,
+                input_queries=input_queries,
+                connector=TOOLUNIVERSE_INTEGRATION,
+                operation=SEARCH_TOOL,
+                options=(("condition", condition),),
             )
-        return requests
+        ]
 
     def search(
         self,
@@ -107,17 +97,12 @@ class WHOGuidelinesSource:
         runtime: SearchRuntime,
         *,
         max_tokens: int,
-        max_uses: int,
     ) -> list[Finding]:
-        connector = runtime.integrations.get(TOOLUNIVERSE_INTEGRATION)
-        if connector is None or not callable(getattr(connector, "run", None)):
-            raise RuntimeError("ToolUniverse connector is not configured")
-        result = connector.run(
+        result = run_tool(
+            runtime,
+            self.spec,
             SEARCH_TOOL,
-            {
-                "query": request.option("condition"),
-                "limit": int(request.option("limit", str(MAX_RESULTS))),
-            },
+            {"query": request.option("condition"), "limit": self.spec.max_results},
         )
         retrieved_at = datetime.now(timezone.utc)
         findings: list[Finding] = []
@@ -137,10 +122,11 @@ class WHOGuidelinesSource:
             excerpt = (
                 _text(record.get("content"))
                 or _text(record.get("description"))
-                or _full_text(connector, url)
+                or self._full_text(runtime, url)
             )
             if len(excerpt) > MAX_EXCERPT_CHARS:
                 excerpt = excerpt[:MAX_EXCERPT_CHARS].rstrip() + "..."
+            published_at, precision = iso_partial_date(record.get("date_issued"))
             findings.append(
                 Finding(
                     url=url,
@@ -148,39 +134,46 @@ class WHOGuidelinesSource:
                     query=request.query,
                     retrieved_at=retrieved_at,
                     excerpt=excerpt or None,
+                    published_at=published_at,
+                    published_precision=precision,
+                    record_key=f"who_guidelines:{url}",
                     source=self.spec.key,
                 )
             )
         return findings
 
+    def _full_text(self, runtime: SearchRuntime, url: str) -> str:
+        """Fetch one guideline's page text, or return blank.
 
-def _full_text(connector: Any, url: str) -> str:
-    """Fetch one guideline's page text, or return blank.
-
-    A failure here degrades the finding to its title rather than failing the lane: the
-    guideline exists and is citable either way, and losing the whole request because one
-    page would not load would be a worse answer than a thin one.
-    """
-    try:
-        page = connector.run(FULL_TEXT_TOOL, {"url": url})
-    except Exception:  # noqa: BLE001 - a page that will not load is not a lane failure
-        logger.warning("WHO guideline text unavailable: %s", url)
-        return ""
-    if not isinstance(page, dict):
-        return ""
-    return _text(page.get("main_content")) or _text(page.get("overview"))
+        A failure here degrades the finding to its title rather than failing the lane:
+        the guideline exists and is citable either way, and losing the whole request
+        because one page would not load would be a worse answer than a thin one. The
+        outcome records the degradation, so a complete request is not read as one whose
+        every guideline carried its text.
+        """
+        try:
+            page = run_tool(runtime, self.spec, FULL_TEXT_TOOL, {"url": url})
+        except Exception as exc:  # noqa: BLE001 - a page that will not load is not a lane failure
+            note_warning("content_unavailable", f"guideline text for {url}: {exc}")
+            return ""
+        if not isinstance(page, dict):
+            note_warning("content_unavailable", f"guideline text for {url}: no page")
+            return ""
+        return _text(page.get("main_content")) or _text(page.get("overview"))
 
 
 def _records(result: Any) -> list[dict[str, Any]]:
     if isinstance(result, dict):
         if result.get("status") == "error" or result.get("error"):
-            raise RuntimeError(str(result.get("error") or "WHO Guidelines failed"))
+            raise RetrievalError(
+                "WHO Guidelines", "tool_error", str(result.get("error") or "search failed")
+            )
         for key in ("data", "results", "guidelines"):
             if isinstance(result.get(key), list):
                 result = result[key]
                 break
     if not isinstance(result, list):
-        raise RuntimeError("WHO Guidelines returned an unexpected result shape")
+        raise RetrievalError("WHO Guidelines", "invalid_response", "unexpected result shape")
     return [item for item in result if isinstance(item, dict)]
 
 

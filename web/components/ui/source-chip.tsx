@@ -74,9 +74,13 @@ export function PassageSource({
 }) {
   if (!document && !location) return null;
   return (
+    // The name gives way first - it shrinks a hundred times faster, down to a stub that still
+    // shows its format - and the location then wraps rather than truncating. A location is
+    // usually "Slide 34", but a DOCX section heading can run to a sentence, and held on one
+    // line it pushed past the panel's edge and over the chip beside it.
     <span className={cn("flex min-w-0 items-center gap-1.5", className)}>
-      {document && <SourceChip format={format} className="min-w-0">{document}</SourceChip>}
-      {location && <span className={cn("shrink-0 whitespace-nowrap", EYEBROW)}>{location}</span>}
+      {document && <SourceChip format={format} className="min-w-[4.5rem] shrink-[100]">{document}</SourceChip>}
+      {location && <span className={cn("min-w-0 break-words", EYEBROW)}>{location}</span>}
     </span>
   );
 }

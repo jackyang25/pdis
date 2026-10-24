@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import unittest
+from unittest.mock import patch
 
 from services.scout.models import Attribute
 from services.scout.context import (
@@ -38,10 +39,12 @@ class _StructuredSequenceClient:
         self.calls = 0
         self.schemas: list[dict] = []
         self.tasks: list[str] = []
+        self.trailing: list[str] = []
 
-    def call_structured(self, *_args, schema, task, **_kwargs):
+    def call_structured(self, *_args, schema, task, trailing_text="", **_kwargs):
         self.schemas.append(schema)
         self.tasks.append(task)
+        self.trailing.append(trailing_text)
         response = self.responses[min(self.calls, len(self.responses) - 1)]
         self.calls += 1
         return {"bindings": response}
@@ -112,7 +115,9 @@ class DocumentClaimLedgerTests(unittest.TestCase):
         self.assertTrue(all(attribute.target_resolved for attribute in resolved))
         self.assertTrue(all(not attribute.document_target for attribute in resolved))
 
-    def test_missing_decision_is_retried_once_without_rerunning_valid_fields(self) -> None:
+    def test_missing_decision_is_retried_once_keeping_valid_fields(self) -> None:
+        """The retry resends the same request naming what is missing; a field the first
+        answer bound validly keeps that binding whatever the retry says about it."""
         dose = Attribute(name="drug.dose", description="Dose")
         timeline = Attribute(name="drug.timeline", description="Timeline")
         dose_binding = _binding(
@@ -143,16 +148,14 @@ class DocumentClaimLedgerTests(unittest.TestCase):
             [attribute.document_target for attribute in resolved],
             ["Dose is 50 mg.", "Approval is targeted for 2028."],
         )
-        first_refs = (
-            client.schemas[0]["properties"]["bindings"]["items"]["properties"]
-            ["attribute_ref"]["enum"]
-        )
-        retry_refs = (
-            client.schemas[1]["properties"]["bindings"]["items"]["properties"]
-            ["attribute_ref"]["enum"]
-        )
-        self.assertEqual(first_refs, [dose.name, timeline.name])
-        self.assertEqual(retry_refs, [timeline.name])
+        for schema in client.schemas:
+            refs = next(
+                option for option in schema["properties"]["bindings"]["items"]["anyOf"]
+            )["properties"]["attribute_ref"]["enum"]
+            self.assertEqual(refs, [dose.name, timeline.name])
+        # The requested fields follow the chunk; the repair names the missing one.
+        self.assertIn("- drug.timeline", client.trailing[0])
+        self.assertIn("no complete valid decision - drug.timeline: No unique", client.trailing[1])
 
     def test_one_generic_contract_binds_cross_domain_claim_shapes(self) -> None:
         cases = [
@@ -286,6 +289,53 @@ class DocumentClaimLedgerTests(unittest.TestCase):
             resolved.target_resolution_reason,
             "The present decision returned no supporting document spans.",
         )
+
+    def test_one_chunk_failing_leaves_the_field_unresolved_despite_another_present(self) -> None:
+        attribute = Attribute(name="drug.dose", description="Dose")
+        chunks = [
+            "[block:document/b-0001]\nDose is 50 mg.",
+            "[block:document/b-0002]\nA second dose statement.",
+        ]
+
+        class ByChunk:
+            calls = 0
+
+            def call_structured(self, _system, message, *_args, **_kwargs):
+                ByChunk.calls += 1
+                if "document/b-0001" in message:
+                    return {"bindings": [_binding(attribute.name, "", "document/b-0001")]}
+                return {"bindings": []}
+
+        with patch(
+            "services.scout.stages.target_resolver.chunk_document_context",
+            return_value=chunks,
+        ):
+            resolved = resolve_document_targets([attribute], "\n\n".join(chunks), ByChunk())[0]
+
+        self.assertFalse(resolved.target_resolved)
+        self.assertEqual(resolved.document_spans, [])
+        self.assertEqual(ByChunk.calls, 3)
+
+    def test_a_truncated_binding_is_retried_with_more_room(self) -> None:
+        from shared.ai import ResponseTruncatedError
+
+        attribute = Attribute(name="drug.dose", description="Dose")
+        budgets: list[int] = []
+
+        class TruncatesOnce:
+            def call_structured(self, _system, _message, max_tokens, **_kwargs):
+                budgets.append(max_tokens)
+                if len(budgets) == 1:
+                    raise ResponseTruncatedError("cut off")
+                return {"bindings": [_binding(attribute.name, "", "document/b-0001")]}
+
+        resolved = resolve_document_targets(
+            [attribute], "[block:document/b-0001]\nDose is 50 mg.", TruncatesOnce(),
+            max_tokens=100,
+        )[0]
+
+        self.assertTrue(resolved.target_resolved)
+        self.assertEqual(budgets, [100, 200])
 
     def test_dynamic_claims_pass_through_without_another_model_interpretation(self) -> None:
         dynamic = Attribute(

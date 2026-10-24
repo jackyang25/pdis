@@ -24,7 +24,10 @@ report = run_pipeline(
 
 Direct callers default to `sources=("web",)`. The report carries the
 deduplicated `findings` and one `outcomes` entry per native request, which is the
-only place an empty lane stays distinguishable from a skipped or failed one.
+only place an empty lane stays distinguishable from a skipped or failed one. A failed
+outcome carries `error_code` beside the provider's message; a complete one may carry
+`provider_query` (what the provider says it ran, e.g. PubMed's query translation) and
+`warnings` (a phrase it searched without, a page it could not return).
 
 `condition` and `intervention` are what a field-addressed source scopes its request by.
 Omitted, each such adapter falls back to the intent's own scope, so a free-text
@@ -42,6 +45,14 @@ than records published in it; `published_since` reaches a source's own date para
 instead. A source declares `honors_date_bound` when it can apply the bound at the
 provider, which changes what gets ranked; the rest are filtered after retrieval, which
 only changes what survives. The caller's own filter stays as the backstop for both.
+
+Dates keep the precision the provider stated. `published_at` is the first day the
+date allows and `published_precision` is `day`, `month` or `year`; a caller applying
+a lower bound uses `Finding.published_before`, which compares the latest day the
+date allows, so a paper dated "2024" is not dropped by a window opening in June 2024.
+A registry record is dated by when it was first posted (ClinicalTrials.gov's
+`studyFirstPostDate`), never by its last edit. CTIS and ISRCTN search results state
+no publication date, so their findings carry none and a window admits them.
 
 `entities` are the named subjects a source may address its API by. A source declaring
 `required_entity_types` plans nothing without one, because it has no subject to name,
@@ -62,12 +73,47 @@ planning and execution helpers, connectors, models, and serializers from
 | Direction | Value |
 |---|---|
 | Input | Free text or retrieval intents, source keys, and injected runtime capabilities |
-| Output | Ordered search outcomes or URL-deduplicated findings with retrieval lineage |
+| Output | Ordered search outcomes or record-deduplicated findings with retrieval lineage |
 
 Unknown keys fail explicitly, non-applicable lanes emit traced skips, and
-adapter failures remain isolated. URL deduplication preserves every query,
-source lane, and retrieval path. Web citation context is not treated as a
+adapter failures remain isolated. Web citation context is not treated as a
 verbatim source passage.
+
+A finding's identity is its record, not its URL. Adapters set `record_key`
+(`<lane>:<provider id>`, e.g. `pubmed:39746212`, `fda_safety:faers:<product>:<term>`)
+and `identifiers` by scheme (`doi`, `pmid`, `pmcid`, `nct`, `euct`, `eudract`,
+`isrctn`, `setid`, `spl_id`, `k_number`, `chembl`) from the provider's own fields; a
+value that does not match its scheme's syntax ("Nil known") is dropped. `url` is where
+a reader checks the record, and several records may share a page. `dedupe_findings`
+merges findings with one `record_key`, or one cross-lane identifier (DOI, PMID, PMCID,
+trial numbers) - so one paper from PubMed and Europe PMC is one finding listing both
+lanes - and a web finding joins the record on the page it cites. Every query, lane
+and retrieval path survives a merge. A record with no stable provider identity is not
+kept: a URL invented for it (a fragment, a row position, the API's documentation page)
+used to merge distinct records or misdirect a reader.
+
+`excerpt_kind` says what an excerpt is: `passage` (the source's own words),
+`structured_fields` (this service's labels around provider values) or `generated`
+(model-written: the web lane, a Semantic Scholar TLDR). A structured excerpt renders
+a record's fields in declared order, so one record reads the same whichever request
+returned it.
+
+A request asks for the number of records it keeps (`SourceSpec.max_results`) and
+keeps them in the provider's order. Lanes used to ask for 50 or 100 and keep the top
+10 or 20 by counting query words in the record's flattened JSON; that decided which
+records existed by substring matches over field names and boilerplate.
+
+Every provider call goes through `transport.py`: transient failures (429, 502, 503,
+504, a reset connection, a timeout) are retried with jittered backoff or the
+provider's `Retry-After`, within one total deadline, and failures raise
+`RetrievalError` with a code and the provider's own message, secrets removed. Calls
+are paced per `SourceSpec.rate_group` - `fda` and `fda_safety` share openFDA's - and
+per call rather than per request, since WHO reads a page per result and PubMed
+fetches after searching. Within a run, identical native calls are made once
+(`SearchRuntime.calls`); each request still yields its own outcome and lineage. The
+transport prefers IPv4 for the connections it opens and leaves the process's name
+resolution alone. The User-Agent names the product, adding a contact only when
+`SearchRuntime.contact_email` is configured.
 
 A query intent carries its natural-language text and the facets its author stated
 (`condition`, `intervention`, `population`, `outcome`). An adapter selects
@@ -79,13 +125,25 @@ phrase is what a single query asks, and the rest qualify meaning. Whether a
 qualifier enters a request depends on that grammar: a Boolean conjunct is another
 coincidence a record must satisfy, while a plain-text term only sharpens ranking.
 Narrowed requests are added to the intent-scope request rather than replacing it,
-and a source bounds its own fan-out with `max_requests_per_intent`.
+and a source bounds its own fan-out with `max_requests_per_intent`, counted over every
+request it plans - region twins included - by `planned_variants`.
 
 An anchor is one value, applied once. The other names a document shares are not
 further anchors: a Boolean grammar takes the anchor alone, while a plain-text
 grammar keeps them all as hints. A field-addressed source declares its anchor
 field to `facet_groups`, so a query restating the intent's scope in its own words
-narrows nothing and cannot consume one of that source's requests.
+narrows nothing and cannot consume one of that source's requests. A source whose only
+field is its anchor (CTIS, WHO, FDA) plans one request per intent directly.
+
+PubMed and Europe PMC both compile `anchor AND (subject OR subject ...)`, because both
+AND bare words. The anchor is never quoted: a quoted phrase turns off PubMed's
+Automatic Term Mapping, and the quoted condition "respiratory syncytial virus
+infection" returned 2 records live where the unquoted one, mapped to its MeSH heading,
+returned 33. PubMed subjects stay quoted, since PubMed searches an unindexed quoted
+phrase as its words and says so on the outcome; Europe PMC subjects are grouped words,
+because Europe PMC searches a quoted phrase exactly with no fallback. A free-text
+intent is asked once - its anchor is its own text, which used to be repeated as its
+subject. Semantic Scholar, which has no Boolean grammar, keeps the plain-text compiler.
 
 Adapters may compact several neutral intents into one native request, but the
 native query must retain their document-specific concepts and the request must
@@ -113,7 +171,7 @@ are the authority, and the tests are what keep them honest.
 | ISRCTN | registry | uk | text, condition, intervention, product, region | insights, landscape |
 | FDA Regulatory | regulatory | us | text, condition, intervention | insights, landscape |
 | FDA Safety | regulatory | us | subject | safety |
-| ChEMBL | molecular | global | subject | landscape |
+| ChEMBL | molecular | global | subject (compounds) | landscape |
 | Open Targets | molecular | global | subject, condition | insights |
 
 `reads` and `feeds` are the two ends of one wire, and both may not be empty. `reads`
@@ -136,10 +194,17 @@ URL and no text at all, so a finding built from that alone would be a title - an
 whose findings carry no passage feeds nothing while declaring that it does. `MAX_RESULTS`
 is correspondingly small: WHO's guideline set for one condition is a curated handful
 rather than a corpus. A page that will not load degrades that finding to its title rather
-than failing the request.
+than failing the request, and the outcome carries a `content_unavailable` warning saying so.
 
-PubMed and Europe PMC declare `honors_date_bound`. The rest have the window applied after
-retrieval.
+PubMed's excerpt is the abstract followed by the article's Results section where PMC
+holds open-access full text and the article declares the section (JATS
+`sec-type="results"`). It used to append the first characters of the body, which in a
+research article is the Introduction. A section only titled "Results" is not guessed at.
+
+PubMed, Europe PMC and ClinicalTrials.gov (`filter.advanced` on the first-posted date)
+declare `honors_date_bound`. The rest have the window applied after retrieval.
+ClinicalTrials.gov requests only the fields the lane reads (`fields=`): 100 full study
+records measured 7 MB against 0.4 MB projected.
 
 `feeds` is the wire, and it may not be empty. A lane whose findings no consumer
 reads is a lane a reader can enable, wait for, and be told nothing by: UniProt was
@@ -182,12 +247,21 @@ classes the Scout configs name as priority institutions, so today those queries 
 only the web lane, whose excerpts are model-written and cannot support a quantitative
 claim. Closing a gap means deleting a line from that test.
 
+ChEMBL searches compounds only; a target record carries no development facts, so its
+`reference` findings reached nothing. Its `max_phase` is read as ChEMBL defines it:
+0.5 is early phase 1, and -1 (unknown) or null states no phase rather than
+"Preclinical". The FDA 510(k) request searches both the trade name and the
+classification name (`device_name` and `openfda.device_name`), since a condition is
+usually only in the second.
+
 ## Development
 
 Add a source by implementing and registering one adapter, injecting any optional
 connector through `SearchRuntime.integrations`, preserving input lineage, and
 enabling its key in Scout config. ToolUniverse is a connector, not an autonomous
-router or generic evidence lane.
+router or generic evidence lane. An adapter makes provider calls through
+`calls.provider_call` (or `tooluniverse_records.run_tool`) and `transport.fetch`,
+sets `record_key` and `identifiers`, and asks for `spec.max_results`.
 
 The website and [PDIS MCP server](../../api/mcp/README.md) call the same
 `api/operations/searcher.py` application operation for validation, runtime setup,

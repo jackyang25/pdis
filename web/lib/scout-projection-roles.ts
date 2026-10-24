@@ -11,6 +11,8 @@ const RELATIONSHIP_LABELS: Record<TargetRelationship, string> = {
   // relation too, so two different questions shared one name. Its siblings already say
   // "product", so this only finishes the sentence they started.
   unknown: "Product relation unknown",
+  // A failed classification, recorded by code: not a reading of the record.
+  not_assessed: "Product relation not assessed",
 };
 
 const SOURCE_ROLE_LABELS: Record<SourceRole, string> = {
@@ -47,6 +49,9 @@ export const RELATIONSHIP_READING_ORDER: TargetRelationship[] = [
   "adjacent",
   "unrelated",
   "unknown",
+  // Last, and present: a record whose classification failed is kept and counted, never
+  // dropped from the landscape because no group would hold it.
+  "not_assessed",
 ];
 
 export type ProjectionGroup<T> = {

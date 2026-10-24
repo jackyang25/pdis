@@ -59,3 +59,24 @@ test("a page visual leads its retained text without replacing citation targets",
   assert.ok(html.indexOf('data-block-id="visual"') < html.indexOf('data-block-id="text"'));
   assert.equal(html.match(/data-block-id="text"/g)?.length, 1);
 });
+
+test("the trace opens on the tool's preferred layer unless nothing in it sits in the document", () => {
+  // Inspector asks for "Not present" first; absence cites no passage, so the document opened
+  // with no mark on it. The next layer in the tool's order that marks something is shown.
+  const blocks = [block("one"), block("two")];
+  const annotations = [
+    { id: "absent", kind: "absent", layerLabel: "Absent", title: "Missing", summary: "", blockIds: [], spans: [], sourceRef: {} },
+    { id: "weak", kind: "weak", layerLabel: "Weak", title: "Weak unit", summary: "Weak", blockIds: ["two"], spans: [], sourceRef: {},
+      emphasis: { tone: "warning", badge: "Weak" } },
+  ];
+  const layers = [{ value: "absent", label: "Absent" }, { value: "weak", label: "Weak" }];
+  const view = (defaultLayer: string, items = annotations) => renderToStaticMarkup(React.createElement(DocumentTraceViewer, {
+    blocks: blocks.map((item, index) => ({ ...item, ordinal: index + 1 })), annotations: items, layers, defaultLayer,
+    renderInspector: () => null,
+  }));
+  // The weak unit's mark is what shows: its layer was chosen in place of the empty one.
+  assert.match(view("absent"), /graded Weak/);
+  assert.match(view("weak"), /graded Weak/);
+  // With nothing placed anywhere, the preference stands rather than inventing one.
+  assert.doesNotMatch(view("absent", annotations.slice(0, 1)), /graded/);
+});

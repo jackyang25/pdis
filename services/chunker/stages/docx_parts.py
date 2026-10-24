@@ -62,6 +62,7 @@ class DocxPartReader:
 
     def __init__(self, document: DocumentObject):
         self.document_root = document.element
+        unwrap_transparent_containers(self.document_root)
         self._document_part = document.part
         self._body_paragraphs = [
             child for child in document.element.body if child.tag == _tag(W, "p")
@@ -122,6 +123,7 @@ class DocxPartReader:
                 continue
             seen.add(part_name)
             kind = "header" if local == "headerReference" else "footer"
+            unwrap_transparent_containers(part.element)
             result.extend(self._walk(part.element, part_name, kind, retain_regular=True))
         return result
 
@@ -232,6 +234,7 @@ class DocxPartReader:
             return {}
         part_name = str(part.partname)
         root = parse_xml(part.blob)
+        unwrap_transparent_containers(root)
         notes: dict[str, list[PartItem]] = {}
         for note in root.findall(_tag(W, kind)):
             note_id = note.get(_tag(W, "id"), "")
@@ -241,6 +244,35 @@ class DocxPartReader:
                 )
             )
         return notes
+
+
+def unwrap_transparent_containers(root: Any) -> None:
+    """Replace content controls and custom XML with the content they wrap.
+
+    `w:sdt` and `w:customXml` wrap ordinary paragraphs, tables, rows, cells and runs
+    and add metadata about them; neither is content in its own right. Every reader
+    of the tree - this module's walk, the body loop, and python-docx's own table,
+    row and cell accessors - only sees content that sits where the schema puts it
+    unwrapped, so a control around a table row would otherwise drop the row. The
+    parse owns its in-memory tree; the uploaded file is never rewritten. Placeholder
+    text a control is showing is kept, as it always was for inline controls: it is
+    what the document displays, and judging it is a reviewer's job (Inspector's
+    `placeholder` verdict), not the parser's.
+    """
+    for container in list(root.iter(_tag(W, "sdt"), _tag(W, "customXml"))):
+        parent = container.getparent()
+        if parent is None:
+            continue
+        if container.tag == _tag(W, "sdt"):
+            content = container.find(_tag(W, "sdtContent"))
+            children = list(content) if content is not None else []
+        else:
+            children = [
+                child for child in container if child.tag != _tag(W, "customXmlPr")
+            ]
+        for child in children:
+            container.addprevious(child)
+        parent.remove(container)
 
 
 def _selected_children(element: Any) -> list[Any]:

@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { ErrorMessage } from "@/components/ui/error-message";
 import {
   ConfigField,
@@ -55,6 +55,19 @@ export function ContextFields() {
     () => unique((contexts ?? []).map((item) => item.org)),
     [contexts],
   );
+  // One organization is not a choice: it is selected for the reader and its field hidden.
+  // `org` still selects every configuration and is stamped on every result, so the field
+  // returns on its own once a second organization is configured.
+  const onlyOrg = orgs.length === 1 ? orgs[0] : undefined;
+  const chooseOrg = useCallback(
+    // Every later choice is filtered by this one, so all of them clear.
+    (value: string) =>
+      setHeader({ org: value, intervention_class: undefined, indication: undefined, source_type: undefined }),
+    [setHeader],
+  );
+  useEffect(() => {
+    if (onlyOrg && header.org !== onlyOrg) chooseOrg(onlyOrg);
+  }, [onlyOrg, header.org, chooseOrg]);
   const interventions = useMemo(
     () =>
       unique(
@@ -77,24 +90,14 @@ export function ContextFields() {
   return (
     <>
       <ConfigSectionHeading>Context</ConfigSectionHeading>
-      <ConfigField
-        label="Organization"
-        help="Organization and health product type determine which configurations are available."
-      >
-        <ConfigSelect
-          value={header.org}
-          options={toOptions(orgs)}
-          // Every later choice is filtered by this one, so all of them clear.
-          onChange={(value) =>
-            setHeader({
-              org: value,
-              intervention_class: undefined,
-              indication: undefined,
-              source_type: undefined,
-            })
-          }
-        />
-      </ConfigField>
+      {!onlyOrg && (
+        <ConfigField
+          label="Organization"
+          help="Organization and health product type determine which configurations are available."
+        >
+          <ConfigSelect value={header.org} options={toOptions(orgs)} onChange={chooseOrg} />
+        </ConfigField>
+      )}
 
       {/*
         Reader-facing product categories retain the `intervention_class` wire key.
@@ -103,6 +106,7 @@ export function ContextFields() {
       <ConfigField
         label="Health product type"
         disabled={!header.org}
+        help="Determines which configurations are available."
       >
         <ConfigSelect
           value={header.intervention_class}
@@ -250,7 +254,8 @@ export function ConfigurationFields({ children }: { children?: React.ReactNode }
   );
 }
 
-const CONTEXT_LABELS = ["Organization", "Health product type", "Disease / condition"] as const;
+// Organization is left out: it is shown only when there is a choice, which is rarer.
+const CONTEXT_LABELS = ["Health product type", "Disease / condition"] as const;
 
 /** The fields as they will be, each saying it is loading, until the catalog arrives. */
 function FieldPlaceholder({ labels }: { labels: readonly string[] }) {

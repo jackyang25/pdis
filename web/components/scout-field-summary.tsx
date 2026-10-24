@@ -1,5 +1,5 @@
 import type { EvidenceAssessment, PrecedentSignal } from "@/lib/api";
-import { GROUNDING_LABEL, GROUNDING_TONE, OUTCOME_LABEL, OUTCOME_TONE, PRECEDENT_LABEL, RELATIONSHIP_LABEL, RELATIONSHIP_TONE } from "@/lib/scout-labels";
+import { GROUNDING_LABEL, GROUNDING_TONE, OUTCOME_LABEL, OUTCOME_TONE, outcomeIsSeparate, PRECEDENT_LABEL, RELATIONSHIP_LABEL, RELATIONSHIP_TONE } from "@/lib/scout-labels";
 import { SignalChip } from "@/components/ui/signal-chip";
 import { ResultSummary } from "@/components/ui/result-summary";
 
@@ -25,7 +25,11 @@ export function ScoutFieldSummary({ relations, strength, precedent, targetCount,
         precedent && (
           <span key="precedent" role="group" aria-label="Precedent assessment" className="inline-flex flex-wrap items-center gap-x-3 gap-y-1.5">
             <SignalChip tone="neutral" className="font-normal text-muted-foreground">{PRECEDENT_LABEL[precedent.precedent]}</SignalChip>
-            <SignalChip tone={OUTCOME_TONE[precedent.outcome]} className="font-normal text-muted-foreground">{OUTCOME_LABEL[precedent.outcome]}</SignalChip>
+            {/* One classification decides both axes, so a failure, or an absence of
+                evidence, is named once. */}
+            {outcomeIsSeparate(precedent) && (
+              <SignalChip tone={OUTCOME_TONE[precedent.outcome]} className="font-normal text-muted-foreground">{OUTCOME_LABEL[precedent.outcome]}</SignalChip>
+            )}
           </span>
         ),
         <span key="counts" role="group" aria-label="Inventory counts" className="inline-flex flex-wrap items-center gap-x-4 gap-y-1.5">

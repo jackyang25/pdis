@@ -1,14 +1,10 @@
-import type { AlignmentFinding, AlignmentResult, AlignmentVerdict } from "./api.ts";
+import type { AlignmentResult, AlignmentVerdict } from "./api.ts";
 import {
-  ALIGNMENT_VERDICTS,
   ALIGNMENT_VERDICT_TONE,
   VERDICT_LABELS,
   alignmentBlockIds,
 } from "./api.ts";
-import type {
-  DocumentAnnotation,
-  DocumentAnnotationEmphasis,
-} from "./document-trace.ts";
+import type { DocumentAnnotation } from "./document-trace.ts";
 import { traceSpans } from "./document-trace.ts";
 
 /**
@@ -56,27 +52,6 @@ export type AlignerDocumentAnnotation = DocumentAnnotation<
   AlignerDocumentTraceKind,
   AlignerDocumentTraceRef
 >;
-
-/**
- * Which tone each verdict takes, from the set every tool's trace shares.
- *
- * `meets` and `exceeds` are `success` for the same reason Screener's `answered` is: the
- * thing asked for is there. Grey would read as "nobody looked".
- *
- * `falls_short` and `not_comparable` are caution, not danger: falling short of a target
- * is this tool's central finding and a normal state of an in-progress programme, not a
- * failure. Danger stays with a contradiction or a grade a tool calls blocking, and
- * reusing it here would make one colour mean two things across two tools.
- */
-const TONE: Record<AlignmentVerdict, DocumentAnnotationEmphasis["tone"]> = Object.fromEntries(
-  ALIGNMENT_VERDICTS.map((verdict) => [
-    verdict,
-    // The trace calls a caution `caution` and the tone scale calls it `warning`; they are
-    // the same reading under two names, which is why the map above is the only place the
-    // judgement is made and this is a translation rather than a second opinion.
-    ALIGNMENT_VERDICT_TONE[verdict],
-  ]),
-) as Record<AlignmentVerdict, DocumentAnnotationEmphasis["tone"]>;
 
 export function buildAlignerDocumentAnnotations(
   result: AlignmentResult,
@@ -131,7 +106,10 @@ export function buildAlignerDocumentAnnotations(
         blockIds: alignmentBlockIds(finding, "comparison"),
         spans: traceSpans(finding.comparison_spans),
         emphasis: {
-          tone: TONE[finding.verdict],
+          // The verdict's own tone, from the one map the count row reads: `meets` and
+          // `exceeds` are success because the thing asked for is there, and falling short
+          // is caution rather than danger - a normal state of an in-progress programme.
+          tone: ALIGNMENT_VERDICT_TONE[finding.verdict],
           badge: VERDICT_LABELS[finding.verdict],
         },
         sourceRef: ref("comparison"),
@@ -139,46 +117,4 @@ export function buildAlignerDocumentAnnotations(
     }
     return annotations;
   });
-}
-
-/**
- * How many findings each supplied document appears in, and on which side.
- *
- * Counted from the same annotations the trace renders, so a tab's count and its contents
- * cannot disagree. A document with nothing on one side is still listed at zero, because
- * its absence would read as "not uploaded".
- */
-export function findingsPerDocument(
-  result: AlignmentResult,
-): { docId: string; sourceType: string; requirements: number; verdicts: number }[] {
-  const byBlock = new Map<string, string>();
-  for (const block of result.blocks) byBlock.set(block.id, block.doc_id);
-
-  const tally = new Map<string, { requirements: number; verdicts: number }>();
-  for (const annotation of buildAlignerDocumentAnnotations(result)) {
-    const side = annotation.kind === "requirement" ? "requirements" : "verdicts";
-    // One annotation can cite passages in only one document, but counting through the
-    // blocks keeps that a fact about the data rather than an assumption.
-    for (const docId of new Set(
-      annotation.blockIds.map((id) => byBlock.get(id)).filter(Boolean) as string[],
-    )) {
-      const entry = tally.get(docId) ?? { requirements: 0, verdicts: 0 };
-      entry[side] += 1;
-      tally.set(docId, entry);
-    }
-  }
-
-  return result.documents.map((document) => ({
-    docId: document.doc_id,
-    sourceType: document.source_type,
-    requirements: tally.get(document.doc_id)?.requirements ?? 0,
-    verdicts: tally.get(document.doc_id)?.verdicts ?? 0,
-  }));
-}
-
-/** Findings with no lineage on the measured side, which is every `not_addressed`. */
-export function unplacedFindings(result: AlignmentResult): AlignmentFinding[] {
-  return result.findings.filter(
-    (finding) => alignmentBlockIds(finding, "comparison").length === 0,
-  );
 }

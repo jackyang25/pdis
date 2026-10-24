@@ -55,7 +55,7 @@ export function ProvenanceTrigger({
         // Held while its panel is open, so the control that opened it stays identifiable
         // once the pointer moves into the panel. Radix marks the trigger button it wraps.
         "[[data-state=open]>&]:border-border [[data-state=open]>&]:bg-foreground/[0.045] [[data-state=open]>&]:text-foreground",
-        "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/20",
+        "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/60",
       )}
       aria-label={ariaLabel}
     >

@@ -10,6 +10,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field, replace
 from datetime import date
+from functools import lru_cache
 from pathlib import Path
 from typing import Any, Literal
 from urllib.parse import urlparse
@@ -196,8 +197,12 @@ def _inspection_config_from_data(data: dict[str, Any], path: Path) -> Inspection
     return parse_inspection_config(data, source=str(path))
 
 
-def load_profiles() -> list[InspectionProfile]:
-    data = _load_yaml(PROFILES_PATH)
+def load_profiles(path: Path | None = None) -> list[InspectionProfile]:
+    """Parse and validate the whole catalog, loading every pinned rubric.
+
+    Uncached: lookups read the catalog through `_catalog`, which parses it once.
+    """
+    data = _load_yaml(path or PROFILES_PATH)
     entries = data.get("profiles")
     if not isinstance(entries, list) or not entries:
         raise ValueError("Inspector profile catalog must contain profiles")
@@ -254,8 +259,22 @@ def load_profiles() -> list[InspectionProfile]:
     return profiles
 
 
+@lru_cache(maxsize=4)
+def _parsed_catalog(path: Path) -> tuple[InspectionProfile, ...]:
+    return tuple(load_profiles(path))
+
+
+def _catalog() -> tuple[InspectionProfile, ...]:
+    """The shipped catalog, parsed and validated once per process.
+
+    Every lookup used to re-read and re-validate the catalog and all its rubrics.
+    Keyed by path, so pointing `PROFILES_PATH` elsewhere reads that catalog.
+    """
+    return _parsed_catalog(PROFILES_PATH)
+
+
 def find_profile(org: str, source_type: str, intervention_class: str) -> InspectionProfile:
-    for profile in load_profiles():
+    for profile in _catalog():
         if (profile.org, profile.source_type, profile.intervention_class) == (org, source_type, intervention_class):
             return profile
     raise LookupError(f"No Inspector profile for ({org}, {source_type}, {intervention_class})")
@@ -263,10 +282,7 @@ def find_profile(org: str, source_type: str, intervention_class: str) -> Inspect
 
 def available_configs() -> list[InspectionConfig]:
     """Document-template configs referenced by profiles, in authored order."""
-    return [
-        load_inspection_config(str(CONFIGS_DIR / profile.document_config))
-        for profile in load_profiles()
-    ]
+    return [profile_document_config(profile) for profile in _catalog()]
 
 
 def has_config(org: str, source_type: str, intervention_class: str) -> bool:
@@ -274,14 +290,18 @@ def has_config(org: str, source_type: str, intervention_class: str) -> bool:
     return any(
         (profile.org, profile.source_type, profile.intervention_class)
         == (org, source_type, intervention_class)
-        for profile in load_profiles()
+        for profile in _catalog()
     )
+
+
+def profile_document_config(profile: InspectionProfile) -> InspectionConfig:
+    """The document template a profile names: the sections Chunker labels by."""
+    return load_inspection_config(str(CONFIGS_DIR / profile.document_config))
 
 
 def find_config(org: str, source_type: str, intervention_class: str) -> InspectionConfig:
     """Load the profile's template rubric without deriving a path from input keys."""
-    profile = find_profile(org, source_type, intervention_class)
-    return load_inspection_config(str(CONFIGS_DIR / profile.document_config))
+    return profile_document_config(find_profile(org, source_type, intervention_class))
 
 
 def available_rubric_configs() -> list[InspectionConfig]:
@@ -291,7 +311,7 @@ def available_rubric_configs() -> list[InspectionConfig]:
     therefore never mistaken for a standalone document configuration.
     """
     configs: list[InspectionConfig] = []
-    for profile in load_profiles():
+    for profile in _catalog():
         for ref in profile.rubrics:
             rubric = _rubric_for(profile, ref)
             if rubric.evidence_scope == "whole_document":
@@ -299,8 +319,24 @@ def available_rubric_configs() -> list[InspectionConfig]:
     return configs
 
 
+_RUBRICS: dict[tuple[Path, str, str, str, str], RubricDefinition] = {}
+
+
 def _rubric_for(profile: InspectionProfile, ref: RubricReference) -> RubricDefinition:
-    return load_rubric(RUBRICS_DIR / ref.definition, profile=profile)
+    """A profile's pinned rubric, parsed once per profile context.
+
+    `resolve_profile` runs on every request; the catalog's rubric files do not change
+    while the process runs, so re-reading them each time bought nothing. Read-only:
+    callers derive new configs with `replace`, never mutate the cached one.
+    """
+    key = (
+        RUBRICS_DIR / ref.definition, profile.org, profile.source_type,
+        profile.intervention_class, profile.document_config,
+    )
+    rubric = _RUBRICS.get(key)
+    if rubric is None:
+        rubric = _RUBRICS.setdefault(key, load_rubric(key[0], profile=profile))
+    return rubric
 
 
 def validate_product_facts(facts: dict[str, Any] | None) -> dict[str, ProductFact]:

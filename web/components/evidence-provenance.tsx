@@ -10,6 +10,8 @@ import { DisclosureRow } from "@/components/ui/disclosure-row";
 import { InterfaceNote, Literal, SourceEntry } from "@/components/ui/evidence-text";
 import type { Finding, Insight } from "@/lib/api";
 import { queryTrackLabel, sourceDisplayLabel } from "@/lib/scout-labels";
+import { countLabel } from "@/lib/count-label";
+import { formatPublishedMonth } from "@/lib/published-date";
 
 /**
  * Where one insight came from: its sources, and the searches that returned them.
@@ -40,7 +42,7 @@ export function EvidenceProvenance({ insight }: { insight: Insight }) {
             icon={Globe}
             label="Sources"
             count={findings.length}
-            ariaLabel={`Show the ${findings.length} source${findings.length === 1 ? "" : "s"} behind this insight and the searches that returned them`}
+            ariaLabel={`Show the ${countLabel(findings.length, "source")} behind this insight and the searches that returned them`}
           />
         </button>
       </PopoverTrigger>
@@ -85,12 +87,7 @@ function FindingProvenance({ finding }: { finding: Finding }) {
       ),
     ),
   );
-  const date = finding.published_at
-    ? new Date(finding.published_at).toLocaleDateString(undefined, {
-        year: "numeric",
-        month: "short",
-      })
-    : "date not stated";
+  const date = formatPublishedMonth(finding.published_at, finding.published_precision) ?? "date not stated";
   // One row per distinct query, not per retrieval path: the same query run against two
   // lanes is one search a reader recognises, and the raw list repeats it.
   const searches = Array.from(

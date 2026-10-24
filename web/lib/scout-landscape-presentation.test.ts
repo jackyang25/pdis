@@ -9,16 +9,13 @@ const { DevelopmentLandscape, SourceList } = loadComponent(
   fileURLToPath(new URL("../app/scout/page.tsx", import.meta.url)), {}, ["DevelopmentLandscape", "SourceList"],
 );
 const findings = Array.from({ length: 6 }, (_, i) => ({ url: `https://example.org/${i}`, title: `Retained source ${i}`, source: "pubmed", published_at: null }));
-test("Landscape keeps field lineage reachable in a disclosure without repeating its relationship badge", () => {
+test("Landscape names the fields a record was retrieved for on one line, without repeating its relationship badge", () => {
   const html = renderToStaticMarkup(React.createElement(DevelopmentLandscape, { programs: [{
     projection_id: "program-1", name: "Candidate", sponsors: ["A sponsor"], phases: ["Phase 3", "phase 3"], statuses: ["Recruiting"],
     record_types: ["trial_registry"], target_relationship: "direct", source_role: "experimental",
     target_relationship_reason: "Retained assessment", attribute_refs: ["first_field", "last_field"], supporting_findings: findings,
   }] }));
-  const summaries = html.match(/<summary\b[^>]*>[\s\S]*?<\/summary>/g) ?? [];
-  assert.ok(summaries.some((summary) => summary.includes("Retrieved for")));
-  assert.match(html, /First Field/);
-  assert.match(html, /Last Field/);
+  assert.match(html, /Retrieved for First field · Last field/);
   assert.equal((html.match(/Direct to uploaded product/g) ?? []).length, 1);
   assert.match(html, /Experimental arm/);
   assert.match(html, /Phase 3 · phase 3/);

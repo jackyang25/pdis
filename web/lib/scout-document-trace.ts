@@ -1,16 +1,11 @@
-import type {
-  EvidenceAssessment,
-  Match,
-  PrecedentSignal,
-  ScoutResponse,
-} from "./api.ts";
+import type { ScoutResponse } from "./api.ts";
 import { stableHash } from "./utils.ts";
 import {
   displayAttributeLabel,
   RELATIONSHIP_LABEL,
   GROUNDING_LABEL,
-  PRECEDENT_LABEL,
-  OUTCOME_LABEL,
+  precedentStatusLabel,
+  verdictReason,
 } from "./scout-labels.ts";
 import type { DocumentAnnotation } from "./document-trace.ts";
 import { traceSpans } from "./document-trace.ts";
@@ -123,7 +118,7 @@ export function buildScoutDocumentAnnotations(
       kind: "relationship",
       layerLabel: "Evidence relationship",
       title: displayAttributeLabel(attributeRef),
-      summary: match.reason,
+      summary: verdictReason(match.relation, match.reason),
       statusLabel: RELATIONSHIP_LABEL[match.relation],
       blockIds,
       spans: [],
@@ -131,15 +126,17 @@ export function buildScoutDocumentAnnotations(
     });
   }
 
+  // A field left out at review was never checked, so no grounding or precedent mark is
+  // placed for it: a mark would present the passage as examined. Its target is still placed.
   for (const assessment of result.assessments ?? []) {
     const blockIds = unique(assessment.doc_block_ids);
-    if (!hasLineage(blockIds)) continue;
+    if (!hasLineage(blockIds) || assessment.strength === "not_searched") continue;
     annotations.push({
       id: `grounding:${assessment.attribute_ref}`,
       kind: "grounding",
       layerLabel: "Evidence grounding",
       title: displayAttributeLabel(assessment.attribute_ref),
-      summary: assessment.reason,
+      summary: verdictReason(assessment.strength, assessment.reason),
       statusLabel: GROUNDING_LABEL[assessment.strength],
       blockIds,
       spans: [],
@@ -172,14 +169,14 @@ export function buildScoutDocumentAnnotations(
 
   for (const signal of result.precedents ?? []) {
     const blockIds = unique(signal.doc_block_ids);
-    if (!hasLineage(blockIds)) continue;
+    if (!hasLineage(blockIds) || signal.precedent === "not_searched") continue;
     annotations.push({
       id: `precedent:${signal.attribute_ref}`,
       kind: "precedent",
       layerLabel: "Development precedent",
       title: displayAttributeLabel(signal.attribute_ref),
-      summary: signal.reason,
-      statusLabel: `${PRECEDENT_LABEL[signal.precedent]} · ${OUTCOME_LABEL[signal.outcome]}`,
+      summary: verdictReason(signal.precedent, signal.reason),
+      statusLabel: precedentStatusLabel(signal),
       blockIds,
       spans: [],
       sourceRef: { type: "precedent", attributeRef: signal.attribute_ref },

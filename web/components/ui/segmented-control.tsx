@@ -60,7 +60,7 @@ export function SegmentedControl<T extends string>({
             aria-pressed={selected}
             onClick={() => onChange(option.value)}
             className={cn(
-              "inline-flex h-7 shrink-0 items-center gap-1.5 rounded-sm px-3 text-xs font-medium transition-[color,background-color,box-shadow] duration-fast ease-enter focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring/25 motion-reduce:transition-none",
+              "inline-flex h-7 shrink-0 items-center gap-1.5 rounded-sm px-3 text-xs font-medium transition-[color,background-color,box-shadow] duration-fast ease-enter focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring/60 motion-reduce:transition-none",
               selected
                 ? "bg-card text-foreground shadow-raised"
                 : "text-muted-foreground hover:text-foreground",

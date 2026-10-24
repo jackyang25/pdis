@@ -15,18 +15,18 @@ from .models import (
     AlignmentResult,
     AlignmentVerdict,
     DocumentInput,
+    DocumentRole,
     EdgeSpec,
     Requirement,
     VERDICTS_REQUIRING_CITATION,
-    alignment_result_to_dict,
-    describe_document,
     describe_edges,
+    document_role,
     edge_id,
     load_config,
     requirement_id,
     resolve_edges,
 )
-from .pipeline import DEFAULT_MAX_OUTPUT_TOKENS, run_pipeline
+from .pipeline import run_pipeline
 
 __all__ = [
     "ALIGNMENT_VERDICTS",
@@ -37,14 +37,13 @@ __all__ = [
     "AlignmentFinding",
     "AlignmentResult",
     "AlignmentVerdict",
-    "DEFAULT_MAX_OUTPUT_TOKENS",
     "DocumentInput",
+    "DocumentRole",
     "EdgeSpec",
     "Requirement",
     "VERDICTS_REQUIRING_CITATION",
-    "alignment_result_to_dict",
-    "describe_document",
     "describe_edges",
+    "document_role",
     "edge_id",
     "load_config",
     "requirement_id",

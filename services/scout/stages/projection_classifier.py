@@ -2,7 +2,9 @@
 
 This stage enriches Landscape and Safety views after retrieval normalization.
 Its output is never consumed by Scout's evidence, drift, calibration, or
-precedent axes, and provider failures therefore degrade only these labels.
+precedent axes, so a failure degrades only these labels - and says so: the
+projection is kept as ``not_assessed`` with the failure's code, never filed as
+the model's ``unknown``.
 """
 
 from __future__ import annotations
@@ -11,10 +13,13 @@ import json
 import logging
 from dataclasses import replace
 
-from ..ai import request_structured
-from ..ai_contracts import projection_relationship_batch
+from shared.ai import RECORDABLE_FAILURES, Effort, ModelTask, failure_code
 from shared.batching import fixed_batches, map_ordered
+
+from ..ai import request_validated
+from ..ai_contracts import projection_relationship_batch
 from ..models import (
+    NOT_ASSESSED,
     TARGET_RELATIONSHIPS,
     Attribute,
     DevelopmentProgram,
@@ -27,9 +32,14 @@ logger = logging.getLogger(__name__)
 # Per-item scope: one relationship per projection, so an unrelated program or
 # safety observation can never sit in this decision's prompt.
 PROJECTIONS_PER_REQUEST = 1
+#: The fast tier at low effort: a display-only label no other axis reads.
+TASK: ModelTask = "fast"
+EFFORT: Effort = "low"
 PROJECTION_WORKERS = 8
 MAX_TOKENS = 5000
-MAX_EXCERPT_CHARS = 1200
+#: How many of a projection's records are shown. The label is about what the records
+#: are about, which the first few state as well as all of them.
+CONTEXT_FINDINGS = 4
 
 
 def classify_projection_relationships(
@@ -47,26 +57,36 @@ def classify_projection_relationships(
     ] + [
         _safety_input(item) for item in safety_observations
     ]
-    def classify_batch(batch: list[dict[str, object]]) -> dict[str, tuple[str, str]]:
+    system_prompt = build_system_prompt(
+        indication=indication,
+        intervention_class=intervention_class,
+    )
+
+    claims = _claims_message(attributes)
+
+    def classify_batch(batch: list[dict[str, object]]) -> dict[str, _Decision]:
         projection_ids = [str(item["projection_id"]) for item in batch]
         try:
-            parsed = request_structured(
+            return request_validated(
                 llm_client,
                 projection_relationship_batch(projection_ids),
-                build_system_prompt(
-                    indication=indication,
-                    intervention_class=intervention_class,
-                ),
-                _user_message(attributes, batch),
+                system_prompt,
+                claims,
                 max_tokens=MAX_TOKENS,
-                task="fast",
+                parse=lambda parsed: _validated_decisions(parsed, projection_ids),
+                failure="Projection relationship classification failed",
+                trailing_text=_projections_message(batch),
+                task=TASK,
+                effort=EFFORT,
             )
-        except Exception as exc:  # noqa: BLE001 - optional projection enrichment
+        except RECORDABLE_FAILURES as exc:
             logger.warning("Scout projection relationship mapping skipped: %s", exc)
-            return {}
-        return _validated_decisions(parsed, set(projection_ids))
+            return {
+                projection_id: (NOT_ASSESSED, str(exc), failure_code(exc))
+                for projection_id in projection_ids
+            }
 
-    decisions: dict[str, tuple[str, str]] = {}
+    decisions: dict[str, _Decision] = {}
     for batch_decisions in map_ordered(
         fixed_batches(items, PROJECTIONS_PER_REQUEST),
         classify_batch,
@@ -75,43 +95,43 @@ def classify_projection_relationships(
         decisions.update(batch_decisions)
 
     return (
-        [_apply_decision(item, decisions) for item in development_programs],
-        [_apply_decision(item, decisions) for item in safety_observations],
+        [_apply_decision(item, decisions[item.projection_id]) for item in development_programs],
+        [_apply_decision(item, decisions[item.projection_id]) for item in safety_observations],
     )
 
 
-def _validated_decisions(
-    parsed: object,
-    allowed_ids: set[str],
-) -> dict[str, tuple[str, str]]:
+#: relationship, reason, failure code ("" for a model decision).
+_Decision = tuple[str, str, str]
+
+
+def _validated_decisions(parsed: object, projection_ids: list[str]) -> dict[str, _Decision]:
+    """Exactly one decision with a closed relationship and a reason per requested ID."""
     if not isinstance(parsed, list):
-        return {}
-    counts: dict[str, int] = {}
-    valid: dict[str, tuple[str, str]] = {}
+        raise ValueError("no relationships array was returned")
+    decisions: dict[str, _Decision] = {}
     for raw in parsed:
         if not isinstance(raw, dict):
-            continue
+            raise ValueError("every relationship must be an object")
         projection_id = str(raw.get("projection_id") or "").strip()
-        if projection_id not in allowed_ids:
-            continue
-        counts[projection_id] = counts.get(projection_id, 0) + 1
+        if projection_id not in projection_ids or projection_id in decisions:
+            raise ValueError("return exactly one decision per supplied projection ID")
         relationship = str(raw.get("target_relationship") or "").strip()
         reason = str(raw.get("reason") or "").strip()
-        if relationship in TARGET_RELATIONSHIPS:
-            valid[projection_id] = (relationship, reason)
-    return {
-        projection_id: decision
-        for projection_id, decision in valid.items()
-        if counts.get(projection_id) == 1
-    }
+        if relationship not in TARGET_RELATIONSHIPS or not reason:
+            raise ValueError("a relationship from the closed list and a reason are required")
+        decisions[projection_id] = (relationship, reason, "")
+    if set(decisions) != set(projection_ids):
+        raise ValueError("return exactly one decision per supplied projection ID")
+    return decisions
 
 
-def _apply_decision(item, decisions: dict[str, tuple[str, str]]):
-    relationship, reason = decisions.get(item.projection_id, ("unknown", ""))
+def _apply_decision(item, decision: _Decision):
+    relationship, reason, code = decision
     return replace(
         item,
         target_relationship=relationship,
         target_relationship_reason=reason,
+        target_relationship_failure_code=code,
     )
 
 
@@ -145,9 +165,9 @@ def _finding_context(findings) -> list[dict[str, str]]:
         {
             "title": finding.title,
             "source": finding.source,
-            "excerpt": (finding.excerpt or "")[:MAX_EXCERPT_CHARS],
+            "excerpt": finding.excerpt or "",
         }
-        for finding in findings[:4]
+        for finding in findings[:CONTEXT_FINDINGS]
     ]
 
 
@@ -173,7 +193,8 @@ def build_system_prompt(*, indication: str, intervention_class: str) -> str:
     )
 
 
-def _user_message(attributes: list[Attribute], items: list[dict[str, object]]) -> str:
+def _claims_message(attributes: list[Attribute]) -> str:
+    """The document's canonical claims: the prefix every projection's request shares."""
     canonical_claims = [
         {
             "field": attribute.name,
@@ -183,10 +204,11 @@ def _user_message(attributes: list[Attribute], items: list[dict[str, object]]) -
         for attribute in attributes
         if attribute.document_target
     ]
-    return json.dumps(
-        {
-            "canonical_document_claims": canonical_claims,
-            "structured_source_projections": items,
-        },
-        ensure_ascii=False,
+    return "Canonical document claims:\n" + json.dumps(canonical_claims, ensure_ascii=False)
+
+
+def _projections_message(items: list[dict[str, object]]) -> str:
+    return (
+        "\n\nStructured source projections to classify:\n"
+        + json.dumps(items, ensure_ascii=False)
     )

@@ -1,9 +1,11 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { memo, useCallback, useEffect, useMemo, useState } from "react";
+import { useShallow } from "zustand/react/shallow";
 
 import { CollapsibleCard } from "@/components/collapsible-card";
 import { ContextFields } from "@/components/configuration-fields";
+import { EmptyState } from "@/components/empty-state";
 import { DrafterExportButton } from "@/components/drafter-export-button";
 import { DrafterSignalHelp } from "@/components/drafter-signal-help";
 import { DrafterVariableRow } from "@/components/drafter-variable";
@@ -18,7 +20,7 @@ import { ResultCardStack } from "@/components/ui/result-card-stack";
 import { ResultLayout } from "@/components/ui/result-layout";
 import { ResultSearch } from "@/components/ui/result-search";
 import { ResultToolbar, ResultToolbarEnd } from "@/components/ui/result-toolbar";
-import { TabsContent, TabsTrigger } from "@/components/ui/tabs";
+import { TabsContent } from "@/components/ui/tabs";
 import { CaveatNotice, ResultNotices, WarningNotice } from "@/components/ui/warning-notice";
 import { runDrafter, type DraftResult } from "@/lib/api";
 import {
@@ -29,17 +31,19 @@ import {
   type DrafterPanelId,
 } from "@/lib/drafter-presentation";
 import { normalizeQuery } from "@/lib/result-search";
+import { sourceDisplayLabel } from "@/lib/scout-labels";
 import {
   packDrafterResult,
-  readResultIdentity,
   runFilename,
   runLabel,
   runScope,
   unpackDrafterResult,
 } from "@/lib/result-file";
 import { useDrafterSession } from "@/lib/session";
+import { importTool, runTool } from "@/lib/tool-run";
 import { isContextComplete, useHeaderStore } from "@/lib/store";
 import { toolAuthority } from "@/lib/tools";
+import { countLabel } from "@/lib/count-label";
 
 const STEPS = [
   { key: "plan", label: "Planning searches" },
@@ -49,7 +53,10 @@ const STEPS = [
 ];
 
 export default function DrafterPage() {
-  const session = useDrafterSession();
+  const session = useDrafterSession(
+    useShallow(({ result, busy, startedAt, stage, progress, error, setError }) =>
+      ({ result, busy, startedAt, stage, progress, error, setError })),
+  );
   const header = useHeaderStore((state) => state.header);
   const [showSetup, setShowSetup] = useState(!session.result);
 
@@ -59,37 +66,15 @@ export default function DrafterPage() {
 
   const contextReady = isContextComplete(header);
 
-  async function handleRun() {
+  function handleRun() {
     if (!contextReady) return;
-    session.setBusy(true);
-    session.setError(null);
-    session.setStage(null);
-    session.setProgress(null);
-    try {
-      const response = await runDrafter(
-        { org: header.org, intervention_class: header.intervention_class, indication: header.indication },
-        (stage, progress) => {
-          session.setStage(stage);
-          session.setProgress(progress ?? null);
-        },
-      );
-      session.addResult(response.result);
-    } catch (error) {
-      session.setError((error as Error).message);
-    } finally {
-      session.setBusy(false);
-    }
+    void runTool(useDrafterSession, async (report) => (await runDrafter(
+      { org: header.org, intervention_class: header.intervention_class, indication: header.indication },
+      report,
+    )).result);
   }
 
-  async function handleImport(file: File) {
-    session.setError(null);
-    try {
-      const raw = JSON.parse(await file.text());
-      session.addResult(unpackDrafterResult(raw), readResultIdentity(raw));
-    } catch (error) {
-      session.setError(`Could not import result: ${(error as Error).message}`);
-    }
-  }
+  const showSetupPanel = useCallback(() => setShowSetup(true), []);
 
   return (
     <>
@@ -97,12 +82,13 @@ export default function DrafterPage() {
       <div className="flex flex-col gap-6">
         {(session.busy || !session.result || showSetup) && (
           <RunPanel
+            onCancel={session.result ? () => setShowSetup(false) : undefined}
             busy={session.busy}
             startedAt={session.startedAt}
             // Drafter reads no document: it drafts from the product context alone.
             documents={null}
-            onRun={() => void handleRun()}
-            onImport={(file) => void handleImport(file)}
+            onRun={handleRun}
+            onImport={(file) => importTool(useDrafterSession, file, unpackDrafterResult)}
             steps={STEPS}
             currentStage={session.stage}
             progress={session.progress}
@@ -123,7 +109,7 @@ export default function DrafterPage() {
           <DraftView
             result={session.result}
             onError={session.setError}
-            onNewAnalysis={() => setShowSetup(true)}
+            onNewAnalysis={showSetupPanel}
           />
         )}
       </div>
@@ -131,7 +117,8 @@ export default function DrafterPage() {
   );
 }
 
-function DraftView({
+/** Memoized so a run's progress ticks, which re-render the page, leave a held result alone. */
+const DraftView = memo(function DraftView({
   result,
   onError,
   onNewAnalysis,
@@ -140,7 +127,11 @@ function DraftView({
   onError: (message: string | null) => void;
   onNewAnalysis: () => void;
 }) {
-  const { results, selectedId, selectResult, removeResult } = useDrafterSession();
+  const { results, selectedId, selectResult, removeResult } = useDrafterSession(
+    useShallow(({ results, selectedId, selectResult, removeResult }) =>
+      ({ results, selectedId, selectResult, removeResult })),
+  );
+  const held = results.find((entry) => entry.id === selectedId);
   const [tab, setTab] = useState("targets");
   const [query, setQuery] = useState("");
   const normalizedQuery = normalizeQuery(query);
@@ -157,13 +148,11 @@ function DraftView({
       subtitle={runScope(result, "drafter")}
       metrics={<MetricsRow total={counts.total} unit={["variable", "variables"]} items={drafterMetricItems(result)} />}
       metricsNote={
-        "Every variable of the iTPP for this product type, so the row sums to the number of variables. "
-        + "Suggested and not enough evidence are the run's readings, so they show even at zero. "
-        + "Every target is a suggestion to check against its sources and edit in your iTPP."
+        "Every iTPP variable for this product type, so the row sums to the number of variables. "
+        + "Each target is a suggestion to check against its sources."
       }
       tabValue={tab}
       onTabChange={setTab}
-      tabs={<TabsTrigger value="targets">Targets</TabsTrigger>}
       actions={
         <>
           <RunHistory
@@ -175,7 +164,7 @@ function DraftView({
           />
           <FinalResultActions
             onNewAnalysis={onNewAnalysis}
-            download={{ filename: runFilename("drafter"), data: packDrafterResult(result) }}
+            download={held && { filename: runFilename("drafter"), data: () => packDrafterResult(result, held) }}
           />
           <DrafterExportButton result={result} onError={onError} />
         </>
@@ -193,12 +182,13 @@ function DraftView({
             {DRAFTER_PANELS.map((panel) => (
               <DraftPanel key={panel.id} panel={panel} result={result} query={normalizedQuery} />
             ))}
+            {shown === 0 && <EmptyState message="No variable matches that search" />}
           </ResultCardStack>
         </div>
       </TabsContent>
     </ResultLayout>
   );
-}
+});
 
 /** Weight follows consequence: unfinished variables and failed sources in the box, absent ones as a caveat. */
 function DraftNotices({ result, counts }: { result: DraftResult; counts: ReturnType<typeof countVariables> }) {
@@ -206,7 +196,7 @@ function DraftNotices({ result, counts }: { result: DraftResult; counts: ReturnT
     <ResultNotices>
       {counts.failed > 0 && (
         <WarningNotice label="Variables not suggested">
-          {counts.failed} {counts.failed === 1 ? "variable" : "variables"} could not be suggested. Run the draft
+          {countLabel(counts.failed, "variable")} could not be suggested. Run the draft
           again, or write {counts.failed === 1 ? "its target" : "their targets"} yourself.
         </WarningNotice>
       )}
@@ -215,23 +205,27 @@ function DraftNotices({ result, counts }: { result: DraftResult; counts: ReturnT
       {result.failed_sources.length > 0 && (
         <WarningNotice
           label="Sources that failed"
-          summary={`${result.failed_sources.join(", ")} failed in this run, so no suggestion includes their evidence.`}
+          summary={`${sourceList(result.failed_sources)} failed in this run, so no suggestion includes their evidence.`}
         >
           {/* The provider's own words, kept on the result so a failure can be diagnosed later. */}
           <ul className="space-y-1 text-muted-foreground">
             {result.source_errors
               .filter((error) => result.failed_sources.includes(error.source))
-              .map((error) => <li key={error.source}>{error.source}: {error.message}</li>)}
+              .map((error) => <li key={error.source}>{sourceDisplayLabel(error.source)}: {error.message}</li>)}
           </ul>
         </WarningNotice>
       )}
       {result.unconfigured_sources.length > 0 && (
         <CaveatNotice label="Sources not available">
-          Not available in this deployment: {result.unconfigured_sources.join(", ")}.
+          Not available in this deployment: {sourceList(result.unconfigured_sources)}.
         </CaveatNotice>
       )}
     </ResultNotices>
   );
+}
+
+function sourceList(sources: string[]): string {
+  return sources.map((source) => sourceDisplayLabel(source)).join(", ");
 }
 
 function DraftPanel({

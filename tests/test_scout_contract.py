@@ -9,18 +9,22 @@ from services.scout.contract import validate_result_contract
 from services.scout.models import (
     Attribute,
     ComparisonRule,
+    DevelopmentProgram,
     DocumentContextValidation,
     DocumentSpan,
     EvidenceAssessment,
     FunnelStats,
     Insight,
     Match,
+    NO_EVIDENCE,
     NumericExpression,
+    PrecedentSignal,
     QUANTITATIVE_SEMANTIC_FIELDS,
     QuantitativeLedger,
     QuantitativeLedgerReview,
     QuantitativeFieldLink,
     QuantitativeTarget,
+    RetrievalScopeLedger,
     SemanticSlot,
     ScoutResult,
 )
@@ -110,7 +114,29 @@ def _result() -> ScoutResult:
                 doc_block_ids=[blocks[0].id],
                 supporting_insight_ids=[insight.id],
                 supporting_findings=[evidence],
-            )
+            ),
+            # A searchable field no insight reached keeps its record, as no_evidence.
+            EvidenceAssessment(
+                attribute_ref="safety",
+                strength=NO_EVIDENCE,
+                doc_target="Field 2 target.",
+                doc_block_ids=[blocks[1].id],
+            ),
+        ],
+        precedents=[
+            PrecedentSignal(
+                attribute_ref="efficacy",
+                precedent="unknown",
+                outcome="unknown",
+                reason="The evidence is too sparse to judge coverage.",
+                doc_block_ids=[blocks[0].id],
+            ),
+            PrecedentSignal(
+                attribute_ref="safety",
+                precedent=NO_EVIDENCE,
+                outcome=NO_EVIDENCE,
+                doc_block_ids=[blocks[1].id],
+            ),
         ],
         stats=FunnelStats(
             queries=1,
@@ -118,7 +144,7 @@ def _result() -> ScoutResult:
             unique_findings=1,
             insights=1,
             matches=1,
-            assessments=1,
+            assessments=2,
         ),
         context_validation=DocumentContextValidation(
             status="match",
@@ -129,6 +155,9 @@ def _result() -> ScoutResult:
         ),
         variables=attributes,
         blocks=blocks,
+        retrieval_scope=RetrievalScopeLedger.of(
+            condition=("malaria", "header"), intervention=("vaccine", "header"),
+        ),
     )
 
 
@@ -148,12 +177,73 @@ class ScoutResultContractTests(unittest.TestCase):
         result = _result()
         self.assertIs(validate_result_contract(result), result)
 
+    def test_a_projection_lists_each_source_record_once(self) -> None:
+        result = _result()
+        source = _finding("https://clinicaltrials.gov/study/NCT03596801")
+        result.development_landscape = [DevelopmentProgram(
+            name="V940", projection_id="dp-1", attribute_refs=["efficacy"],
+            supporting_findings=[source, replace(source, source="clinicaltrials")],
+        )]
+
+        with self.assertRaisesRegex(ValueError, "duplicate .*supporting record"):
+            validate_result_contract(result)
+
+        result.development_landscape[0].supporting_findings = [source]
+        self.assertIs(validate_result_contract(result), result)
+
+    def test_two_records_sharing_a_page_are_two_projection_entries(self) -> None:
+        """FAERS counts for two reactions share one page and are two records."""
+        result = _result()
+        page = "https://api.fda.gov/drug/event.json"
+        result.development_landscape = [DevelopmentProgram(
+            name="V940", projection_id="dp-1", attribute_refs=["efficacy"],
+            supporting_findings=[
+                replace(_finding(page), record_key="fda_safety:faers:a:fever"),
+                replace(_finding(page), record_key="fda_safety:faers:a:rash"),
+            ],
+        )]
+        self.assertIs(validate_result_contract(result), result)
+
     def test_assessment_cannot_cite_another_fields_insight(self) -> None:
         result = _result()
-        result.assessments[0].attribute_ref = "safety"
-        result.assessments[0].doc_block_ids = ["document/b-0002"]
+        insight = result.matches[0].insight
+        result.assessments[1] = EvidenceAssessment(
+            attribute_ref="safety",
+            strength="partial",
+            reason="Borrowed evidence.",
+            doc_target="Field 2 target.",
+            doc_block_ids=["document/b-0002"],
+            supporting_insight_ids=[insight.id],
+            supporting_findings=list(insight.supporting_findings),
+        )
 
         with self.assertRaisesRegex(ValueError, "another field"):
+            validate_result_contract(result)
+
+    def test_every_searchable_field_keeps_its_grounding_and_precedent(self) -> None:
+        """A field dropped from an axis reads as one the run never considered."""
+        for axis in ("assessments", "precedents"):
+            with self.subTest(axis=axis):
+                result = _result()
+                setattr(result, axis, getattr(result, axis)[:1])
+                if axis == "assessments":
+                    result.stats.assessments = 1
+                with self.assertRaisesRegex(ValueError, "every searchable field"):
+                    validate_result_contract(result)
+
+    def test_no_evidence_cannot_sit_beside_the_fields_insights(self) -> None:
+        result = _result()
+        result.assessments[0] = EvidenceAssessment(
+            attribute_ref="efficacy", strength=NO_EVIDENCE,
+            doc_target="Field 1 target.", doc_block_ids=["document/b-0001"],
+        )
+        with self.assertRaisesRegex(ValueError, "no_evidence beside its insights"):
+            validate_result_contract(result)
+
+    def test_a_result_states_its_retrieval_scope(self) -> None:
+        result = _result()
+        result.retrieval_scope = None
+        with self.assertRaisesRegex(ValueError, "retrieval scope"):
             validate_result_contract(result)
 
     def test_match_cannot_cite_another_fields_document_block(self) -> None:

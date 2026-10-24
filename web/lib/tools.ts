@@ -107,9 +107,9 @@ export const WORKSPACE_TOOLS: readonly WorkspaceToolDefinition[] = [
     title: "Drafter",
     description:
       "Suggested iTPP targets for a product type and disease, each drawn from comparable products' results and published guidance.",
-    // Observed end to end: about nine minutes for a 36-variable vaccine iTPP with no draft.
-    // A draft that states most variables is quicker; source and model latency vary.
-    activity: "10 minutes",
+    // Measured by the evaluation harness (`scripts/evaluate`): seven and a half minutes for a
+    // 36-variable RSV vaccine iTPP. Source and model latency vary.
+    activity: "8 minutes",
     icon: "drafter",
     audience: "pst",
     workflow: "drafting",
@@ -133,7 +133,10 @@ export const WORKSPACE_TOOLS: readonly WorkspaceToolDefinition[] = [
     title: "Scout",
     description:
       "One document’s targets against external evidence: whether its numbers hold up against comparable measurements and development precedent.",
-    activity: "20 minutes",
+    // Measured by the evaluation harness: 33 minutes for an RSV iTPP with every field
+    // searched, excluding the reader's own review time. Searching fewer fields at the
+    // checkpoint shortens it in proportion.
+    activity: "35 minutes",
     icon: "scout",
     audience: "pst",
     workflow: "document_intelligence",
@@ -145,10 +148,10 @@ export const WORKSPACE_TOOLS: readonly WorkspaceToolDefinition[] = [
     title: "Aligner",
     description:
       "The iTPP, cTPP, and IPDP against each other: whether each honours the one before it, requirement by requirement.",
-    // Each comparison reads its reference document once, then fans out over
-    // the requirements it found. Two
-    // documents is one comparison; three is two, run in sequence.
-    activity: "1 minute",
+    // Each comparison reads its reference document once, then fans out over the requirements
+    // it found. Two documents is one comparison; three is two. Measured by the evaluation
+    // harness: three and a half minutes for an iTPP, cTPP and IPDP.
+    activity: "4 minutes",
     icon: "aligner",
     audience: "pst",
     workflow: "document_intelligence",
@@ -160,9 +163,9 @@ export const WORKSPACE_TOOLS: readonly WorkspaceToolDefinition[] = [
     title: "Screener",
     description:
       "Your documents against a stage gate’s question bank: what is answered, what remains open, and which discipline owns each question.",
-    // Observed end-to-end estimate, including document processing and assessment.
-    // Actual duration varies with document size, rendering and provider latency.
-    activity: "10 minutes",
+    // Measured by the evaluation harness: 15 minutes for twelve documents, including parsing.
+    // Fewer or shorter documents are quicker.
+    activity: "15 minutes",
     icon: "screener",
     audience: "pst",
     workflow: "stage_gate",

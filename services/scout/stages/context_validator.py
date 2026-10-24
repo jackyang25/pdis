@@ -4,14 +4,18 @@ The configured indication is authoritative for retrieval, but it must not be
 allowed to silently conflict with a document that clearly concerns another
 disease.  This stage performs one bounded, block-cited preflight assessment.
 It blocks only explicit mismatches; absent or ambiguous context remains
-``uncertain`` so documents that use unusual terminology are not rejected.
+``uncertain`` so documents that use unusual terminology are not rejected. A check
+whose answer stayed invalid after one retry, was refused, or whose provider failed is
+``not_assessed`` with the failure's code: the run proceeds, but no one should read it
+as the model's ``uncertain``.
 """
 
 from __future__ import annotations
 
-import logging
+from shared.ai import RECORDABLE_FAILURES, Effort, ModelTask, failure_code
+from shared.request_budget import check_request
 
-from ..ai import request_structured
+from ..ai import request_validated
 from ..ai_contracts import context_validation
 from ..context import (
     BLOCK_ID_JSON_INSTRUCTION,
@@ -19,10 +23,20 @@ from ..context import (
     limit_document_context,
     validated_block_ids,
 )
-from ..models import DocumentContextValidation, LLMClientProtocol
+from ..models import (
+    NOT_ASSESSED,
+    VALID_CONTEXT_STATUSES,
+    DocumentContextValidation,
+    LLMClientProtocol,
+)
 
-logger = logging.getLogger(__name__)
-
+#: The fast tier at low effort: a preflight that recognises which disease a document
+#: is about and stops only on an explicit, cited conflict. The judgement is one of
+#: recognition, not of weighing evidence, and the run's other stages do not wait on
+#: anything subtler from it.
+TASK: ModelTask = "fast"
+EFFORT: Effort = "low"
+#: One status, a short reason and a few block IDs; the rest is reasoning room.
 DEFAULT_MAX_TOKENS = 8000
 
 
@@ -51,53 +65,48 @@ def validate_document_context(
         for image in (images or [])
         if image.get("block_id") in allowed_ids
     ] or None
-    parsed = request_structured(
-        llm_client,
-        contract,
-        build_system_prompt(configured),
-        _user_message(bounded_context),
-        max_tokens=max_tokens,
-        images=bounded_images,
-    )
-    if not isinstance(parsed, dict):
-        logger.warning("context_validator produced no structured decision; retrying once")
-        parsed = request_structured(
+    user_message = _user_message(bounded_context)
+    check_request("Scout's document-context check", text=user_message, images=bounded_images)
+
+    def parse(parsed: object) -> DocumentContextValidation:
+        if not isinstance(parsed, dict):
+            raise ValueError("no structured decision was returned")
+        status = str(parsed.get("status", "")).strip().lower()
+        reason = str(parsed.get("reason", "")).strip()
+        if status not in VALID_CONTEXT_STATUSES or not reason:
+            raise ValueError("a status from the closed list and a reason are required")
+        block_ids = validated_block_ids(parsed.get("block_ids"), allowed_ids)
+        # A model may not block or affirm a run without exact document evidence.
+        if status in {"match", "mismatch"} and not block_ids:
+            raise ValueError(f"{status} requires at least one cited document block")
+        return DocumentContextValidation(
+            status=status,
+            configured_indication=configured,
+            document_indication=str(parsed.get("document_indication", "")).strip(),
+            reason=reason,
+            doc_block_ids=block_ids,
+        )
+
+    try:
+        return request_validated(
             llm_client,
             contract,
             build_system_prompt(configured),
-            _user_message(bounded_context),
+            user_message,
             max_tokens=max_tokens,
+            parse=parse,
+            failure="The document indication could not be verified",
             images=bounded_images,
+            task=TASK,
+            effort=EFFORT,
         )
-
-    if not isinstance(parsed, dict):
+    except RECORDABLE_FAILURES as exc:
         return DocumentContextValidation(
-            status="uncertain",
+            status=NOT_ASSESSED,
             configured_indication=configured,
-            reason="The document indication could not be verified.",
+            reason=str(exc),
+            failure_code=failure_code(exc),
         )
-
-    status = str(parsed.get("status", "")).strip().lower()
-    if status not in {"match", "mismatch", "uncertain"}:
-        status = "uncertain"
-    block_ids = validated_block_ids(parsed.get("block_ids"), allowed_ids)
-    document_indication = str(parsed.get("document_indication", "")).strip()
-    reason = str(parsed.get("reason", "")).strip()
-
-    # A model may not block or affirm a run without exact document evidence.
-    if status in {"match", "mismatch"} and not block_ids:
-        status = "uncertain"
-        reason = "The document indication could not be tied to an exact document block."
-    if not reason:
-        reason = "The document indication could not be verified."
-
-    return DocumentContextValidation(
-        status=status,
-        configured_indication=configured,
-        document_indication=document_indication,
-        reason=reason,
-        doc_block_ids=block_ids,
-    )
 
 
 def mismatch_message(validation: DocumentContextValidation) -> str:

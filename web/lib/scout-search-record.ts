@@ -17,6 +17,7 @@
  */
 
 import type { ScoutResponse, SearchTrace } from "./api.ts";
+import { countLabel } from "./count-label.ts";
 
 export type SearchLaneGroup = {
   lane: string;
@@ -117,7 +118,7 @@ export function fieldSearchRecord(
  */
 export function searchRecordSummary(record: FieldSearchRecord): string {
   if (record.total === 0) return "No search was planned for this field.";
-  const parts = [`${record.total} search${record.total === 1 ? "" : "es"} planned`];
+  const parts = [`${countLabel(record.total, "search", "searches")} planned`];
   if (record.skipped > 0) parts.push(`${record.skipped} not applicable`);
   if (record.failed > 0) parts.push(`${record.failed} failed`);
   return `${parts.join(" · ")}.`;

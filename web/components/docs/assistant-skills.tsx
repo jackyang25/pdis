@@ -5,6 +5,7 @@ import { useEffect, useState } from "react";
 import { Skeleton } from "@/components/ui/skeleton";
 import { CONTENT_ARRIVAL_MOTION } from "@/lib/motion";
 import { displayLabel } from "@/lib/display-label";
+import { loadPromptReference } from "@/lib/prompt-reference";
 import { EYEBROW } from "@/lib/typography";
 
 /**
@@ -27,8 +28,6 @@ type SkillEntry = {
   requires: string[];
   requires_any: string[];
 };
-
-const REFERENCE_URL = "/prompt-reference.json";
 
 /** What a workspace must hold, in the words the catalog uses in chat. */
 function requirementText(skill: SkillEntry): string {
@@ -53,9 +52,7 @@ export function AssistantSkills() {
     let live = true;
     void (async () => {
       try {
-        const response = await fetch(REFERENCE_URL);
-        if (!response.ok) throw new Error(String(response.status));
-        const data = (await response.json()) as { skills?: SkillEntry[] };
+        const data = await loadPromptReference<{ skills?: SkillEntry[] }>();
         if (live) setSkills(data.skills ?? []);
       } catch {
         // Silent by omission rather than an error banner: this is a list beside prose
@@ -83,7 +80,7 @@ export function AssistantSkills() {
           <Skeleton className="h-12 w-full" />
         </div>
       ) : (
-        <ul className={`mt-3 divide-y divide-border ${CONTENT_ARRIVAL_MOTION}`}>
+        <ul className={`mt-3 divide-y divide-border/60 ${CONTENT_ARRIVAL_MOTION}`}>
           {skills.map((skill) => (
             <li
               key={skill.name}

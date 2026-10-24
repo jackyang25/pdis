@@ -48,3 +48,23 @@ test("missing retained passages remain selectable without invented preview text"
   assert.match(html, /Passage 2/);
   assert.doesNotMatch(html, /View in document/);
 });
+
+test("a closed source trigger reads no passage until it is opened", () => {
+  // A result page renders one trigger per finding. Each used to index every block of the
+  // run and mark its cited text on every render, open or not, which on a large document
+  // was most of the cost of a keystroke in a search box.
+  let marked = 0;
+  const cited = loadComponent(fileURLToPath(new URL("../lib/cited-text.ts", import.meta.url)));
+  const { DocumentSourceProvider: Provider, DocumentSourceTrace: Trace } = loadComponent(
+    fileURLToPath(new URL("../components/document-source-trace.tsx", import.meta.url)),
+    { "@/lib/cited-text": { ...cited, markCitedText: (...args: unknown[]) => {
+      marked += 1;
+      return cited.markCitedText(...args);
+    } } },
+  );
+  const html = renderToStaticMarkup(React.createElement(Provider, {
+    blocks: [{ id: "b-1", doc_id: "Plan", content: "Dose rationale.", heading_stack: [], structural_meta: {}, block_type: "paragraph", ordinal: 0 }],
+  }, React.createElement(Trace, { blockIds: ["b-1"] })));
+  assert.match(html, /In document/);
+  assert.equal(marked, 0);
+});

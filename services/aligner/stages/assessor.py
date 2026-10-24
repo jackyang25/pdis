@@ -25,8 +25,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from shared.ai import request_structured
-from shared.errors import ModelResponseError
+from shared.ai import Effort, ModelTask, request_validated
 from shared.spans import LINE_SPAN_JSON_INSTRUCTION
 
 from services.chunker import ContentBlock
@@ -36,6 +35,7 @@ from ..context import citation_properties, format_blocks, image_inputs, read_spa
 from ..models import (
     ALIGNMENT_VERDICTS,
     AlignmentFinding,
+    DocumentRole,
     LLMClientProtocol,
     Requirement,
     VERDICTS_REQUIRING_CITATION,
@@ -46,6 +46,14 @@ from ..models import (
 # batch composition would shift between runs. Throughput comes from fan-out in the
 # pipeline, never from packing requirements together.
 REQUIREMENTS_PER_REQUEST = 1
+#: The reasoning tier at medium effort: `exceeds` against `falls_short` against
+#: `not_comparable` is a reading of units, populations and endpoints across two
+#: documents, and the verdict a PPL takes back to the document's author.
+TASK: ModelTask = "reasoning"
+EFFORT: Effort = "medium"
+#: One verdict, one sentence of at most 25 words and a few line ranges; the rest is
+#: reasoning room over the comparison document.
+MAX_TOKENS = 12000
 
 _SCOPE_BOUNDARY = """Scope boundary:
 - Decide only what this document does with this requirement. Do not judge how well
@@ -65,26 +73,17 @@ def build_assessment_prompt() -> str:
 
 {_SCOPE_BOUNDARY}
 
-Return ONLY valid JSON. No markdown fences, no preamble, no explanation.
-
-What honouring a requirement means depends on the kind of document this is, and the
-first line of the message tells you which one you are reading.
-
-- A **profile** — an intervention or candidate target product profile — honours a
-  requirement by STATING A VALUE that satisfies it. Committing to numbers is its job.
-- A **plan** — an integrated product development plan — honours a commitment by
-  CONTAINING THE WORK directed at it: a study, an activity, a milestone, a decision
-  point. Saying how is its job, and restating the number is not. A plan that names the
-  work honours the commitment even though it states no value of its own; a plan that
-  repeats the number and schedules nothing does not.
+What honouring a requirement means depends on the kind of document this is. The
+message says what this document is and how a document of its kind honours a
+requirement; judge it by that test and no other.
 
 Judge presence, never sufficiency. Whether stated work is enough to reach a target, or
 whether a target is achievable at all, is not answerable from these two documents and
 is not what you are being asked.
 
 Verdicts:
-- meets: this document honours the requirement — a profile by stating a value that
-  satisfies it, a plan by carrying the work for it. Cite the blocks.
+- meets: this document honours the requirement, in the way the message says a
+  document of its kind does. Cite the blocks.
 - exceeds: it honours the requirement beyond what was asked — sooner, cheaper, longer,
   broader, or more work than the commitment needs. Cite the lines.
 - falls_short: it addresses the requirement and honours only part of it — a value below
@@ -109,8 +108,8 @@ around it.
 {LINE_SPAN_JSON_INSTRUCTION}
 
 `statement` is the only sentence you write, and it is one short factual sentence (max
-25 words) saying what this document does about the subject — the value a profile states,
-or the work a plan carries.
+25 words) saying what this document does about the subject — the value it states, or
+the work it carries.
 
 Leave it empty on `not_addressed`. "This document states nothing about X" is the verdict
 in a sentence, under a heading that already names X.
@@ -140,6 +139,9 @@ def assessment_schema(blocks: list[ContentBlock]) -> dict[str, Any]:
         "required": ["verdict", "statement", "spans", "visual_block_ids"],
         "properties": {
             "verdict": {"type": "string", "enum": list(ALIGNMENT_VERDICTS)},
+            # Empty on `not_addressed` and written on every other verdict. A
+            # conditional requirement is the one thing this schema cannot say, so the
+            # verdict carries the condition and the parser checks the pairing.
             "statement": {"type": "string"},
             **citation_properties(blocks),
         },
@@ -147,17 +149,17 @@ def assessment_schema(blocks: list[ContentBlock]) -> dict[str, Any]:
 
 
 def build_user_message(
-    requirement: Requirement,
-    role: str,
+    role: DocumentRole,
     question: str,
     blocks: list[ContentBlock],
 ) -> str:
-    """The comparison document first, the requirement last.
+    """Everything one edge's verdicts share: the document, its kind, the question.
 
-    Order matters for cost, not for reading. Every requirement on one edge is judged
-    against the same document, so putting that document first makes it a prompt prefix a
-    provider can cache: the expensive half is paid for once per comparison instead of
-    once per requirement.
+    The requirement is not here; it is sent after the document's images by
+    :func:`build_requirement_text`. Order matters for cost, not for reading. Every
+    requirement on one edge is judged against the same document, so everything
+    before the requirement is a prompt prefix a provider can cache: the expensive half
+    is paid for once per comparison instead of once per requirement.
 
     The reference document's blocks are deliberately absent. Only the one requirement
     crosses over, because handing the whole bar across would invite the model to
@@ -165,61 +167,50 @@ def build_user_message(
     reader checks the bar instead.
     """
     return "\n\n".join([
-        f"This document: {role}",
+        f"This document: {role.description}",
+        f"How a document of this kind honours a requirement: {role.honours}",
         f"The question being answered: {question}",
         "Document blocks:\n" + format_blocks(blocks),
-        f"Requirement to check ({requirement.id}):\n{requirement.text}",
     ])
+
+
+def build_requirement_text(requirement: Requirement) -> str:
+    """The one part of the request that changes per requirement, sent last."""
+    return f"Requirement to check ({requirement.id}):\n{requirement.text}"
 
 
 def assess_requirement(
     requirement: Requirement,
     *,
     edge_id: str,
-    role: str,
+    role: DocumentRole,
     question: str,
     blocks: list[ContentBlock],
     llm_client: LLMClientProtocol,
-    max_tokens: int,
 ) -> AlignmentFinding:
     """One verdict about one requirement, with its lineage validated."""
-    system_prompt = build_assessment_prompt()
-    user_message = build_user_message(requirement, role, question, blocks)
-    schema = assessment_schema(blocks)
-
-    first_error = "model returned no structured verdict"
-    for attempt in range(2):
-        message = user_message
-        if attempt:
-            message += (
-                "\n\nThe prior verdict failed the Aligner contract: "
-                f"{first_error}. For every verdict except `not_addressed`, select "
-                "exact [line:N] ranges in `spans`, retained visual IDs in "
-                "`visual_block_ids`, or both. Leave both citation lists empty only "
-                "when the requirement is not addressed at all."
-            )
-        payload = request_structured(
-            llm_client,
-            system_prompt,
-            message,
-            max_tokens=max_tokens,
-            schema_name="aligner_requirement_verdict",
-            schema=schema,
-            images=image_inputs(blocks) or None,
-        )
-        try:
-            if payload is None:
-                raise ValueError("model returned no structured verdict")
-            return _parse_payload(
-                payload,
-                requirement=requirement,
-                edge_id=edge_id,
-                blocks=blocks,
-            )
-        except ValueError as exc:
-            first_error = str(exc)
-    raise ModelResponseError(
-        f"Aligner could not judge {requirement.id}: {first_error}"
+    return request_validated(
+        llm_client,
+        build_assessment_prompt(),
+        build_user_message(role, question, blocks),
+        schema_name="aligner_requirement_verdict",
+        schema=assessment_schema(blocks),
+        max_tokens=MAX_TOKENS,
+        task=TASK,
+        effort=EFFORT,
+        images=image_inputs(blocks) or None,
+        trailing_text=build_requirement_text(requirement),
+        parse=lambda payload: _parse_payload(
+            payload, requirement=requirement, edge_id=edge_id, blocks=blocks,
+        ),
+        repair=lambda error: (
+            "\n\nThe prior verdict failed the Aligner contract: "
+            f"{error}. For every verdict except `not_addressed`, select "
+            "exact [line:N] ranges in `spans`, retained visual IDs in "
+            "`visual_block_ids`, or both. Leave both citation lists empty only "
+            "when the requirement is not addressed at all."
+        ),
+        failure=f"Aligner could not judge {requirement.id}",
     )
 
 
@@ -236,7 +227,7 @@ def _parse_payload(
     blocks: list[ContentBlock],
 ) -> AlignmentFinding:
     if not isinstance(payload, dict):
-        raise ValueError("verdict must be an object")
+        raise ValueError("model returned no structured verdict")
     verdict = payload.get("verdict")
     if verdict not in ALIGNMENT_VERDICTS:
         raise ValueError(f"unknown verdict {verdict!r}")

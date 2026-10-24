@@ -5,6 +5,9 @@ import threading
 import unittest
 from datetime import datetime, timezone
 
+import httpx
+import openai
+
 from services.scout.models import Attribute, DevelopmentProgram, SafetyObservation
 from services.scout.stages.projection_classifier import (
     classify_projection_relationships,
@@ -179,7 +182,8 @@ class ProjectionClassifierTests(unittest.TestCase):
             ["direct", "adjacent"],
         )
 
-    def test_omitted_invalid_duplicate_and_unknown_ids_degrade_to_unknown(self) -> None:
+    def test_omitted_invalid_duplicate_and_unknown_ids_are_not_assessed(self) -> None:
+        """No valid decision is a processing gap with a code, never the model's ``unknown``."""
         programs = [
             DevelopmentProgram(name="A", projection_id="dp-a"),
             DevelopmentProgram(name="B", projection_id="dp-b"),
@@ -219,12 +223,18 @@ class ProjectionClassifierTests(unittest.TestCase):
 
         self.assertEqual(
             [item.target_relationship for item in classified],
-            ["unknown", "unknown", "unknown"],
+            ["not_assessed", "not_assessed", "not_assessed"],
+        )
+        self.assertEqual(
+            {item.target_relationship_failure_code for item in classified},
+            {"invalid_model_response"},
         )
 
     def test_provider_failure_is_confined_to_projection_relationships(self) -> None:
         program = DevelopmentProgram(name="A", projection_id="dp-a")
-        client = StructuredClient([RuntimeError("provider unavailable")])
+        client = StructuredClient([
+            openai.APIConnectionError(request=httpx.Request("POST", "https://provider.test"))
+        ])
 
         classified, signals = classify_projection_relationships(
             [_attribute()],
@@ -235,7 +245,8 @@ class ProjectionClassifierTests(unittest.TestCase):
             intervention_class="vaccine",
         )
 
-        self.assertEqual(classified[0].target_relationship, "unknown")
+        self.assertEqual(classified[0].target_relationship, "not_assessed")
+        self.assertEqual(classified[0].target_relationship_failure_code, "provider_error")
         self.assertEqual(signals, [])
 
 

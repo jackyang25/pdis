@@ -14,12 +14,12 @@ from services.searcher import QueryFacets
 from services.scout.ai_contracts import query_batch
 from services.scout.models import Attribute, QueryIntent, RetrievalScopeLedger
 from services.scout.stages.intent_builder import build_retrieval_intents
-from services.scout.stages.query_extractor import _parse_queries
+from services.scout.stages.query_extractor import _dedupe_queries, _parse_queries
 
 
 class QueryContractTests(unittest.TestCase):
     def test_the_query_schema_asks_for_the_stated_facets(self) -> None:
-        contract = query_batch(["doc/b-0001"], ["qt-1"])
+        contract = query_batch(["doc/b-0001"], ["qt-1"], 2)
         query = contract.schema["properties"]["queries"]["items"]["properties"]
 
         self.assertEqual(
@@ -57,6 +57,36 @@ class QueryParsingTests(unittest.TestCase):
 
         self.assertEqual(len(parsed), 1)
         self.assertEqual(parsed[0].facets, QueryFacets())
+
+
+class QueryIdentityTests(unittest.TestCase):
+    def test_the_same_text_with_different_facets_stays_two_requests(self) -> None:
+        queries = _dedupe_queries([
+            QueryIntent("malaria vaccine efficacy", ["general"], [],
+                        facets=QueryFacets(condition="malaria")),
+            QueryIntent("malaria vaccine efficacy", ["precedent"], [],
+                        facets=QueryFacets(condition="malaria", population="infants")),
+        ])
+
+        self.assertEqual([query.facets.population for query in queries], ["", "infants"])
+
+    def test_identity_is_not_decided_by_case_folding(self) -> None:
+        queries = _dedupe_queries([
+            QueryIntent("RSV vaccine efficacy", ["general"], []),
+            QueryIntent("rsv vaccine efficacy", ["general"], []),
+        ])
+
+        self.assertEqual(len(queries), 2)
+
+    def test_identical_queries_merge_and_keep_every_lineage(self) -> None:
+        queries = _dedupe_queries([
+            QueryIntent("malaria vaccine efficacy", ["general"], ["doc/b-0001"]),
+            QueryIntent("malaria vaccine efficacy", ["precedent"], ["doc/b-0002"]),
+        ])
+
+        self.assertEqual(len(queries), 1)
+        self.assertEqual(queries[0].tracks, ["general", "precedent"])
+        self.assertEqual(queries[0].doc_block_ids, ["doc/b-0001", "doc/b-0002"])
 
 
 class IntentHandoffTests(unittest.TestCase):

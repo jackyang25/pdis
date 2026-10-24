@@ -17,16 +17,15 @@ from __future__ import annotations
 import tempfile
 import unittest
 
-from services.aligner import describe_document, describe_edges, load_config, resolve_edges
+from services.aligner import document_role, describe_edges, load_config, resolve_edges
 from services.aligner.contract import validate_result_contract
 from services.aligner.models import (
     ALIGNMENT_VERDICTS,
-    AlignmentConfig,
     AlignmentDocument,
     AlignmentEdge,
     AlignmentFinding,
     AlignmentResult,
-    EdgeSpec,
+    DocumentRole,
     Requirement,
     edge_id,
     requirement_id,
@@ -36,19 +35,21 @@ from services.aligner.stages.assessor import (
     assess_requirement,
     assessment_schema,
     build_assessment_prompt,
+    build_requirement_text,
     build_user_message,
 )
 from services.aligner.stages.requirements import extract_requirements
 from services.chunker import ContentBlock
 from shared.spans import DocumentSpan
 
-CONFIG = """
-document_roles:
-  itpp: A profile.
-  ctpp: A candidate.
-  ipdp: A plan.
-  default: A document.
-edges:
+def role_yaml(**descriptions: str) -> str:
+    return "document_roles:\n" + "".join(
+        f"  {key}:\n    description: {text}\n    honours: By saying so.\n"
+        for key, text in descriptions.items()
+    )
+
+
+CONFIG = role_yaml(itpp="A profile.", ctpp="A candidate.", ipdp="A plan.", default="A document.") + """edges:
   - reference: itpp
     comparison: ctpp
     question: Does the candidate meet the bar?
@@ -86,11 +87,29 @@ def block(block_id: str, doc_id: str, ordinal: int = 0) -> ContentBlock:
     )
 
 
+ROLE = DocumentRole(description="A candidate.", honours="By stating a value.")
+
+
+def a_finding(**overrides) -> AlignmentFinding:
+    defaults = dict(
+        requirement_id="itpp-to-ctpp/r-001",
+        edge_id="itpp-to-ctpp",
+        requirement="Annual dosing.",
+        reference_spans=[DocumentSpan(quote="Content of itpp_file:b1.", block_ids=["itpp_file:b1"])],
+        verdict="meets",
+        statement="The candidate states annual dosing.",
+        comparison_spans=[DocumentSpan(quote="Content of ctpp_file:b1.", block_ids=["ctpp_file:b1"])],
+    )
+    defaults.update(overrides)
+    return AlignmentFinding(**defaults)
+
+
 def result(
     documents: list[AlignmentDocument] | None = None,
     edges: list[AlignmentEdge] | None = None,
     blocks: list[ContentBlock] | None = None,
     findings: list["AlignmentFinding"] | None = None,
+    question: str = "Does the candidate meet the bar?",
 ) -> AlignmentResult:
     documents = documents if documents is not None else [doc("itpp"), doc("ctpp")]
     return AlignmentResult(
@@ -102,7 +121,7 @@ def result(
                 "itpp-to-ctpp",
                 "itpp_file",
                 "ctpp_file",
-                "Does the candidate meet the bar?",
+                question,
             )
         ],
         org="bmgf",
@@ -111,7 +130,7 @@ def result(
         blocks=blocks
         if blocks is not None
         else [block(f"{document.doc_id}:b1", document.doc_id) for document in documents],
-        findings=findings or [],
+        findings=findings if findings is not None else [a_finding()],
     )
 
 
@@ -125,14 +144,22 @@ class ConfigTests(unittest.TestCase):
         config = load_config()
         self.assertNotIn("launch_plan", config.document_roles)
         self.assertEqual(
-            describe_document(config, "launch_plan"), config.document_roles["default"]
+            document_role(config, "launch_plan"), config.document_roles["default"]
         )
 
     def test_a_named_source_type_gets_its_own_description(self) -> None:
         config = load_config()
         self.assertNotEqual(
-            describe_document(config, "itpp"), describe_document(config, "ipdp")
+            document_role(config, "itpp"), document_role(config, "ipdp")
         )
+
+    def test_a_plan_and_a_profile_honour_a_requirement_differently(self) -> None:
+        """The honouring test is configuration, so the prompt names no document type."""
+        config = load_config()
+        self.assertIn("CONTAINING THE WORK", document_role(config, "ipdp").honours)
+        self.assertIn("STATING A VALUE", document_role(config, "ctpp").honours)
+        self.assertNotIn("profile", build_assessment_prompt().lower())
+        self.assertNotIn("a plan", build_assessment_prompt().lower())
 
     def test_the_shipped_config_declares_a_chain_and_not_a_mesh(self) -> None:
         """Two unconditional comparisons, in order, and no unconditional itpp/ipdp pair.
@@ -151,16 +178,22 @@ class ConfigTests(unittest.TestCase):
 
     def test_a_config_without_a_default_is_refused(self) -> None:
         with self.assertRaisesRegex(ValueError, "must define `default`"):
-            load_config(write_config("document_roles:\n  itpp: A profile.\nedges: []\n"))
+            load_config(write_config(role_yaml(itpp="A profile.") + "edges: []\n"))
 
     def test_an_empty_role_description_is_refused(self) -> None:
         with self.assertRaisesRegex(ValueError, "non-empty strings"):
-            load_config(write_config("document_roles:\n  default: '   '\nedges: []\n"))
+            load_config(write_config(role_yaml(default="'   '") + "edges: []\n"))
+
+    def test_a_role_without_its_honouring_test_is_refused(self) -> None:
+        with self.assertRaisesRegex(ValueError, "exactly `description` and `honours`"):
+            load_config(write_config(
+                "document_roles:\n  default:\n    description: A document.\nedges: []\n"
+            ))
 
     def test_a_config_with_no_comparison_is_refused(self) -> None:
         """A tool that compares nothing would parse two documents and stop."""
         with self.assertRaisesRegex(ValueError, "edges must be a non-empty list"):
-            load_config(write_config("document_roles:\n  default: A document.\nedges: []\n"))
+            load_config(write_config(role_yaml(default="A document.") + "edges: []\n"))
 
     def test_an_edge_naming_an_undeclared_type_is_refused(self) -> None:
         """A typo here would resolve to nothing at run time rather than fail."""
@@ -234,7 +267,7 @@ class ResolveEdgeTests(unittest.TestCase):
 
 class ContractTests(unittest.TestCase):
     def setUp(self) -> None:
-        self.config = load_config()
+        self.config = load_config(write_config(CONFIG))
 
     def test_a_valid_result_is_returned_rather_than_dropped(self) -> None:
         """The validator this replaced returned None, so `run_pipeline` did too."""
@@ -284,18 +317,45 @@ class ContractTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "unknown document"):
             validate_result_contract(result(blocks=[block("x:b1", "other")]), self.config)
 
-    def test_a_result_with_no_blocks_is_accepted(self) -> None:
-        """An empty document is a parse outcome, not a contract violation."""
-        empty = result(blocks=[])
-        self.assertIs(validate_result_contract(empty, self.config), empty)
+    def test_a_result_with_no_findings_is_refused(self) -> None:
+        """It would read exactly like a comparison that found nothing wrong."""
+        with self.assertRaisesRegex(ValueError, "carries no findings"):
+            validate_result_contract(result(findings=[]), self.config)
 
-    def test_a_config_missing_its_default_cannot_validate(self) -> None:
-        broken = AlignmentConfig(
-            document_roles={"itpp": "A profile."},
-            edges=[EdgeSpec("itpp", "ctpp", "?")],
-        )
-        with self.assertRaises(KeyError):
-            validate_result_contract(result(), broken)
+    def test_every_comparison_carries_findings(self) -> None:
+        three = [doc("itpp"), doc("ctpp"), doc("ipdp")]
+        edges = resolve_edges(self.config, three)
+        with self.assertRaisesRegex(ValueError, "ctpp-to-ipdp carries no findings"):
+            validate_result_contract(
+                result(documents=three, edges=edges, findings=[a_finding()]), self.config
+            )
+
+    def test_comparisons_must_be_the_ones_the_config_declares(self) -> None:
+        """A comparison nobody declared, or one the documents resolve to and the result
+        skipped, would read as a complete run."""
+        reversed_edge = AlignmentEdge("ctpp-to-itpp", "ctpp_file", "itpp_file", "Reversed?")
+        with self.assertRaisesRegex(ValueError, "not the ones its configuration declares"):
+            validate_result_contract(
+                result(edges=[reversed_edge], findings=[a_finding(
+                    requirement_id="ctpp-to-itpp/r-001", edge_id="ctpp-to-itpp",
+                )]),
+                self.config,
+            )
+        with self.assertRaisesRegex(ValueError, "not the ones its configuration declares"):
+            validate_result_contract(result(question="A different question?"), self.config)
+
+    def test_a_requirement_id_must_belong_to_its_comparison(self) -> None:
+        with self.assertRaisesRegex(ValueError, "out of sequence"):
+            validate_result_contract(
+                result(findings=[a_finding(requirement_id="ctpp-to-ipdp/r-001")]), self.config
+            )
+
+    def test_a_comparisons_requirements_run_in_sequence(self) -> None:
+        """Positional IDs with a hole mean a requirement went missing."""
+        with self.assertRaisesRegex(ValueError, "out of sequence"):
+            validate_result_contract(
+                result(findings=[a_finding(requirement_id="itpp-to-ctpp/r-002")]), self.config
+            )
 
 
 class PromptCatalogTests(unittest.TestCase):
@@ -339,11 +399,13 @@ class FakeClient:
         self.calls: list[dict] = []
 
     def call_structured(
-        self, system_prompt, user_message, max_tokens, *, schema_name, schema, **_
+        self, system_prompt, user_message, max_tokens, *, schema_name, schema,
+        trailing_text="", **_
     ):
         self.calls.append({
             "system": system_prompt,
             "user": user_message,
+            "trailing_text": trailing_text,
             "schema": schema,
             "schema_name": schema_name,
         })
@@ -372,11 +434,10 @@ def judge(payload: dict, blocks: list[ContentBlock] | None = None) -> AlignmentF
     return assess_requirement(
         requirement(),
         edge_id=EDGE,
-        role="A candidate.",
+        role=ROLE,
         question="Does the candidate meet the bar?",
         blocks=blocks if blocks is not None else [block("ctpp_file:b1", "ctpp_file")],
         llm_client=FakeClient(payload),
-        max_tokens=1000,
     )
 
 
@@ -390,11 +451,10 @@ class RequirementExtractionTests(unittest.TestCase):
     def extract(self, payload: dict) -> list[Requirement]:
         return extract_requirements(
             edge_id=EDGE,
-            role="A profile.",
+            role=ROLE,
             question="Does the candidate meet the bar?",
             blocks=self.blocks,
             llm_client=FakeClient(payload),
-            max_tokens=1000,
         )
 
     def test_requirements_are_numbered_within_their_comparison(self) -> None:
@@ -411,15 +471,31 @@ class RequirementExtractionTests(unittest.TestCase):
         )
         self.assertEqual(found[1].cited_spans, (cited("itpp_file:b2"),))
 
-    def test_the_same_requirement_stated_twice_is_one_requirement(self) -> None:
-        """A duplicate would double-count in every total computed from the list."""
+    def test_code_never_merges_requirements_by_their_wording(self) -> None:
+        """Identity is the extraction's judgement, not string normalization's.
+
+        Two requirements that read alike can cite different rows of a table; dropping
+        the second by its lowercased wording discarded a cited bar silently.
+        """
         found = self.extract({
             "requirements": [
                 {"text": "Annual dosing.", "spans": [picked("itpp_file:b1")]},
                 {"text": "annual   dosing.", "spans": [picked("itpp_file:b2")]},
             ]
         })
-        self.assertEqual(len(found), 1)
+        self.assertEqual([item.id for item in found], ["itpp-to-ctpp/r-001", "itpp-to-ctpp/r-002"])
+        self.assertEqual(found[1].cited_spans, (cited("itpp_file:b2"),))
+
+    def test_the_schema_states_that_a_document_has_a_requirement(self) -> None:
+        """The parser refuses an empty list, so the schema must not offer one."""
+        client = FakeClient({
+            "requirements": [{"text": "Annual dosing.", "spans": [picked("itpp_file:b1")]}]
+        })
+        extract_requirements(
+            edge_id=EDGE, role=ROLE, question="?", blocks=self.blocks,
+            llm_client=client,
+        )
+        self.assertEqual(client.calls[0]["schema"]["properties"]["requirements"]["minItems"], 1)
 
     def test_an_uncited_requirement_is_refused(self) -> None:
         """A bar nobody can check is worse than a bar nobody wrote down."""
@@ -445,11 +521,10 @@ class RequirementExtractionTests(unittest.TestCase):
         })
         extract_requirements(
             edge_id=EDGE,
-            role="A profile.",
+            role=ROLE,
             question="?",
             blocks=self.blocks,
             llm_client=client,
-            max_tokens=1000,
         )
         schema = client.calls[0]["schema"]
         offered = schema["properties"]["requirements"]["items"]["properties"]
@@ -553,26 +628,25 @@ class VerdictTests(unittest.TestCase):
         )
         self.assertEqual(schema["properties"]["verdict"]["enum"], list(ALIGNMENT_VERDICTS))
 
-    def test_the_document_comes_before_the_requirement_in_the_message(self) -> None:
-        """Every requirement on an edge sees the same document, so it is a cacheable
-        prefix only when it comes first."""
-        message = build_user_message(
-            requirement(),
-            "A candidate.",
-            "Does the candidate meet the bar?",
-            [block("ctpp_file:b1", "ctpp_file")],
+    def test_the_requirement_is_sent_after_the_document_and_its_images(self) -> None:
+        """Every requirement on an edge sees the same document and visuals, so they are a
+        cacheable prefix only when the requirement comes after them."""
+        client = FakeClient({
+            "verdict": "meets", "statement": "It states annual dosing.",
+            "spans": [picked("ctpp_file:b1")],
+        })
+        assess_requirement(
+            requirement(), edge_id=EDGE, role=ROLE, question="?",
+            blocks=[block("ctpp_file:b1", "ctpp_file")], llm_client=client,
         )
-        self.assertLess(message.index("ctpp_file:b1"), message.index("Annual dosing."))
+        self.assertIn("ctpp_file:b1", client.calls[0]["user"])
+        self.assertNotIn("Annual dosing.", client.calls[0]["user"])
+        self.assertEqual(client.calls[0]["trailing_text"], build_requirement_text(requirement()))
 
     def test_the_reference_document_is_not_in_the_message(self) -> None:
         """Only the one requirement crosses over; the bar's own text is its citation."""
-        message = build_user_message(
-            requirement(),
-            "A candidate.",
-            "?",
-            [block("ctpp_file:b1", "ctpp_file")],
-        )
-        self.assertNotIn("itpp_file:b1", message)
+        message = build_user_message(ROLE, "?", [block("ctpp_file:b1", "ctpp_file")])
+        self.assertNotIn("itpp_file:b1", message + build_requirement_text(requirement()))
 
 
 class FindingContractTests(unittest.TestCase):
@@ -654,12 +728,13 @@ class HonouringTests(unittest.TestCase):
     the prompt; it just was not allowed to change what the verdicts meant.
     """
 
-    def test_the_prompt_says_a_plan_honours_by_carrying_the_work(self) -> None:
-        prompt = build_assessment_prompt()
+    def test_the_config_says_a_plan_honours_by_carrying_the_work(self) -> None:
+        config = load_config()
 
-        self.assertIn("CONTAINING THE WORK", prompt)
-        self.assertIn("STATING A VALUE", prompt)
-        self.assertIn("states no value of its own", prompt)
+        self.assertIn("CONTAINING THE WORK", document_role(config, "ipdp").honours)
+        self.assertIn("states no value of its own", document_role(config, "ipdp").honours)
+        self.assertIn("STATING A VALUE", document_role(config, "ctpp").honours)
+        self.assertIn("What honouring a requirement means depends on the kind", build_assessment_prompt())
 
     def test_the_prompt_refuses_sufficiency(self) -> None:
         """The one word that turns this into Scout's question."""
@@ -671,8 +746,7 @@ class HonouringTests(unittest.TestCase):
     def test_the_document_kind_reaches_the_model(self) -> None:
         """The role is the only thing that says which test applies."""
         message = build_user_message(
-            Requirement(id="r-1", text="Stability at 4C.", cited_spans=(cited("itpp_file:b1"),)),
-            "Integrated product development plan describing execution and decision pathways.",
+            document_role(load_config(), "ipdp"),
             "Does the plan deliver what the candidate profile commits to?",
             [ContentBlock(
                 id="ctpp_file:b1", doc_id="ctpp_file", ordinal=1, block_type="paragraph",
@@ -682,6 +756,7 @@ class HonouringTests(unittest.TestCase):
         )
 
         self.assertIn("Integrated product development plan", message)
+        self.assertIn("CONTAINING THE WORK", message)
 
     def test_silence_states_nothing(self) -> None:
         """The sentence was the verdict again, under a heading naming the requirement."""
@@ -731,11 +806,10 @@ class ExactQuotationTests(unittest.TestCase):
     def extract(self, payload: dict, blocks: list[ContentBlock]):
         return extract_requirements(
             edge_id=EDGE,
-            role="A profile.",
+            role=ROLE,
             question="?",
             blocks=blocks,
             llm_client=FakeClient(payload),
-            max_tokens=1000,
         )
 
     def test_a_selected_range_quotes_only_those_lines(self) -> None:
@@ -810,15 +884,24 @@ class ExactQuotationTests(unittest.TestCase):
         })
         extract_requirements(
             edge_id=EDGE,
-            role="A profile.",
+            role=ROLE,
             question="?",
             blocks=[block],
             llm_client=client,
-            max_tokens=1000,
         )
         message = client.calls[0]["user"]
         self.assertIn(f"[block:{block.id}]", message)
         self.assertIn("[line:2] Storage | 2-8C", message)
+
+    def test_a_block_is_shown_with_the_headings_it_sits_under(self) -> None:
+        """A table cell reading "36 months" says nothing about what lasts 36 months."""
+        block = self.multiline()
+        block.heading_stack = ["Product attributes", "Stability"]
+        client = FakeClient({
+            "requirements": [{"text": "Storage.", "spans": [picked(block.id, 2, 2)]}]
+        })
+        extract_requirements(edge_id=EDGE, role=ROLE, question="?", blocks=[block], llm_client=client)
+        self.assertIn("headings: Product attributes > Stability", client.calls[0]["user"])
 
     def test_a_verdict_quotes_the_measured_document_the_same_way(self) -> None:
         """One rule, both stages. The assessor had the same block-only citation."""

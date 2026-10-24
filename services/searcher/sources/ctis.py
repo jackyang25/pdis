@@ -14,19 +14,16 @@ from ..models import (
     SourceSpec,
 )
 from .literature import active_tracks
-from .planning import facet_groups, request_lineage
+from .planning import request_lineage
 from .tooluniverse_records import (
     TOOLUNIVERSE_INTEGRATION,
-    parse_datetime,
-    ranked_records,
-    relevant_excerpt,
     result_records,
     run_tool,
+    structured_excerpt,
     text,
 )
 
 SEARCH_TOOL = "CTIS_search_trials_filtered"
-MAX_CANDIDATES = 50
 MAX_RESULTS = 10
 
 
@@ -52,35 +49,24 @@ class CTISSource:
     )
 
     def plan(self, intent: RetrievalIntent) -> list[SearchRequest]:
-        requests: list[SearchRequest] = []
-        for scope, queries in facet_groups(
-            intent,
-            fields=("condition",),
-            fallbacks={"condition": intent.indication or intent.topic},
-            anchors=("condition",),
-            limit=self.spec.max_requests_per_intent,
-        ):
-            intent_ids, input_queries, document_refs = request_lineage(queries)
-            condition = scope["condition"]
-            requests.append(
-                SearchRequest(
-                    scope_ref=intent.scope_ref,
-                    source=self.spec.key,
-                    query=f"medical_condition:{condition}",
-                    tracks=tuple(active_tracks(intent)),
-                    document_refs=document_refs,
-                    intent_ids=intent_ids,
-                    input_queries=input_queries,
-                    connector=TOOLUNIVERSE_INTEGRATION,
-                    operation=SEARCH_TOOL,
-                    options=(
-                        ("medical_condition", condition),
-                        ("limit", str(MAX_CANDIDATES)),
-                        ("ranking", "all_input_queries"),
-                    ),
-                )
+        # The condition is the whole request and is the intent's anchor, so no query can
+        # vary it: one request per intent, carrying every query in its lineage.
+        intent_ids, input_queries, document_refs = request_lineage(list(intent.queries))
+        condition = (intent.indication or intent.topic).strip()
+        return [
+            SearchRequest(
+                scope_ref=intent.scope_ref,
+                source=self.spec.key,
+                query=f"medical_condition:{condition}",
+                tracks=tuple(active_tracks(intent)),
+                document_refs=document_refs,
+                intent_ids=intent_ids,
+                input_queries=input_queries,
+                connector=TOOLUNIVERSE_INTEGRATION,
+                operation=SEARCH_TOOL,
+                options=(("medical_condition", condition),),
             )
-        return requests
+        ]
 
     def search(
         self,
@@ -88,21 +74,17 @@ class CTISSource:
         runtime: SearchRuntime,
         *,
         max_tokens: int,
-        max_uses: int,
     ) -> list[Finding]:
         result = run_tool(
             runtime,
+            self.spec,
             SEARCH_TOOL,
             {
                 "medical_condition": request.option("medical_condition"),
-                "limit": int(request.option("limit", str(MAX_CANDIDATES))),
+                "limit": self.spec.max_results,
             },
         )
-        records = ranked_records(
-            result_records(result, "data"),
-            request,
-            limit=MAX_RESULTS,
-        )
+        records = result_records(result, "data")
         retrieved_at = datetime.now(timezone.utc)
         findings: list[Finding] = []
         for record in records:
@@ -116,11 +98,10 @@ class CTISSource:
                     title=text(record.get("title")) or ct_number,
                     query=request.query,
                     retrieved_at=retrieved_at,
-                    published_at=parse_datetime(
-                        record.get("last_updated"),
-                        "%d/%m/%Y",
-                    ),
-                    excerpt=relevant_excerpt(
+                    # No publication date: the search returns only the EU start date and
+                    # the date of the latest edit, and neither says when the trial was
+                    # published. A record with no date is admitted by a window.
+                    excerpt=structured_excerpt(
                         record,
                         (
                             ("conditions", "Conditions"),
@@ -133,8 +114,10 @@ class CTISSource:
                             ("results_first_received", "Results posted"),
                             ("start_date_eu", "EU start date"),
                         ),
-                        request,
                     ),
+                    excerpt_kind="structured_fields",
+                    identifiers={"euct": ct_number},
+                    record_key=f"ctis:{ct_number}",
                     source=self.spec.key,
                     development_records=_development_records(record, ct_number),
                 )

@@ -70,11 +70,11 @@ def main() -> None:
         for document in documents:
             selected.extend(select_evidence(
                 question, document, indication="respiratory_syncytial_virus",
-                intervention_class="drug", llm_client=client, max_tokens=4000,
+                intervention_class="drug", llm_client=client,
             ))
         result = assess_question(
             question, blocks=selected, indication="respiratory_syncytial_virus",
-            intervention_class="drug", llm_client=client, max_tokens=4000,
+            intervention_class="drug", llm_client=client,
         )
         passed = result.state == state and set(result.cited_block_ids) == citations
         if not passed:

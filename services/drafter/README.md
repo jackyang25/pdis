@@ -34,17 +34,38 @@ variables (shared attribute list) → search planning → retrieval
   asks) - and Searcher facets.
 - **Evidence reading** reads one source for one variable and reports observations, each
   with its basis (`comparable_product` or `published_guidance`) and a quote the code checks
-  is in the excerpt (`shared.quotes`).
+  is in the excerpt (`shared.quotes`). A number comes with `value.text`, the words of its
+  quote that state it, and code checks those words are in the quote; the number is the
+  reader's reading of them and is never re-parsed. A number whose words are not in its
+  quote is kept as words, outside the figures, and counted with the unverified quotes. A reading quoting words the excerpt lacks is asked
+  for once more with those quotes named; what still fails is never kept and is counted on
+  the row as `unverified_quotes`, beside `unread_findings` for sources that could not be read.
 - **Figures** describe comparable values per stated unit (`shared.statistics`), only from
   verbatim literature, registry and regulatory text - Scout's rule for text that may supply
-  a number. Units are never converted or pooled.
+  a number. Units are never converted or pooled, and each group lists the
+  `observation_ids` it was computed from.
 - **Suggestion** proposes a `range` (minimum, preferred), a `statement`, or `insufficient`,
-  citing only the variable's own observations and naming the basis it leans on. The pairing
-  of kind, fields and basis is one rule, `contract.check_suggestion`, applied to the model's
-  reply and to every saved result.
-- A variable with no evidence at all is `insufficient` without a model call. A variable
-  whose planning or suggestion fails is `status: failed` with a code
-  (`search_planning_failed`, `suggestion_failed`) and stays in the result.
+  citing only the variable's own observations. Each kind is its own variant in the schema,
+  so a kind paired with the wrong fields cannot be produced. `leans_on` is read off the
+  bases of the observations it cites, never asked for. The pairing of kind, fields and basis
+  is one rule, `contract.check_suggestion`, applied to the model's reply and to every saved
+  result.
+- A variable whose searches returned nothing is `insufficient` without a model call. A
+  variable that was never searched (every source unconfigured or inapplicable), or whose
+  sources failed, could not be read or quoted words they do not contain, is `status: failed`
+  with `evidence_unavailable`: "not enough evidence" would describe a reading that never
+  happened. A variable whose planning or suggestion call fails is `status: failed` with
+  `search_planning_failed` or `suggestion_failed` and the call's `cause` from
+  `shared.ai.FAILURE_CODES` (`response_truncated`, `response_refused`,
+  `invalid_model_response`, `provider_error`). Every failed variable stays in the result. An error that means the code
+  is wrong (`TypeError`, `AttributeError`, ...) stops the run instead.
+- Model calls go through `shared.ai.request_validated`: an invalid answer is repaired once,
+  a reply cut off at its budget is retried once at the next lower effort with the same
+  budget (`shared.ai.after_truncation`), and a refusal is never retried. Each stage states
+  its `TASK`, `EFFORT` and `MAX_TOKENS` beside its `*_PER_REQUEST` constant: planning and
+  reading are fast/low, the suggestion reasoning/medium.
+- The contract recomputes each row's figures from its observations, so a saved result's
+  statistics are always the arithmetic of what it shows.
 
 Every per-item decision is one request (`VARIABLES_PER_REQUEST`, `FINDINGS_PER_REQUEST`);
 fan-outs are flat bounded queues.
@@ -58,9 +79,11 @@ and nothing in a Drafter run follows its suggestions. The team edits the exporte
 
 ## Configuration
 
-`configs/bmgf_itpp_<class>.yaml` names the Searcher sources and the search guidance for
-a product type. `web` is not among them: its excerpts are snippets, which can support
-neither a number nor a quotation.
+`configs/*.yaml` each name the Searcher sources and the search guidance for one product
+type; a config is found by the `(org, source_type, intervention_class)` it declares, never
+by its filename, and every file must load - a malformed one raises rather than removing a
+product type. `load_config` refuses a source whose excerpts are not verbatim, such as
+`web`: snippets can support neither a number nor a quotation.
 
 Published guidance - a WHO preferred product profile, a treatment guideline - is found by
 searching, like any other evidence, so it is always the current version. Nothing is copied

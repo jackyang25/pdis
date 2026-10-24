@@ -23,6 +23,21 @@ test("context selectors use reader-facing labels in loaded and loading states", 
   }
 });
 
+test("an organization is offered only when there is more than one", () => {
+  const render = (orgs: string[]) => {
+    const { ContextFields } = loadRealComponent(resolve(root, "components/configuration-fields.tsx"), {
+      "@/lib/use-configuration-catalog": {
+        useSupportedContexts: () => ({ contexts: orgs.map((org) => ({ org, intervention_class: "drug" })), error: null }),
+      },
+      "@/lib/store": { useHeaderStore: () => ({ header: {}, setHeader: () => {} }) },
+      "@/lib/api": {},
+    });
+    return renderToStaticMarkup(React.createElement(ContextFields));
+  };
+  assert.doesNotMatch(render(["bmgf"]), /Organization/);
+  assert.match(render(["bmgf", "example_org"]), /Organization/);
+});
+
 test("a field whose choices are still loading says so instead of sitting blank", () => {
   const render = (contexts: unknown) => {
     const { ContextFields } = loadRealComponent(resolve(root, "components/configuration-fields.tsx"), {
@@ -33,7 +48,7 @@ test("a field whose choices are still loading says so instead of sitting blank",
     return renderToStaticMarkup(React.createElement(ContextFields));
   };
   // Before the catalog arrives, every context field reads as loading.
-  assert.equal((render(null).match(/Loading…/g) ?? []).length, 3);
+  assert.equal((render(null).match(/Loading…/g) ?? []).length, 2);
   // Once it has, only the disease list - fetched after a product type is chosen - still is.
   assert.equal((render([{ org: "bmgf", intervention_class: "drug" }]).match(/Loading…/g) ?? []).length, 1);
 });

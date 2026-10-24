@@ -11,15 +11,15 @@ fail the run rather than masquerading as that conclusion.
 
 from __future__ import annotations
 
-import logging
 import re
 from collections.abc import Callable
 from dataclasses import replace
 
+from shared.ai import Effort, ModelTask
 from shared.batching import map_ordered
-from shared.errors import ModelResponseError
+from shared.request_budget import check_request
 
-from ..ai import request_structured
+from ..ai import request_validated
 from ..ai_contracts import unit_batch
 from .unit_reconciler import reconcile_units
 from ..context import (
@@ -35,12 +35,19 @@ from ..models import (
     DocumentSpan,
     EVIDENCE_DOMAINS,
     ENTITY_TYPES,
+    IdentityReconciliation,
     LLMClientProtocol,
     parse_evidence_entities,
 )
 
-logger = logging.getLogger(__name__)
 
+#: One document chunk per request: which claims a document states is a fact about the
+#: whole text, so the chunk is the set the answer describes.
+CHUNKS_PER_REQUEST = 1
+#: The reasoning tier at medium effort: every downstream stage investigates what this
+#: stage decides is a claim, and a missed claim is never searched.
+TASK: ModelTask = "reasoning"
+EFFORT: Effort = "medium"
 # Whole-document extraction needs room for both reasoning and the cited units.
 DEFAULT_MAX_TOKENS = 32000
 UNIT_CONTEXT_CHARS = 350_000
@@ -54,14 +61,17 @@ def extract_units(
     source_type: str,
     indication: str,
     llm_client: LLMClientProtocol,
-    images_by_block_id: dict[str, str] | None = None,
+    images: list[dict[str, str]] | None = None,
     max_tokens: int = DEFAULT_MAX_TOKENS,
     progress_callback: Callable[..., None] | None = None,
-) -> list[Attribute]:
-    """Extract the document's checkable units. Returns `Attribute`s (name unique
-    within the run, used as the downstream `attribute_ref`)."""
+) -> tuple[list[Attribute], IdentityReconciliation | None]:
+    """Extract the document's checkable units, and what their identity layer decided.
+
+    Returns `Attribute`s whose names are unique within the run (the downstream
+    `attribute_ref`), and the reconciliation record when there were units to compare.
+    """
     if not doc_text.strip():
-        return []
+        return [], None
     system_prompt = build_system_prompt(intervention_class, source_type, indication)
     chunks = _document_chunks(doc_text)
     if progress_callback:
@@ -69,53 +79,46 @@ def extract_units(
 
     def extract_chunk(indexed: tuple[int, str]) -> list[Attribute]:
         chunk_index, chunk = indexed
-        user_message = _user_message(chunk)
         allowed_block_ids = document_block_ids(chunk)
-        contract = unit_batch(sorted(allowed_block_ids))
-        images = [
-            {"block_id": block_id, "data_url": image}
-            for block_id, image in (images_by_block_id or {}).items()
-            if block_id in allowed_block_ids
-        ]
-        parsed = request_structured(
-            llm_client,
-            contract,
-            system_prompt,
-            user_message,
-            max_tokens=max_tokens,
-            images=images or None,
-        )
-        chunk_units = _validated_units(parsed, chunk)
-        if not isinstance(parsed, list) or len(chunk_units) != len(parsed):
-            logger.warning(
-                "unit_extractor produced invalid units for chunk %d; retrying once",
-                chunk_index,
-            )
-            parsed = request_structured(
-                llm_client,
-                contract,
-                system_prompt,
-                user_message,
-                max_tokens=max_tokens,
-                images=images or None,
-            )
-            chunk_units = _validated_units(parsed, chunk)
-            if not isinstance(parsed, list) or len(chunk_units) != len(parsed):
-                raise ModelResponseError(
-                    "Document claim extraction failed: the model did not return "
-                    "valid cited claims after retry."
-                )
-        return chunk_units
+        source_blocks = rendered_block_texts(chunk)
 
+        def parse(parsed: object) -> list[Attribute]:
+            chunk_units = _validated_units(parsed, source_blocks)
+            if not isinstance(parsed, list) or len(chunk_units) != len(parsed):
+                raise ValueError(
+                    f"the model did not return valid cited claims for chunk {chunk_index}"
+                )
+            return chunk_units
+
+        return request_validated(
+            llm_client,
+            unit_batch(sorted(allowed_block_ids)),
+            system_prompt,
+            _user_message(chunk),
+            max_tokens=max_tokens,
+            images=[image for image in images or [] if image["block_id"] in allowed_block_ids]
+            or None,
+            parse=parse,
+            failure="Document claim extraction failed",
+            task=TASK,
+            effort=EFFORT,
+        )
+
+    for chunk in chunks:
+        chunk_ids = document_block_ids(chunk)
+        check_request(
+            "Scout's claim extraction",
+            text=_user_message(chunk),
+            images=[image for image in images or [] if image["block_id"] in chunk_ids],
+        )
     results = map_ordered(
         list(enumerate(chunks)), extract_chunk, workers=UNIT_EXTRACTION_WORKERS
     )
     units = [unit for chunk_units in results for unit in chunk_units]
     if len(units) > 1 and progress_callback:
         progress_callback("unit_reconciliation")
-    return _unique_names(reconcile_units(
-        units, llm_client, images_by_block_id=images_by_block_id,
-    ))
+    reconciled, record = reconcile_units(units, llm_client, images=images)
+    return _unique_names(reconciled), record
 
 
 def build_system_prompt(intervention_class: str, source_type: str, indication: str) -> str:
@@ -169,7 +172,7 @@ def _document_chunks(doc_text: str) -> list[str]:
 
 def _validated_units(
     parsed: object,
-    document_context: str,
+    source_blocks: dict[str, str],
 ) -> list[Attribute]:
     if not isinstance(parsed, list):
         return []
@@ -181,7 +184,6 @@ def _validated_units(
         evidence_domain = str(item.get("evidence_domain", "")).strip().lower()
         if not description or evidence_domain not in EVIDENCE_DOMAINS:
             continue
-        source_blocks = rendered_block_texts(document_context)
         spans: list[DocumentSpan] = []
         raw_spans = item.get("spans")
         raw_spans = raw_spans if isinstance(raw_spans, list) else []

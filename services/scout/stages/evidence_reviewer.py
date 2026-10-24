@@ -1,15 +1,25 @@
-"""Independent, non-authoritative triage for quantitative evidence units."""
+"""Independent, non-authoritative triage for quantitative evidence units.
+
+One request per source record, reviewing every candidate mapped from it together. A
+reply must decide every candidate once and admit at most one alternative per mapped
+evidence unit; one that breaks either rule is retried with the rule named. A review
+that stays invalid, is refused, or whose provider fails leaves the record's
+candidates ``unavailable`` with the failure's code - never a model ``flag``.
+"""
 
 from __future__ import annotations
 
 import hashlib
 import json
 import logging
+from collections.abc import Callable
 from dataclasses import dataclass, replace
 
-from ..ai import request_structured
-from shared.batching import fixed_batches, map_ordered
-from ..ai_contracts import evidence_review_batch
+from shared.ai import RECORDABLE_FAILURES, Effort, FailureCode, ModelTask, failure_code
+from shared.batching import map_ordered
+
+from ..ai import request_validated
+from ..ai_contracts import evidence_review
 from ..models import (
     ConformityScore,
     LLMClientProtocol,
@@ -26,6 +36,11 @@ from ..prompt_primitives import (
 # Per-item scope: one admission recommendation per source record, so an
 # unrelated record can never sit in this decision's prompt.
 GROUPS_PER_REQUEST = 1
+#: The reasoning tier: this recommendation is what a reviewer sees beside each number
+#: before admitting it to statistics. Low effort, because the mapped dimensions and the
+#: exact quote carry the decision.
+TASK: ModelTask = "reasoning"
+EFFORT: Effort = "low"
 MAX_REVIEW_WORKERS = 4
 MAX_TOKENS = 6000
 logger = logging.getLogger(__name__)
@@ -74,7 +89,7 @@ def build_review_system_prompt() -> str:
         "cutoff-bearing source quote are intentionally withheld because they are calculation "
         "inputs, not admission criteria.\n\n"
         "OUTPUT CONTRACT\n"
-        "Review every group ID and every candidate ID exactly once. Give each decision one short, "
+        "Review every candidate ID exactly once. Give each decision one short, "
         "source-specific reason naming the decisive match, mismatch, overlap, or missing "
         "qualifier. For a flag, state exactly what the human needs to verify. "
         "Return only the schema-bound response."
@@ -84,7 +99,9 @@ def build_review_system_prompt() -> str:
 def prefill_evidence_review(
     scores: list[ConformityScore],
     targets: list[QuantitativeTarget],
-    llm_client: LLMClientProtocol | None,
+    llm_client: LLMClientProtocol,
+    *,
+    progress: Callable[[int, int], None] | None = None,
 ) -> list[ConformityScore]:
     """Recommend admission decisions without mutating calculation inputs.
 
@@ -96,91 +113,83 @@ def prefill_evidence_review(
     groups = _review_groups(scores, targets)
     if not groups:
         return scores
-    if llm_client is None:
-        return _apply_recommendations(scores, groups, {})
+    prompt = build_review_system_prompt()
 
-    prompt = (
-        build_review_system_prompt()
-    )
-    by_candidate: dict[str, tuple[str, str]] = {}
-    batches = fixed_batches(groups, GROUPS_PER_REQUEST)
-
-    def review_batch(batch: list[_EvidenceReviewGroup]) -> object | None:
-        candidate_ids = [
-            measurement.candidate_id
-            for group in batch
-            for measurement in group.measurements
-        ]
+    def review(group: _EvidenceReviewGroup) -> dict[str, _Recommendation]:
+        candidate_ids = [measurement.candidate_id for measurement in group.measurements]
         try:
-            return request_structured(
+            return request_validated(
                 llm_client,
-                evidence_review_batch(
-                    [group.id for group in batch],
-                    candidate_ids,
-                ),
+                evidence_review(candidate_ids),
                 prompt,
-                "SOURCE-RECORD CANDIDATE GROUPS TO REVIEW\n"
-                + "\n\n".join(_render_group(group) for group in batch),
+                "SOURCE-RECORD CANDIDATE GROUP TO REVIEW\n" + _render_group(group),
                 max_tokens=MAX_TOKENS,
-                task="reasoning",
+                parse=lambda raw: _validated_group_decisions(raw, group),
+                failure="Independent evidence review failed",
+                task=TASK,
+                effort=EFFORT,
             )
-        except Exception as exc:  # Triage failure must degrade to manual review.
+        except RECORDABLE_FAILURES as exc:
             logger.warning(
-                "Quantitative evidence AI prefill failed for %d group(s): %s",
-                len(batch),
-                exc,
+                "Quantitative evidence AI prefill unavailable for group %s: %s", group.id, exc,
             )
-            return None
-
-    responses = map_ordered(batches, review_batch, workers=MAX_REVIEW_WORKERS)
-
-    for batch, raw in zip(batches, responses):
-        allowed = {group.id: group for group in batch}
-        if not isinstance(raw, list):
-            continue
-        for item in raw:
-            if not isinstance(item, dict):
-                continue
-            group_id = str(item.get("group_id", "")).strip()
-            group = allowed.get(group_id)
-            candidate_ids = {
-                measurement.candidate_id for measurement in group.measurements
-            } if group else set()
-            decisions = item.get("decisions")
-            if group is None or not isinstance(decisions, list):
-                continue
-            parsed: dict[str, tuple[str, str]] = {}
-            for decision_item in decisions:
-                if not isinstance(decision_item, dict):
-                    continue
-                candidate_id = str(decision_item.get("candidate_id", "")).strip()
-                decision = str(decision_item.get("decision", "")).strip().lower()
-                reason = " ".join(str(decision_item.get("reason", "")).split())
-                if (
-                    candidate_id in candidate_ids
-                    and candidate_id not in parsed
-                    and decision in {"admit", "reject", "flag"}
-                    and reason
-                ):
-                    parsed[candidate_id] = (decision, reason)
-            if set(parsed) != candidate_ids:
-                continue
-            measurements_by_id = {
-                measurement.candidate_id: measurement
-                for measurement in group.measurements
+            code = failure_code(exc)
+            return {
+                candidate_id: ("unavailable", str(exc), code) for candidate_id in candidate_ids
             }
-            admitted_units = [
-                measurements_by_id[candidate_id].evidence_unit_id
-                for candidate_id, (decision, _reason) in parsed.items()
-                if decision == "admit"
-            ]
-            if len(admitted_units) != len(set(admitted_units)):
-                # One evidence unit may contribute only one alternative estimate.
-                # Do not choose between semantically competing AI recommendations.
-                continue
-            for candidate_id, recommendation in parsed.items():
-                by_candidate.setdefault(candidate_id, recommendation)
+
+    if progress:
+        progress(0, len(groups))
+    by_candidate: dict[str, _Recommendation] = {}
+    for decisions in map_ordered(
+        groups, review, workers=MAX_REVIEW_WORKERS, on_progress=progress,
+    ):
+        by_candidate.update(decisions)
     return _apply_recommendations(scores, groups, by_candidate)
+
+
+#: recommendation, reason, failure code ("" for a model recommendation).
+_Recommendation = tuple[str, str, FailureCode | str]
+
+
+def _validated_group_decisions(
+    raw: object, group: _EvidenceReviewGroup,
+) -> dict[str, _Recommendation]:
+    """One closed decision with a reason per candidate, one admission per unit."""
+    measurements = {measurement.candidate_id: measurement for measurement in group.measurements}
+    parsed: dict[str, _Recommendation] = {}
+    for item in raw if isinstance(raw, list) else []:
+        if not isinstance(item, dict):
+            continue
+        candidate_id = str(item.get("candidate_id", "")).strip()
+        decision = str(item.get("decision", "")).strip().lower()
+        reason = " ".join(str(item.get("reason", "")).split())
+        if (
+            candidate_id in measurements
+            and candidate_id not in parsed
+            and decision in {"admit", "reject", "flag"}
+            and reason
+        ):
+            parsed[candidate_id] = (decision, reason, "")
+    missing = [candidate_id for candidate_id in measurements if candidate_id not in parsed]
+    if missing:
+        raise ValueError(
+            "return one decision with a reason for every candidate; missing "
+            + ", ".join(missing)
+        )
+    admitted_units = [
+        measurements[candidate_id].evidence_unit_id
+        for candidate_id, (decision, _reason, _code) in parsed.items()
+        if decision == "admit"
+    ]
+    if len(admitted_units) != len(set(admitted_units)):
+        # One evidence unit may contribute only one alternative estimate. Choosing
+        # between competing admissions is the model's to redo, not code's to pick.
+        raise ValueError(
+            "admit at most one candidate per proposed evidence unit; flag or reject the "
+            "other alternatives"
+        )
+    return parsed
 
 
 def _review_groups(
@@ -200,7 +209,7 @@ def _review_groups(
                 or measurement.admission_status != "needs_review"
             ):
                 continue
-            source_record_id = measurement.source_record_id or measurement.url
+            source_record_id = measurement.source_record_id
             by_source_record.setdefault(source_record_id, []).append(measurement)
         for source_record_id, measurements in by_source_record.items():
             material = f"{score.target_id}\n{source_record_id}"
@@ -306,24 +315,18 @@ def _render_group(group: _EvidenceReviewGroup) -> str:
 def _apply_recommendations(
     scores: list[ConformityScore],
     groups: list[_EvidenceReviewGroup],
-    recommendations: dict[str, tuple[str, str]],
+    recommendations: dict[str, _Recommendation],
 ) -> list[ConformityScore]:
     updates: dict[int, dict[str, Measurement]] = {}
     for group in groups:
         score_updates = updates.setdefault(group.score_index, {})
         for measurement in group.measurements:
-            recommendation, reason = recommendations.get(
-                measurement.candidate_id,
-                (
-                    "unavailable",
-                    "Independent AI review did not return one complete source-record decision; review manually.",
-                ),
-            )
+            recommendation, reason, code = recommendations[measurement.candidate_id]
             score_updates[measurement.candidate_id] = replace(
                 measurement,
                 ai_recommendation=recommendation,
                 ai_review_reason=reason,
-                ai_review_failure_code="independent_review_unavailable" if recommendation == "unavailable" else "",
+                ai_review_failure_code=code,
             )
 
     reviewed: list[ConformityScore] = []

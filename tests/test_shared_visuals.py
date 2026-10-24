@@ -24,3 +24,10 @@ class LabelledImageTests(unittest.TestCase):
             ],
         )
         self.assertEqual(_user_content("Assess", None), "Assess")
+
+
+class ImageDetailTests(unittest.TestCase):
+    def test_a_stage_may_send_an_image_at_low_detail(self):
+        parts = _user_content("Select", [{"block_id": "d/b-1", "data_url": "data:image/png;base64,QQ",
+                                          "detail": "low"}])
+        self.assertEqual(parts[2]["image_url"]["detail"], "low")

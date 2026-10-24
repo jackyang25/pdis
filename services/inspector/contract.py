@@ -14,6 +14,8 @@ which is why they live here rather than only at parse time.
 
 from __future__ import annotations
 
+from shared.ai import FAILURE_CODES
+
 from .assembly import rubric_units
 from .source_context import with_slide_overviews
 from .models import (
@@ -137,6 +139,12 @@ def validate_aggregate_result_contract(
         raise ValueError("Inspector consistency status is invalid")
     if result.consistency_status not in {"complete", "partial"} and result.document_findings:
         raise ValueError("Inspector consistency findings require a completed check")
+    # A failure is a process fact and carries its code; any other status carries none.
+    if result.consistency_status == "failed":
+        if result.consistency_failure_code not in FAILURE_CODES:
+            raise ValueError("Inspector failed consistency check must carry a failure code")
+    elif result.consistency_failure_code is not None:
+        raise ValueError("Inspector consistency failure code requires a failed check")
     included = [item["rubric_id"] for item in result.rubric_resolutions if item["status"] == "included"]
     if [review.rubric.id for review in result.reviews] != included:
         raise ValueError("Inspector reviews must match included rubric resolutions in order")

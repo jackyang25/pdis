@@ -102,3 +102,27 @@ test("no tool's anchors are a prefix of another's", () => {
     }
   }
 });
+
+test("every reader of the published reference shares one request", async () => {
+  // Five prompt sections and the skills list each fetched the same 100 KB file.
+  const { loadPromptReference } = await import("./prompt-reference.ts");
+  const original = globalThis.fetch;
+  let requests = 0;
+  let fail = true;
+  globalThis.fetch = (async () => {
+    requests += 1;
+    if (fail) return new Response("", { status: 503 });
+    return new Response(JSON.stringify({ version: 1, prompts: [], skills: [] }), { status: 200 });
+  }) as typeof fetch;
+  try {
+    // A failure is not remembered, so a retry asks again.
+    await assert.rejects(loadPromptReference());
+    fail = false;
+    const [first, second] = await Promise.all([loadPromptReference(), loadPromptReference()]);
+    assert.equal(first, second);
+    await loadPromptReference();
+    assert.equal(requests, 2);
+  } finally {
+    globalThis.fetch = original;
+  }
+});

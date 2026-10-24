@@ -21,21 +21,21 @@ MIN_GROUP_SIZE = 2
 
 
 def summarise(observations: Sequence[Observation]) -> list[GroupSummary]:
-    groups: dict[str, tuple[str, list[float]]] = {}
+    groups: dict[str, list[tuple[str, float]]] = {}
     for observation in observations:
         value = observation.value
         if not observation.numeric_eligible or value is None or value.value is None:
             continue
         spelling = " ".join(value.unit.split())
-        _, values = groups.setdefault(spelling, (spelling, []))
-        values.append(value.value)
+        groups.setdefault(spelling, []).append((observation.id, value.value))
     summaries: list[GroupSummary] = []
-    for spelling, values in groups.values():
-        if len(values) < MIN_GROUP_SIZE:
+    for spelling, members in groups.items():
+        if len(members) < MIN_GROUP_SIZE:
             continue
-        figures = describe(values)
+        figures = describe([number for _, number in members])
         summaries.append(GroupSummary(
-            unit=spelling, count=figures.count, minimum=figures.minimum, maximum=figures.maximum,
+            unit=spelling, observation_ids=tuple(identifier for identifier, _ in members),
+            count=figures.count, minimum=figures.minimum, maximum=figures.maximum,
             median=figures.median, lower_quartile=figures.lower_quartile, upper_quartile=figures.upper_quartile,
         ))
     return summaries

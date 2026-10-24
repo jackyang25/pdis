@@ -13,12 +13,9 @@ from api.operations.inspector import execute_inspection, prepare_inspection
 
 from api.deps import MissingCredentialError, get_openai_client
 from api.streaming import run_with_progress
-from api.uploads import document_upload_parts
+from api.uploads import document_upload_parts, read_uploads
 
 router = APIRouter()
-
-
-DEFAULT_MAX_TOKENS = 32000
 
 
 @router.post("/run")
@@ -45,7 +42,7 @@ async def run_inspector(
         raise HTTPException(status_code=422, detail=str(exc)) from exc
 
     doc_id, suffix = document_upload_parts(file.filename, tool="Inspector")
-    contents = await file.read()
+    (contents,) = await read_uploads([(file, doc_id)])
 
     # Construct provider clients before the stream opens: a missing credential
     # must fail the request, not arrive as an event on a 200 response.
@@ -66,7 +63,6 @@ async def run_inspector(
                 prepared=prepared,
                 llm_client=llm_client,
                 indication=indication,
-                max_tokens=DEFAULT_MAX_TOKENS,
                 progress_callback=progress,
                 doc_id=doc_id,
             )

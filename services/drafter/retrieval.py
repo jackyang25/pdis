@@ -8,16 +8,16 @@ silently missing, because a draft read without a source looks the same as one re
 
 from __future__ import annotations
 
+import copy
 from collections.abc import Callable, Iterable, Sequence
 from dataclasses import dataclass
 
 from services.searcher import (
     DEFAULT_MAX_TOKENS,
-    DEFAULT_MAX_USES,
     Finding,
     RetrievalIntent,
     SearchRuntime,
-    merge_findings,
+    dedupe_findings,
     plan_requests,
     run_requests,
     unconfigured_source_keys,
@@ -26,7 +26,7 @@ from services.searcher import (
 
 @dataclass(frozen=True)
 class RetrievalReport:
-    #: Findings per variable, merged by URL.
+    #: Findings per variable, one per record (Searcher's `dedupe_findings`), every lane kept.
     found: dict[str, list[Finding]]
     #: Sources every request to which failed: their evidence is missing from the whole run.
     failed_sources: tuple[str, ...]
@@ -37,6 +37,9 @@ class RetrievalReport:
     #: The provider's own message for each source that failed at least once, so a saved
     #: result can be diagnosed later; an exception type alone could not be.
     source_errors: dict[str, str]
+    #: Per variable, the requests actually sent. A variable missing here was never searched:
+    #: every source was unconfigured or does not apply to it, so nothing could have answered.
+    asked: dict[str, int]
 
 
 def retrieve(
@@ -51,15 +54,18 @@ def retrieve(
     usable = [key for key in sources if key not in unconfigured]
     requests = plan_requests(list(intents), sources=usable) if usable else []
     outcomes = run_requests(
-        requests, runtime=runtime, max_tokens=DEFAULT_MAX_TOKENS, max_uses=DEFAULT_MAX_USES, progress=progress,
+        requests, runtime=runtime, max_tokens=DEFAULT_MAX_TOKENS, progress=progress,
     ) if requests else []
     statuses: dict[str, set[str]] = {}
     errors: dict[str, str] = {}
     failed_for: dict[str, list[str]] = {}
-    by_scope: dict[str, dict[str, Finding]] = {}
+    by_scope: dict[str, list[Finding]] = {}
+    asked: dict[str, int] = {}
     for outcome in outcomes:
         source, scope = outcome.request.source, outcome.request.scope_ref
         statuses.setdefault(source, set()).add(outcome.status)
+        if outcome.status != "skipped":
+            asked[scope] = asked.get(scope, 0) + 1
         if outcome.status == "failed":
             errors.setdefault(source, " ".join(str(outcome.error or "").split()) or "The source returned an error.")
             if source not in failed_for.setdefault(scope, []):
@@ -67,16 +73,13 @@ def retrieve(
             continue
         if outcome.status != "complete":
             continue
-        held = by_scope.setdefault(scope, {})
-        for finding in outcome.findings:
-            if finding.url in held:
-                merge_findings(held[finding.url], finding)
-            else:
-                held[finding.url] = finding
+        # Copies, because merging two retrievals of one record rewrites the entry kept.
+        by_scope.setdefault(scope, []).extend(copy.copy(finding) for finding in outcome.findings)
     return RetrievalReport(
-        found={scope: list(findings.values()) for scope, findings in by_scope.items()},
+        found={scope: dedupe_findings(findings) for scope, findings in by_scope.items()},
         failed_sources=tuple(key for key in sources if statuses.get(key) == {"failed"}),
         unconfigured_sources=tuple(key for key in sources if key in unconfigured),
         failed_for={scope: tuple(keys) for scope, keys in failed_for.items()},
         source_errors=errors,
+        asked=asked,
     )

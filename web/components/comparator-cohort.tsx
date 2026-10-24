@@ -10,8 +10,10 @@ import { SourceEntry, InterfaceNote } from "@/components/ui/evidence-text";
 import type { Conformity, Insight, Match, Measurement, QuantitativeTarget } from "@/lib/api";
 import { sourceIdentityCaveat } from "@/lib/scout-labels";
 import { ScoutComparison } from "@/components/scout-comparison";
-import { calibrationView, formatMeasure } from "@/lib/scout-result-view";
+import { formatMeasure } from "@/lib/measure-format";
+import { calibrationView } from "@/lib/scout-result-view";
 import { DisclosureSummary } from "@/components/ui/disclosure-summary";
+import { countLabel } from "@/lib/count-label";
 
 /**
  * The measurements a target's statistics were computed from.
@@ -47,7 +49,7 @@ export function ComparatorCohort({
             icon={Scale}
             label="Comparators"
             count={admitted.length}
-            ariaLabel={`Comparators: the ${admitted.length} measurement${admitted.length === 1 ? "" : "s"} this target's statistics were computed from`}
+            ariaLabel={`Comparators: the ${countLabel(admitted.length, "measurement")} this target's statistics were computed from`}
           />
         </button>
       </PopoverTrigger>
@@ -134,7 +136,7 @@ function AdmittedMeasurement({
           nested `<details>`'s toggle to its ancestors' handlers, and this one read the inner
           element's state as its own. */}
       <details className="mt-1">
-        <DisclosureSummary className="w-fit select-none rounded-sm text-[11px] text-muted-foreground outline-none hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/20">
+        <DisclosureSummary className="w-fit select-none rounded-sm text-[11px] text-muted-foreground outline-none hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/60">
           Comparison details
         </DisclosureSummary>
         <ScoutComparison measurement={measurement} target={target} compact />

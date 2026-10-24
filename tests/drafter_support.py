@@ -41,10 +41,12 @@ class StageClient:
     def __init__(self, **stages):
         self.stages = stages
         self.calls: list[tuple[str, str]] = []
+        self.tasks: dict[str, set[str]] = {}
 
     def call_structured(self, system_prompt, user_message, max_tokens, **kwargs):
         name = kwargs["schema_name"]
         self.calls.append((name, user_message))
+        self.tasks.setdefault(name, set()).add(kwargs.get("task", "reasoning"))
         answer = self.stages[name]
         reply = answer(user_message) if callable(answer) else answer
         if isinstance(reply, Exception):
@@ -55,9 +57,19 @@ class StageClient:
         return sum(1 for called, _ in self.calls if called == name)
 
 
-def variable_in(message: str) -> str:
-    """The variable name a stage's user message is about."""
+def variable_in(message: str, intervention_class: str = "vaccine") -> str:
+    """The variable name a stage's user message is about.
+
+    Planning names the attribute key and its phrase; reading and suggesting name only the
+    phrase, which is mapped back to the key here.
+    """
+    from shared.vocabulary import attribute_definitions, searchable_attribute_phrase
+
     for line in message.splitlines():
         if line.startswith("Variable: "):
-            return line.removeprefix("Variable: ").split(" ", 1)[0]
+            named = line.removeprefix("Variable: ")
+            if " (" in named:
+                return named.split(" (", 1)[0]
+            return next(definition.name for definition in attribute_definitions(intervention_class)
+                        if searchable_attribute_phrase(definition.name) == named)
     raise AssertionError("message names no variable")

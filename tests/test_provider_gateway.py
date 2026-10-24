@@ -5,6 +5,7 @@ import os
 import unittest
 from unittest.mock import patch
 
+import api.deps as deps
 from api.deps import get_openai_client, get_quantitative_anthropic_client
 from shared.anthropic_client import AnthropicQuantitativeClient
 from shared.openai_client import OpenAIClient
@@ -40,11 +41,16 @@ class ProviderGatewayTests(unittest.TestCase):
                 with self.subTest(provider=client_type.__name__, case=name):
                     with patch.dict(os.environ, env, clear=True), patch(sdk) as constructor:
                         client_type(**kwargs)
-                        constructor.assert_called_once_with(
-                            api_key=expected_key, base_url=expected_url,
+                        constructor.assert_called_once()
+                        sent = constructor.call_args.kwargs
+                        self.assertEqual(
+                            (sent["api_key"], sent["base_url"]), (expected_key, expected_url),
                         )
 
     def test_api_dependencies_accept_gateway_without_provider_keys(self):
+        for cached in (deps._openai_client, deps._anthropic_client):
+            cached.cache_clear()
+            self.addCleanup(cached.cache_clear)
         for dependency, constructor_path in [
             (get_openai_client, "api.deps.OpenAIClient"),
             (get_quantitative_anthropic_client, "api.deps.AnthropicQuantitativeClient"),
@@ -53,4 +59,21 @@ class ProviderGatewayTests(unittest.TestCase):
                 with patch.dict(os.environ, {"KONG_KEY": "kong-test"}, clear=True):
                     with patch(constructor_path) as constructor:
                         self.assertIs(dependency(), constructor.return_value)
+                        constructor.assert_called_once_with()
+
+
+class ProcessClientTests(unittest.TestCase):
+    def test_requests_share_one_client_per_provider(self):
+        """A client per request discards the SDK's connection pool each time."""
+        for cached in (deps._openai_client, deps._anthropic_client):
+            cached.cache_clear()
+            self.addCleanup(cached.cache_clear)
+        for dependency, constructor_path in [
+            (get_openai_client, "api.deps.OpenAIClient"),
+            (get_quantitative_anthropic_client, "api.deps.AnthropicQuantitativeClient"),
+        ]:
+            with self.subTest(dependency=dependency.__name__):
+                with patch.dict(os.environ, {"KONG_KEY": "kong-test"}, clear=True):
+                    with patch(constructor_path) as constructor:
+                        self.assertIs(dependency(), dependency())
                         constructor.assert_called_once_with()

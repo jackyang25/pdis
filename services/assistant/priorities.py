@@ -23,9 +23,9 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any, Protocol
 
-from shared.ai import request_structured
-from shared.openai_client import ModelTask
+from shared.ai import Effort, ModelTask, Verbosity, request_validated
 from shared.references import reference_array
+from shared.schemas import non_empty_text
 from shared.vocabulary import search_term
 
 #: Most points a reader is offered. The tool's sections are the full result; this is where
@@ -40,6 +40,20 @@ MAX_SUMMARY_WORDS = 110
 #: Refused rather than truncated: a model handed part of a result would summarise the part
 #: and present it as the whole.
 MAX_FINDINGS_CHARACTERS = 200_000
+
+#: One reading of the whole result: what it amounts to is a statement about the set of
+#: findings, the case the one-item-per-request rule exempts.
+RESULTS_PER_REQUEST = 1
+#: The reasoning tier: choosing what a reader should see first is a judgement over every
+#: finding, and it is the opening panel of every tool that judges a document.
+TASK: ModelTask = "reasoning"
+#: Low: the findings already carry the tool's verdicts, so the reading selects and
+#: orders rather than re-deriving them, and it is read on every page open, where latency
+#: is the reader's. Higher effort spent its budget reasoning over 50k-token inputs.
+EFFORT: Effort = "low"
+#: The answer is ~110 words and five short points; the rest is reasoning room, so a long
+#: result is not cut off at the 2000 this used to be, which surfaced as a 502 on the card.
+MAX_TOKENS = 8000
 
 
 class PriorityRequestTooLarge(ValueError):
@@ -56,7 +70,11 @@ class LLMClientProtocol(Protocol):
         schema_name: str,
         schema: dict[str, Any],
         images: list[dict[str, str]] | None = None,
+        trailing_text: str = "",
         task: ModelTask = "reasoning",
+        effort: Effort | None = None,
+        verbosity: Verbosity | None = None,
+        cache_key: str | None = None,
     ) -> dict[str, Any] | None:
         ...
 
@@ -179,6 +197,11 @@ def build_user_message(request: PriorityRequest) -> str:
     ])
 
 
+#: Text that says something. The parser normalises whitespace and refuses what is left
+#: empty, so the schema refuses whitespace too rather than permit a reply it rejects.
+_TEXT = non_empty_text()
+
+
 def reading_schema(finding_ids: list[str]) -> dict[str, Any]:
     """The closed shape. Every constraint the parser enforces is stated here."""
     return {
@@ -186,7 +209,7 @@ def reading_schema(finding_ids: list[str]) -> dict[str, Any]:
         "additionalProperties": False,
         "required": ["summary", "points"],
         "properties": {
-            "summary": {"type": "string", "minLength": 1},
+            "summary": _TEXT,
             "points": {
                 "type": "array",
                 "maxItems": MAX_POINTS,
@@ -195,8 +218,8 @@ def reading_schema(finding_ids: list[str]) -> dict[str, Any]:
                     "additionalProperties": False,
                     "required": ["title", "statement", "finding_ids"],
                     "properties": {
-                        "title": {"type": "string", "minLength": 1},
-                        "statement": {"type": "string", "minLength": 1},
+                        "title": _TEXT,
+                        "statement": _TEXT,
                         "finding_ids": {**reference_array(finding_ids), "minItems": 1},
                     },
                 },
@@ -209,28 +232,34 @@ def read_priorities(
     request: PriorityRequest,
     *,
     llm_client: LLMClientProtocol,
-    max_tokens: int = 2000,
 ) -> PriorityReading:
-    """One summary and up to `MAX_POINTS` points, validated against the result's IDs."""
+    """One summary and up to `MAX_POINTS` points, validated against the result's IDs.
+
+    An answer that breaks the contract is asked for once more with the reason; one that
+    stays broken, is cut off or is refused raises ``ModelResponseError`` with its code.
+    """
     if not request.findings:
         raise ValueError("a result with no findings has nothing to read")
     finding_ids = list(dict.fromkeys(finding.id for finding in request.findings))
-    payload = request_structured(
+    known = frozenset(finding_ids)
+    return request_validated(
         llm_client,
         build_system_prompt(),
         build_user_message(request),
-        max_tokens=max_tokens,
         schema_name="priority_reading",
         schema=reading_schema(finding_ids),
+        max_tokens=MAX_TOKENS,
+        task=TASK,
+        effort=EFFORT,
+        parse=lambda payload: _parse_payload(payload, known),
+        failure="The priority reading could not be produced",
     )
-    if payload is None:
-        raise ValueError("model returned no priority reading")
-    return _parse_payload(payload, frozenset(finding_ids))
 
 
 def _parse_payload(payload: object, known: frozenset[str]) -> PriorityReading:
+    """Validate one reading, raising ``ValueError`` naming what is wrong."""
     if not isinstance(payload, dict):
-        raise ValueError("priority reading must be an object")
+        raise ValueError("model returned no priority reading")
     summary = _prose(payload.get("summary"))
     if not summary:
         raise ValueError("a summary that says nothing is worse than none")

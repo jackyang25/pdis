@@ -146,7 +146,7 @@ class SeamTests(unittest.TestCase):
             / "scout"
             / "pipeline.py"
         ).read_text()
-        self.assertIn("findings_by_attribute.setdefault(task.scope_ref", pipeline)
+        self.assertIn("retrieved.setdefault(outcome.request.scope_ref", pipeline)
 
     def test_insight_extraction_excludes_the_program_scope(self) -> None:
         import pathlib

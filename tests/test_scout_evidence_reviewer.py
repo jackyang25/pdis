@@ -3,6 +3,9 @@ from __future__ import annotations
 import unittest
 from dataclasses import replace
 
+import httpx
+import openai
+
 from services.scout.models import (
     Attribute,
     ComparisonRule,
@@ -71,25 +74,24 @@ class _Client:
 
     def call_structured(self, system, message, *_args, **kwargs):
         if self.fail:
-            raise RuntimeError("provider unavailable")
+            raise openai.APIConnectionError(request=httpx.Request("POST", "https://x"))
         self.system_prompts.append(system)
         self.user_messages.append(message)
-        item = kwargs["schema"]["properties"]["reviews"]["items"]["properties"]
-        group_id = item["group_id"]["enum"][0]
-        candidate_ids = item["decisions"]["items"]["properties"]["candidate_id"]["enum"]
+        candidate_ids = _candidate_ids(kwargs["schema"])
         self.candidate_batches.append(candidate_ids)
-        return {"reviews": [{
-            "group_id": group_id,
-            "decisions": [{
-                "candidate_id": candidate_id,
-                "decision": (
-                    self.decision
-                    if self.decision != "admit" or candidate_id == candidate_ids[-1]
-                    else "reject"
-                ),
-                "reason": "Independent review evaluated this source-record candidate.",
-            } for candidate_id in candidate_ids],
-        }]}
+        return {"decisions": [{
+            "candidate_id": candidate_id,
+            "decision": (
+                self.decision
+                if self.decision != "admit" or candidate_id == candidate_ids[-1]
+                else "reject"
+            ),
+            "reason": "Independent review evaluated this source-record candidate.",
+        } for candidate_id in candidate_ids]}
+
+
+def _candidate_ids(schema: dict) -> list[str]:
+    return list(schema["properties"]["decisions"]["items"]["properties"]["candidate_id"]["enum"])
 
 
 class EvidenceReviewerTests(unittest.TestCase):
@@ -175,38 +177,42 @@ class EvidenceReviewerTests(unittest.TestCase):
             [["candidate-a", "candidate-b"], ["candidate-c"]],
         )
 
-    def test_failed_or_missing_review_is_not_a_model_flag(self) -> None:
-        for client in (None, _Client(fail=True)):
-            with self.subTest(client=client):
-                [reviewed] = prefill_evidence_review(
-                    [self.score], [self.target], client,
-                )
-                self.assertTrue(all(
-                    item.ai_recommendation == "unavailable" and item.ai_review_failure_code == "independent_review_unavailable"
-                    for item in reviewed.excluded_measurements
-                ))
+    def test_failed_review_is_not_a_model_flag(self) -> None:
+        [reviewed] = prefill_evidence_review(
+            [self.score], [self.target], _Client(fail=True),
+        )
+        self.assertTrue(all(
+            item.ai_recommendation == "unavailable" and item.ai_review_failure_code == "provider_error"
+            for item in reviewed.excluded_measurements
+        ))
+
+    def test_a_programming_error_is_not_recorded_as_a_review_failure(self) -> None:
+        class _Broken(_Client):
+            def call_structured(self, *_args, **_kwargs):
+                raise RuntimeError("bug")
+
+        with self.assertRaisesRegex(RuntimeError, "bug"):
+            prefill_evidence_review([self.score], [self.target], _Broken())
 
     def test_multiple_admit_recommendations_for_one_unit_fail_closed(self) -> None:
         class _AllAdmitClient(_Client):
-            def call_structured(self, _system, _message, *_args, **kwargs):
-                item = kwargs["schema"]["properties"]["reviews"]["items"]["properties"]
-                group_id = item["group_id"]["enum"][0]
-                candidate_ids = item["decisions"]["items"]["properties"]["candidate_id"]["enum"]
-                return {"reviews": [{
-                    "group_id": group_id,
-                    "decisions": [{
-                        "candidate_id": candidate_id,
-                        "decision": "admit",
-                        "reason": "Fixture attempts to admit every alternative.",
-                    } for candidate_id in candidate_ids],
-                }]}
+            def call_structured(self, _system, message, *_args, **kwargs):
+                self.user_messages.append(message)
+                return {"decisions": [{
+                    "candidate_id": candidate_id,
+                    "decision": "admit",
+                    "reason": "Fixture attempts to admit every alternative.",
+                } for candidate_id in _candidate_ids(kwargs["schema"])]}
 
-        [reviewed] = prefill_evidence_review(
-            [self.score], [self.target], _AllAdmitClient(),
-        )
+        client = _AllAdmitClient()
+        [reviewed] = prefill_evidence_review([self.score], [self.target], client)
 
+        # Retried once with the rule named, then recorded as a review failure.
+        self.assertEqual(len(client.user_messages), 2)
+        self.assertIn("at most one candidate per proposed evidence unit", client.user_messages[1])
         self.assertTrue(all(
-            item.ai_recommendation == "unavailable" and item.ai_review_failure_code == "independent_review_unavailable"
+            item.ai_recommendation == "unavailable"
+            and item.ai_review_failure_code == "invalid_model_response"
             for item in reviewed.excluded_measurements
         ))
 

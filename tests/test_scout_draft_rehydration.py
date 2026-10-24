@@ -45,6 +45,17 @@ def _draft() -> dict:
             "reviews": [],
             "targets": [],
         },
+        "retrieval_scope": {"entries": [
+            {"dimension": "condition", "value": "malaria", "provenance": "header", "block_ids": []},
+            {"dimension": "intervention", "value": "vaccine", "provenance": "header", "block_ids": []},
+            {"dimension": "region", "value": "Kenya", "provenance": "document",
+             "block_ids": ["document/b-0001"]},
+        ]},
+        "reconciliations": [{
+            "layer": "quantitative_targets", "scope": "", "status": "not_reconciled",
+            "items": 2, "merged": 0, "failure_code": "provider_error",
+            "reason": "The provider was unavailable.",
+        }],
         "variables": [{
             "name": "efficacy",
             "description": "Protective efficacy",
@@ -58,6 +69,7 @@ def _draft() -> dict:
             "target_resolved": True,
             "target_resolution_reason": "Resolved from an exact span.",
             "evidence_domain": "clinical",
+            "supplies_scope": "region",
             "entities": [],
             "quantitative_target_ids": [],
             "quantitative_statement_dispositions": [],
@@ -88,6 +100,23 @@ class DraftRehydrationTests(unittest.TestCase):
         self.assertEqual([block.id for block in result.blocks], ["document/b-0001"])
         self.assertEqual(result.matches, [])
         self.assertEqual(result.assessments, [])
+
+    def test_the_scope_and_identity_records_resolved_before_review_survive(self) -> None:
+        """The continuation searches the geography the reviewer saw; it does not re-read it."""
+        result = result_from_target_review(_draft())
+
+        self.assertEqual(result.retrieval_scope.value("region"), "Kenya")
+        self.assertEqual(result.retrieval_scope.entry("region").block_ids, ("document/b-0001",))
+        [record] = result.reconciliations
+        self.assertEqual((record.layer, record.failure_code), ("quantitative_targets", "provider_error"))
+        self.assertEqual(result.variables[0].supplies_scope, "region")
+
+    def test_a_draft_without_its_scope_is_refused(self) -> None:
+        draft = _draft()
+        del draft["retrieval_scope"]
+
+        with self.assertRaises(KeyError):
+            result_from_target_review(draft)
 
     def test_only_a_target_review_draft_may_continue(self) -> None:
         draft = _draft()

@@ -10,9 +10,12 @@ import { Badge } from "@/components/ui/badge";
 import { DownloadButton } from "@/components/download-button";
 import { RunHistory } from "@/components/run-history";
 import { runFilename, runLabel } from "@/lib/result-file";
+import { BlockReferenceId } from "@/components/block-reference";
 import { CollapsibleCard } from "@/components/collapsible-card";
 import { runChunker, type ContentBlock, type Header } from "@/lib/api";
 import { useChunkerSession, type ChunkerResult } from "@/lib/session";
+import { importTool, runTool } from "@/lib/tool-run";
+import { useShallow } from "zustand/react/shallow";
 
 const CHUNKER_STEPS = [
   { key: "parse", label: "Parsing document" },
@@ -36,48 +39,9 @@ export default function ChunkerPage() {
 }
 
 function ChunkerView({ header, ready }: { header: Header; ready: boolean }) {
-  const {
-    result,
-    busy,
-    stage,
-    error,
-    addResult,
-    setResult,
-    setBusy,
-    startedAt,
-    setStage,
-    setError,
-  } = useChunkerSession();
-
-  async function handleRun(file: File) {
-    setBusy(true);
-    setError(null);
-    setStage(null);
-    try {
-      const res = await runChunker(file, header, setStage);
-      addResult(res);
-    } catch (err) {
-      setError((err as Error).message);
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  // Re-open a previously downloaded result (the full ChunkerResult JSON) and
-  // render it through the same view - no re-run, no backend call.
-  async function handleImport(file: File) {
-    setError(null);
-    try {
-      const parsed = JSON.parse(await file.text()) as ChunkerResult;
-      if (!parsed || !Array.isArray(parsed.blocks)) {
-        throw new Error("not a chunker result file");
-      }
-      setStage(null);
-      addResult(parsed);
-    } catch (err) {
-      setError(`Could not import result: ${(err as Error).message}`);
-    }
-  }
+  const { result, busy, stage, error, startedAt } = useChunkerSession(
+    useShallow(({ result, busy, stage, error, startedAt }) => ({ result, busy, stage, error, startedAt })),
+  );
 
   return (
     <div className="flex flex-col gap-6">
@@ -85,17 +49,27 @@ function ChunkerView({ header, ready }: { header: Header; ready: boolean }) {
         configuration={<ConfigurationFields />}
         busy={busy}
         startedAt={startedAt}
-        onRun={(files) => handleRun(files.document)}
+        onRun={(files) => void runTool(useChunkerSession, (report) => runChunker(files.document, header, report))}
         steps={CHUNKER_STEPS}
         currentStage={stage}
         runDisabled={!ready}
         hint={ready ? undefined : "Complete the configuration to run."}
-        onImport={handleImport}
+        runLabel="Parse document"
+        busyLabel="Parsing"
+        // Re-open a previously downloaded result (the full ChunkerResult JSON) and
+        // render it through the same view - no re-run, no backend call.
+        onImport={(file) => importTool(useChunkerSession, file, readChunkerResult)}
       />
       {error && <ErrorMessage>{error}</ErrorMessage>}
       {result && <BlocksList result={result} />}
     </div>
   );
+}
+
+function readChunkerResult(raw: unknown): ChunkerResult {
+  const parsed = raw as ChunkerResult | null;
+  if (!parsed || !Array.isArray(parsed.blocks)) throw new Error("not a chunker result file");
+  return parsed;
 }
 
 function formatMetaValue(v: unknown): string {
@@ -130,14 +104,17 @@ function MetaLine({
 }
 
 function BlocksList({ result }: { result: ChunkerResult }) {
-  const { results, selectedId, selectResult, removeResult } =
-    useChunkerSession();
+  const { results, selectedId, selectResult, removeResult } = useChunkerSession(
+    useShallow(({ results, selectedId, selectResult, removeResult }) =>
+      ({ results, selectedId, selectResult, removeResult })),
+  );
   const blocks = result.blocks;
   const labeledCount = blocks.filter((b) => b.section_label).length;
   return (
     <CollapsibleCard
       title={`${blocks.length} blocks`}
       subtitle={`${labeledCount} labeled`}
+      flush
       trailing={
         <>
           <RunHistory
@@ -149,23 +126,26 @@ function BlocksList({ result }: { result: ChunkerResult }) {
           />
           <DownloadButton
             filename={runFilename("chunker")}
-            data={result}
-            format="json"
+            data={() => result}
             label="Download JSON"
           />
         </>
       }
     >
-      <ul className="-mx-5 divide-y divide-border">
+      {/* Flush, so the dividers meet the card's edges; a negative margin against the card's
+          padding fell 4px short of them from tablet width up. */}
+      <ul className="divide-y divide-border/60">
         {blocks.map((block: ContentBlock) => (
-          <li key={block.id} className="px-5 py-4">
+          <li key={block.id} className="px-5 py-4 sm:px-6">
             <details className="group/block">
               <summary className="flex cursor-pointer flex-wrap items-center gap-2 text-xs text-muted-foreground [&::-webkit-details-marker]:hidden">
                 <Badge variant="outline">{block.block_type}</Badge>
                 {block.section_label && (
                   <Badge variant="muted">{block.section_label}</Badge>
                 )}
-                <span className="font-mono">{block.id}</span>
+                {/* The shared compact form: the document is named in the card above, so the
+                    full id repeated its name on every row. Hover and screen readers keep it. */}
+                <BlockReferenceId blockId={block.id} />
                 <ChevronDown className="ml-auto h-4 w-4 shrink-0 text-muted-foreground transition-transform group-open/block:rotate-180 motion-reduce:transition-none" />
               </summary>
               <div className="mt-2 space-y-0.5 rounded-md bg-foreground/[0.045] px-3 py-2 font-mono text-[11px] text-muted-foreground/70">
@@ -188,6 +168,8 @@ function BlocksList({ result }: { result: ChunkerResult }) {
                 <img
                   src={`data:${block.image.media_type};base64,${block.image.data_base64}`}
                   alt={`Document figure ${block.structural_meta.image_index ?? block.ordinal}`}
+                  loading="lazy"
+                  decoding="async"
                   className="mx-auto max-h-[36rem] max-w-full object-contain"
                 />
               </figure>

@@ -1,3 +1,4 @@
+import { countLabel } from "./count-label.ts";
 export function compactBlockId(blockId: string): string {
   const compact = blockId.split("/").filter(Boolean).at(-1);
   return compact || "Unavailable";
@@ -15,7 +16,7 @@ export function blockReferenceLabel(blockId: string): string {
  * voice control asking for "view source" on a control that no longer says it.
  */
 export function sourcePassageAriaLabel(count: number): string {
-  return `In document: ${count} source ${count === 1 ? "passage" : "passages"}`;
+  return `In document: ${countLabel(count, "source passage")}`;
 }
 
 /**

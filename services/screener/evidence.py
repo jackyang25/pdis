@@ -2,8 +2,10 @@
 from __future__ import annotations
 
 from services.chunker import ContentBlock
-from shared.document_metadata import extraction_context
+from shared.source_blocks import image_inputs, render_blocks
 from shared.vocabulary import search_term
+
+__all__ = ["expand_selection", "format_blocks", "image_inputs", "question_text", "review_context"]
 
 _GROUP_KEYS = ("page", "slide", "table_index")
 
@@ -16,28 +18,26 @@ def review_context(indication: str, intervention_class: str) -> str:
     )
 
 
+def question_text(question_id: str, text: str) -> str:
+    """The per-question part of a request, sent after the evidence and its images.
+
+    Both stages put it last so every request about one document (selection) shares
+    its prefix with the others, which is what lets a provider reuse that prefix.
+    """
+    return f"Question ({question_id}):\n{text}"
+
+
 def format_blocks(blocks: list[ContentBlock]) -> str:
-    return "\n\n".join(_format_block(block) for block in blocks) or "(none)"
+    """Every block with its document and the parser-authored groups it belongs to.
+
+    The groups are named because selection is expanded along them: a model told a cell
+    sits in `table_group: t3` knows its header row will be kept with it.
+    """
+    return render_blocks(blocks, document=True, groups=_group_labels)
 
 
-def _format_block(block: ContentBlock) -> str:
-    headings = " > ".join(block.heading_stack) if block.heading_stack else "none"
-    metadata = [f"{key}: {value}" for _, key, value in _groups(block)]
-    extraction = extraction_context(block.structural_meta)
-    if extraction:
-        metadata.append(extraction)
-    suffix = " | " + " | ".join(metadata) if metadata else ""
-    return (
-        f"[{block.id} | {block.doc_id} | {block.block_type} | "
-        f"headings: {headings}{suffix}]\n{block.content}"
-    )
-
-
-def image_inputs(blocks: list[ContentBlock]) -> list[dict[str, str]]:
-    return [
-        {"block_id": block.id, "data_url": block.image.data_url()}
-        for block in blocks if block.image
-    ]
+def _group_labels(block: ContentBlock) -> list[str]:
+    return [f"{key}: {value}" for _, key, value in _groups(block)]
 
 
 def _groups(block: ContentBlock) -> list[tuple[str, str, int | str]]:

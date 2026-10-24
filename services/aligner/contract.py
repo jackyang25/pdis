@@ -21,7 +21,8 @@ from .models import (
     AlignmentConfig,
     AlignmentResult,
     VERDICTS_REQUIRING_CITATION,
-    describe_document,
+    requirement_id,
+    resolve_edges,
 )
 
 
@@ -59,22 +60,27 @@ def validate_result_contract(
         if not edge.question.strip():
             raise ValueError("Aligner comparison must state what it asks")
 
+    # The comparisons are the config's to decide. A result whose edges differ from
+    # what its documents resolve to compared something nobody declared, or skipped
+    # something that was.
+    if result.edges != resolve_edges(config, result.documents):
+        raise ValueError(
+            "Aligner result's comparisons are not the ones its configuration "
+            "declares for these documents"
+        )
+
     _validate_findings(result)
-
-    # Reading the role description is what proves a source type is configurable
-    # rather than special-cased. `describe_document` falls back to `default`, so
-    # this can only fail when the config itself is malformed.
-    for document in result.documents:
-        if not describe_document(config, document.source_type):
-            raise ValueError(
-                f"Aligner has no role description for source type {document.source_type!r}"
-            )
-
     return result
 
 
 def _validate_findings(result: AlignmentResult) -> None:
-    """Every finding belongs to a comparison, cites the right side, and is unique."""
+    """Every finding belongs to a comparison, cites the right side, and is unique.
+
+    Every comparison carries at least one finding. A reference document states at
+    least one requirement, so a comparison with none is a read that failed — and a
+    result with no findings at all is indistinguishable from one that found nothing
+    wrong.
+    """
     edges_by_id = {edge.edge_id: edge for edge in result.edges}
     blocks_by_doc: dict[str, dict[str, str]] = {}
     for block in result.blocks:
@@ -82,6 +88,7 @@ def _validate_findings(result: AlignmentResult) -> None:
             blocks_by_doc.setdefault(block.doc_id, {})[block.id] = block.content
 
     seen: set[str] = set()
+    per_edge: dict[str, int] = {}
     for finding in result.findings:
         edge = edges_by_id.get(finding.edge_id)
         if edge is None:
@@ -95,6 +102,16 @@ def _validate_findings(result: AlignmentResult) -> None:
                 "requirement has exactly one verdict per comparison"
             )
         seen.add(finding.requirement_id)
+        # Requirement IDs are minted positionally per comparison, so each edge's
+        # findings run r-001, r-002, ... in order. Anything else is a finding filed
+        # under the wrong comparison, or a requirement that went missing.
+        per_edge[finding.edge_id] = per_edge.get(finding.edge_id, 0) + 1
+        expected = requirement_id(finding.edge_id, per_edge[finding.edge_id])
+        if finding.requirement_id != expected:
+            raise ValueError(
+                f"Aligner finding {finding.requirement_id} is out of sequence for "
+                f"comparison {finding.edge_id!r}; expected {expected}"
+            )
 
         if finding.verdict not in ALIGNMENT_VERDICTS:
             raise ValueError(
@@ -159,6 +176,13 @@ def _validate_findings(result: AlignmentResult) -> None:
             side="comparison",
         )
 
+
+    empty = [edge.edge_id for edge in result.edges if edge.edge_id not in per_edge]
+    if empty:
+        raise ValueError(
+            f"Aligner comparison {', '.join(empty)} carries no findings; a reference "
+            "document states at least one requirement"
+        )
 
 def _require_spans_in(
     spans: list[DocumentSpan],

@@ -6,6 +6,7 @@ import { useEffect, useState } from "react";
 import { QUEUED_STAGE } from "@/lib/api";
 import { formatElapsed } from "@/lib/elapsed";
 import { cn } from "@/lib/utils";
+import { countLabel } from "@/lib/count-label";
 
 export type Step = { key: string; label: string };
 
@@ -88,7 +89,7 @@ export function ProgressSteps({ steps, busy, startedAt, currentStage, progress }
             <span className="min-w-0 truncate">
               {row.kind === "step"
                 ? row.step.label
-                : row.state === "done" ? `${row.count} earlier ${row.count === 1 ? "step" : "steps"} done` : `${row.count} more to go`}
+                : row.state === "done" ? `${countLabel(row.count, "earlier step")} done` : `${row.count} more to go`}
             </span>
             {row.kind === "step" && row.state === "active" && hasCount && (
               <span className="shrink-0 font-normal tabular-nums text-muted-foreground">

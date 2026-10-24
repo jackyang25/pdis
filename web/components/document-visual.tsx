@@ -1,6 +1,6 @@
 "use client";
 
-import { useId, useRef } from "react";
+import { useId, useMemo, useRef } from "react";
 import { Expand, X } from "lucide-react";
 import type { ContentBlock } from "@/lib/api";
 import { Button } from "@/components/ui/button";
@@ -24,17 +24,22 @@ export function DocumentVisual({ block }: { block: ContentBlock }) {
   const dialog = useRef<HTMLDialogElement>(null);
   const trigger = useRef<HTMLButtonElement>(null);
   const titleId = useId();
+  // Built once per image rather than on every render: the URI is the whole retained
+  // asset, often hundreds of kilobytes, and the trace re-renders on every selection.
+  const source = useMemo(
+    () => block.image ? `data:${block.image.media_type};base64,${block.image.data_base64}` : "",
+    [block.image],
+  );
   if (!block.image) return null;
   const label = documentVisualLabel(block);
   const location = documentBlockLocationLabel(block);
   const title = location ? `${label} · ${location}` : label;
-  const source = `data:${block.image.media_type};base64,${block.image.data_base64}`;
   const dimensions = { width: block.image.width || undefined, height: block.image.height || undefined };
   return (
     <figure className="my-5" onClick={(event) => event.stopPropagation()}>
       {/* Dimensions reserve space before decoding, preserving citation scroll targets. */}
       {/* eslint-disable-next-line @next/next/no-img-element */}
-      <img src={source} alt={title} {...dimensions}
+      <img src={source} alt={title} {...dimensions} decoding="async"
         className="mx-auto h-auto max-h-[34rem] max-w-full rounded-md object-contain outline outline-1 -outline-offset-1 outline-black/10 dark:outline-white/10" />
       <figcaption className="mt-2 flex flex-wrap items-center justify-between gap-2 text-xs text-muted-foreground">
         <span>{title}</span>
@@ -46,7 +51,7 @@ export function DocumentVisual({ block }: { block: ContentBlock }) {
       <dialog ref={dialog} data-document-visual aria-labelledby={titleId}
         onClose={() => trigger.current?.focus()}
         className="m-auto max-h-[92dvh] w-[min(96vw,96rem)] max-w-none overflow-y-auto overscroll-contain rounded-2xl bg-card p-0 text-foreground shadow-overlay backdrop:bg-black/50">
-        <div className="sticky top-0 flex items-center justify-between gap-3 border-b border-border bg-card px-4 py-3">
+        <div className="sticky top-0 flex items-center justify-between gap-3 border-b border-border/60 bg-card px-4 py-3">
           <h2 id={titleId} className="text-sm font-semibold">{title}</h2>
           <Button type="button" variant="ghost" size="icon" aria-label="Close larger visual"
             onClick={() => dialog.current?.close()}>
@@ -55,7 +60,7 @@ export function DocumentVisual({ block }: { block: ContentBlock }) {
         </div>
         <div className="p-4">
           {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img src={source} alt={title} {...dimensions} className="mx-auto h-auto w-full object-contain" />
+          <img src={source} alt={title} {...dimensions} loading="lazy" decoding="async" className="mx-auto h-auto w-full object-contain" />
         </div>
       </dialog>
     </figure>

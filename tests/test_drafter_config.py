@@ -6,6 +6,7 @@ import tempfile
 import textwrap
 import unittest
 from pathlib import Path
+from unittest import mock
 
 from services import drafter
 from services.drafter.configuration import load_config
@@ -47,6 +48,24 @@ class ValidationTests(unittest.TestCase):
     def test_an_unregistered_source_is_refused(self):
         with self.assertRaises(ValueError):
             load_config(write(VALID.replace("[pubmed, who_guidelines]", "[pubmed, nowhere]")))
+
+    def test_a_source_that_returns_snippets_is_refused(self):
+        with self.assertRaisesRegex(ValueError, "web"):
+            load_config(write(VALID.replace("[pubmed, who_guidelines]", "[pubmed, web]")))
+
+    def test_a_malformed_config_breaks_the_listing_rather_than_vanishing_from_it(self):
+        directory = Path(write(VALID)).parent
+        (directory / "bmgf_itpp_drug.yaml").write_text("org: bmgf\n")
+        with mock.patch("services.drafter.configuration.CONFIGS_DIR", directory), self.assertRaises(ValueError):
+            drafter.available_configs()
+
+    def test_a_config_is_found_by_what_it_declares_not_by_its_filename(self):
+        directory = Path(tempfile.mkdtemp())
+        (directory / "vaccine_profile.yaml").write_text(VALID.replace("type_key: bmgf_itpp_vaccine", "type_key: vaccine_profile"))
+        with mock.patch("services.drafter.configuration.CONFIGS_DIR", directory):
+            self.assertEqual(drafter.find_config("bmgf", "itpp", "vaccine").type_key, "vaccine_profile")
+            with self.assertRaises(LookupError):
+                drafter.find_config("bmgf", "itpp", "drug")
 
 
 if __name__ == "__main__":

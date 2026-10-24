@@ -22,6 +22,7 @@ import {
 import type { DocumentTraceConnection } from "@/lib/document-trace";
 import { Quoted, Reading } from "@/components/ui/evidence-text";
 import { VerdictPill } from "@/components/ui/verdict-pill";
+import { countLabel } from "@/lib/count-label";
 
 const TRACE_LAYERS: Array<{
   value: ScoutDocumentTraceKind;
@@ -59,7 +60,6 @@ function ScoutTraceInspector({
       <TracePanelHeader
         eyebrow={annotation.layerLabel}
         title={annotation.title}
-        description="Saved result connected to the selected source passage."
       />
 
       <TracePanelBody>
@@ -94,18 +94,18 @@ function ScoutTraceInspector({
           label={connectionLabel}
           icon={connection.type === "exact" ? FileText : Link2}
         >
-          <p className="mt-2 text-xs leading-5 text-muted-foreground">
-            {connection.type === "exact"
-              ? "The highlight reproduces exact text retained in the saved result."
-              : connection.type === "unavailable"
+          {/* Said only when the connection is not the ordinary one: an exact highlight is
+              what a reader assumes, and the sentence saying so repeated on every open. */}
+          {connection.type !== "exact" && <p className="mt-2 text-xs leading-5 text-muted-foreground">
+            {connection.type === "unavailable"
                 ? `${unavailableBlockIds.size} cited ${unavailableBlockIds.size === 1 ? "passage is" : "passages are"} unavailable in the reconstructed document.${hasRetainedCitation ? " Other retained citations remain visible." : ""}`
                 : connection.markerReason === "quote_unmatched"
                   ? "A saved exact passage cites this source passage but does not match its retained text literally. The trace does not substitute approximate text."
                   : "The saved result cites this source passage but does not claim an exact quotation for it."}
-          </p>
+          </p>}
           {connection.markerReason === "quote_unmatched" && connection.unmatchedQuotes?.length ? (
             <p className="mt-2 text-[10px] tabular-nums text-muted-foreground/80">
-              {connection.unmatchedQuotes.length} unmatched exact {connection.unmatchedQuotes.length === 1 ? "passage" : "passages"}
+              {countLabel(connection.unmatchedQuotes.length, "unmatched exact passage")}
             </p>
           ) : null}
           <TracePassageList

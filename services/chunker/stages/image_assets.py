@@ -3,13 +3,14 @@
 from __future__ import annotations
 
 import base64
+import dataclasses
 import hashlib
 import logging
 from io import BytesIO
 from pathlib import Path
 
 from ..models import ContentBlock, ImageAsset
-from .rasterizer import rasterize_to_png
+from . import rasterizer
 
 logger = logging.getLogger(__name__)
 
@@ -30,6 +31,9 @@ def attach_image_assets(
     Raster formats already accepted by browsers/models remain byte-identical.
     Unsupported vector formats are rasterized to PNG. Conversion is best-effort:
     a failed visual remains an honest image block without breaking the document.
+    Retained images carry the same bounds as rendered pages: none over the
+    per-image pixel limit, and no more than the per-document encoded-byte limit in
+    total, so later images past that limit are marked unavailable.
     """
     if Path(file_path).suffix.lower() != ".docx":
         return blocks
@@ -41,6 +45,7 @@ def attach_image_assets(
     if related is None:
         return blocks
 
+    resolved: list[tuple[ContentBlock, bytes, str]] = []
     for block in image_blocks:
         if "unsupported_document_visual" in block.structural_meta.get(
             "extraction_warnings", []
@@ -50,25 +55,47 @@ def attach_image_assets(
         owner = block.structural_meta.get("document_part", "/word/document.xml")
         part = related.get((owner, rel_id)) if rel_id else None
         if part is None:
-            block.content = "[image unavailable]"
-            _add_extraction_warning(block, "document_image_unavailable")
+            _mark_unavailable(block, "[image unavailable]")
             continue
         source_media_type = (getattr(part, "content_type", "") or "").lower()
         try:
             image_bytes = part.blob
         except Exception as exc:  # noqa: BLE001 - one corrupt asset is isolated
             logger.warning("Could not read image bytes for %s: %s", block.id, exc)
-            block.content = "[image unavailable]"
-            _add_extraction_warning(block, "document_image_unavailable")
+            _mark_unavailable(block, "[image unavailable]")
             continue
+        resolved.append((block, image_bytes, source_media_type))
 
-        block.image = image_asset_from_bytes(image_bytes, source_media_type)
-        if block.image is None:
-            block.content = f"[image unavailable: {source_media_type or 'unknown format'}]"
-            _add_extraction_warning(block, "document_image_unavailable")
+    assets = bounded_image_assets(
+        image_assets_from_bytes([(data, media) for _, data, media in resolved])
+    )
+    for (block, _, source_media_type), asset in zip(resolved, assets):
+        if asset is None:
+            _mark_unavailable(
+                block, f"[image unavailable: {source_media_type or 'unknown format'}]"
+            )
             continue
+        block.image = asset
         block.content = "[image]"
     return blocks
+
+
+def bounded_image_assets(
+    assets: list[ImageAsset | None],
+) -> list[ImageAsset | None]:
+    """Drop, in order, each asset that would take one document past the byte bound."""
+    retained = 0
+    bounded: list[ImageAsset | None] = []
+    for asset in assets:
+        if asset is not None:
+            size = image_asset_byte_size(asset)
+            if retained + size > rasterizer.MAX_RENDERED_BYTES:
+                logger.warning("Image exceeds the per-document encoded-image limit")
+                asset = None
+            else:
+                retained += size
+        bounded.append(asset)
+    return bounded
 
 
 def image_asset_from_bytes(
@@ -78,21 +105,71 @@ def image_asset_from_bytes(
     data_media_type: str | None = None,
 ) -> ImageAsset | None:
     """Normalize bytes while retaining their original document-media provenance."""
-    if not data:
-        return None
-    source_media_type = (source_media_type or "").lower()
-    data_media_type = (data_media_type or source_media_type).lower()
-    media_type = "image/jpeg" if data_media_type == "image/jpg" else data_media_type
-    image_bytes = data
-    if data_media_type not in PASSTHROUGH_TYPES:
-        converted = _convert_raster_to_png(data) or rasterize_to_png(
-            data, data_media_type
+    return image_assets_from_bytes(
+        [(data, source_media_type)], data_media_type=data_media_type
+    )[0]
+
+
+def image_assets_from_bytes(
+    items: list[tuple[bytes, str]],
+    *,
+    data_media_type: str | None = None,
+) -> list[ImageAsset | None]:
+    """Normalize many images, converting each distinct vector payload once.
+
+    Identical bytes share one conversion, and every vector image that needs the
+    office renderer goes through one LibreOffice start rather than one each. An
+    image over the per-image pixel bound is ``None``, as an unreadable one is.
+    """
+    by_digest: dict[tuple[str, str, str], ImageAsset | None] = {}
+    keys: list[tuple[str, str, str] | None] = []
+    vectors: dict[tuple[str, str, str], bytes] = {}
+    for data, source_media_type in items:
+        if not data:
+            keys.append(None)
+            continue
+        source = (source_media_type or "").lower()
+        declared = (data_media_type or source).lower()
+        key = (hashlib.sha256(data).hexdigest(), source, declared)
+        keys.append(key)
+        if key in by_digest or key in vectors:
+            continue
+        if declared in PASSTHROUGH_TYPES:
+            media = "image/jpeg" if declared == "image/jpg" else declared
+            by_digest[key] = _bounded_asset(data, media, source)
+            continue
+        converted = _convert_raster_to_png(data)
+        if converted is not None:
+            by_digest[key] = _bounded_asset(converted, "image/png", source)
+        else:
+            vectors[key] = data
+
+    if vectors:
+        pending = list(vectors.items())
+        rendered = rasterizer.rasterize_many_to_png(
+            [(data, key[2]) for key, data in pending]
         )
-        if converted is None:
-            return None
-        image_bytes = converted
-        media_type = "image/png"
+        for (key, _), png in zip(pending, rendered):
+            by_digest[key] = (
+                _bounded_asset(png, "image/png", key[1]) if png is not None else None
+            )
+
+    # Each block owns its asset object; identical images share only the conversion.
+    return [
+        dataclasses.replace(asset)
+        if key is not None and (asset := by_digest[key]) is not None
+        else None
+        for key in keys
+    ]
+
+
+def _bounded_asset(
+    image_bytes: bytes, media_type: str, source_media_type: str
+) -> ImageAsset | None:
     width, height = _pixel_size(image_bytes)
+    if width * height > rasterizer.MAX_RENDER_PIXELS_PER_PAGE:
+        logger.warning("Image of %sx%s exceeds the per-image pixel limit", width, height)
+        return None
     return ImageAsset(
         media_type=media_type,
         data_base64=base64.b64encode(image_bytes).decode("ascii"),
@@ -133,6 +210,9 @@ def _convert_raster_to_png(data: bytes) -> bytes | None:
         from PIL import Image
 
         with Image.open(BytesIO(data)) as image:
+            # The header gives the size without decoding; refuse before allocating.
+            if image.width * image.height > rasterizer.MAX_RENDER_PIXELS_PER_PAGE:
+                return None
             rendered = image.convert("RGBA" if "A" in image.getbands() else "RGB")
             output = BytesIO()
             rendered.save(output, format="PNG")
@@ -154,6 +234,11 @@ def _load_related_parts(file_path: str):
     except Exception as exc:  # noqa: BLE001 - parse output remains usable
         logger.warning("Could not reopen %s for image assets: %s", file_path, exc)
         return None
+
+
+def _mark_unavailable(block: ContentBlock, content: str) -> None:
+    block.content = content
+    _add_extraction_warning(block, "document_image_unavailable")
 
 
 def _add_extraction_warning(block: ContentBlock, warning: str) -> None:

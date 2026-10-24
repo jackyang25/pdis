@@ -110,6 +110,47 @@ export type SectionAssessment = {
   verdict_counts: Record<Verdict, number>;
 };
 
+/**
+ * Why a model call produced no usable answer. Mirrors `shared.ai.FAILURE_CODES`.
+ *
+ * Machine-readable, beside the prose a failure also carries, so a reader can tell a
+ * cut-off answer from an invalid one without parsing the sentence.
+ */
+export const FAILURE_CODES = ["response_truncated", "invalid_model_response", "provider_error", "response_refused"] as const;
+export type FailureCode = (typeof FAILURE_CODES)[number];
+
+/**
+ * What Scout records when a stage obtained no verdict for a subject.
+ *
+ * Never offered to a model, so it is a processing gap rather than a reading, and it always
+ * travels with a `FailureCode`. Mirrors `NOT_ASSESSED` in `services/scout/models.py`.
+ */
+export const NOT_ASSESSED = "not_assessed" as const;
+export type NotAssessed = typeof NOT_ASSESSED;
+
+/**
+ * What Scout records when no insight reached a variable, on grounding and both precedent axes.
+ *
+ * Set by code with no model call and an empty reason, so the interface says it in its own
+ * voice. Neither the model's `unknown` (the evidence shown could not be judged) nor
+ * `not_assessed` (a stage failed): nothing failed, and no evidence was shown. Mirrors
+ * `NO_EVIDENCE` in `services/scout/models.py`.
+ */
+export const NO_EVIDENCE = "no_evidence" as const;
+export type NoEvidence = typeof NO_EVIDENCE;
+
+/**
+ * What Scout records for a field the reviewer left out of evidence search at target review,
+ * on grounding and both precedent axes.
+ *
+ * The reviewer's decision, not an observation: no query was planned, so nothing was
+ * retrieved or judged. Carries no failure code, no reason and no evidence, and is exactly the
+ * fields named in `ScoutResponse.not_searched_fields`. Mirrors `NOT_SEARCHED` in
+ * `services/scout/models.py`.
+ */
+export const NOT_SEARCHED = "not_searched" as const;
+export type NotSearched = typeof NOT_SEARCHED;
+
 export type InspectionResult = {
   doc_id: string;
   reviews: InspectionReview[];
@@ -118,6 +159,8 @@ export type InspectionResult = {
   /** Conflicts spanning sections, which no single unit can own. */
   document_findings: Assessment[];
   consistency_status: "complete" | "partial" | "failed" | "not_applicable" | "unknown";
+  /** Why the consistency pass failed; set exactly when its status is `failed`. */
+  consistency_failure_code: FailureCode | null;
   /** Whether the run completed. A process fact, never a verdict. */
   assessment_status: "complete" | "unknown";
   org: string | null;
@@ -192,6 +235,29 @@ export const VERDICT_DESCRIPTION: Record<Verdict, string> = {
   not_applicable: "The rubric accepts this being absent",
 };
 
+/**
+ * One tone per verdict. The only place the judgement is made.
+ *
+ * The pill fills with it, the section's count row dots with it, and the document trace
+ * emphasises with it - three shapes, one decision, per the rule in `lib/tone.ts`. It lived
+ * on the Inspector page, so the trace decided the same split again from a list of its own.
+ *
+ * The shortfalls are not graded against each other. `vague` is the one that leaves the
+ * requirement covered - the content is all there and unusable - so it reads as caution;
+ * the rest leave something absent and read as danger. That split is the vocabulary's own
+ * worst-first order, not a severity scale invented here. The tint is applied by
+ * `VerdictPill`, which reads the tone directly.
+ */
+export const VERDICT_TONE: Record<Verdict, Tone> = {
+  specified: "success",
+  not_present: "danger",
+  placeholder: "danger",
+  insufficient: "danger",
+  vague: "warning",
+  section_conflict: "danger",
+  not_applicable: "neutral",
+};
+
 export function verdictLabel(verdict: string): string {
   return VERDICT_LABEL[verdict as Verdict] ?? verdict;
 }
@@ -255,6 +321,14 @@ export type Finding = {
   title_source_lane?: string;
   excerpt_source_lane?: string;
   published_source_lane?: string;
+  /** Identifiers the provider stated, by scheme: doi, pmid, nct, setid, ... */
+  identifiers?: Record<string, string>;
+  /** The record's identity, `<source>:<provider id>`. */
+  record_key?: string;
+  /** How much of `published_at` the source stated; a year-only date is not 1 January. */
+  published_precision?: "day" | "month" | "year" | "";
+  /** Whose words the excerpt is: the source's, its fields labelled by PDIS, or a model's. */
+  excerpt_kind?: "passage" | "structured_fields" | "generated";
 };
 
 export type DevelopmentRecord = {
@@ -292,7 +366,8 @@ export type TargetRelationship =
   | "analogous"
   | "adjacent"
   | "unrelated"
-  | "unknown";
+  | "unknown"
+  | NotAssessed;
 
 export type SourceAttribution = {
   label: string;
@@ -315,6 +390,10 @@ export type SearchLane = {
   /** Why nothing came back: an adapter failure, or why the planner ruled the lane out. */
   detail: string;
   returned: number;
+  error_code?: string;
+  /** The query the provider reports it ran, where it reports one (PubMed's translation). */
+  provider_query?: string;
+  warnings?: OutcomeWarning[];
 };
 
 export type SearcherResponse = {
@@ -359,9 +438,12 @@ export type Insight = {
 
 export type Match = {
   insight: Insight;
-  relation: "contradicts" | "extends" | "confirms" | "unrelated";
+  /** The first four are the model's relation; `not_assessed` carries `failure_code`. */
+  relation: "contradicts" | "extends" | "confirms" | "unrelated" | NotAssessed;
   reason: string;
   doc_block_ids?: string[];
+  /** Set on exactly the `not_assessed` matches, blank on a verdict. */
+  failure_code: FailureCode | "";
 };
 
 export type EvidenceStrength =
@@ -369,7 +451,10 @@ export type EvidenceStrength =
   | "partial"
   | "thin"
   | "unsupported"
-  | "unknown";
+  | "unknown"
+  | NoEvidence
+  | NotSearched
+  | NotAssessed;
 
 export type EvidenceAssessment = {
   attribute_ref: string;
@@ -379,6 +464,8 @@ export type EvidenceAssessment = {
   doc_block_ids: string[];
   supporting_insight_ids: string[];
   supporting_findings: Finding[];
+  /** Set on exactly the `not_assessed` assessments, blank on a verdict. */
+  failure_code: FailureCode | "";
 };
 
 export type FunnelStats = {
@@ -389,14 +476,26 @@ export type FunnelStats = {
   matches: number;
   assessments: number;
   /**
-   * Announcements read for a program name, and how many named one.
+   * Announcements read for a program name, how many named one, and how many readings
+   * failed.
    *
-   * A pair, because the second alone is unreadable: an announcement naming no program
-   * leaves no row in the landscape, so without the attempts a weak reading and a quiet
-   * week look identical. Optional so a result saved before this existed still loads.
+   * The second alone is unreadable: an announcement naming no program leaves no row in
+   * the landscape, so without the attempts a weak reading and a quiet week look
+   * identical. A failed reading is counted apart from one that named nothing, because a
+   * failure says nothing about the announcement.
    */
-  announcements_read?: number;
-  announcements_named?: number;
+  announcements_read: number;
+  announcements_named: number;
+  announcements_failed: number;
+  /** The same failures by code, so a refusal reads apart from an outage. Sums to the above. */
+  announcements_failed_by_code: Partial<Record<FailureCode, number>>;
+};
+
+/** Something a provider reported about one request, beside its records. */
+export type OutcomeWarning = {
+  code: "provider_warning" | "provider_error" | "content_unavailable";
+  /** What the provider reported, in its words. */
+  detail: string;
 };
 
 export type SearchTrace = {
@@ -415,6 +514,12 @@ export type SearchTrace = {
   applicability_reason: string;
   status: "complete" | "failed" | "skipped";
   error: string;
+  /** The machine-readable kind of a failed request, beside `error`; blank unless it failed. */
+  error_code: string;
+  /** The query the provider reports it ran, where it reports one (PubMed's translation). */
+  provider_query: string;
+  /** What the provider reported beside its records. A complete request may still carry some. */
+  warnings: OutcomeWarning[];
   finding_count: number;
   source_urls: string[];
   /**
@@ -433,7 +538,7 @@ export type Measurement = {
   source_quote: string;
   source_passage?: string;
   source_record_id: string;
-  source_identity_status: "canonical" | "title_fallback" | "url_fallback";
+  source_identity_status: "canonical" | "url_fallback";
   evidence_unit_id: string;
   evidence_unit: EvidenceUnitIdentity;
   semantic_assessment: MeasurementSemanticAssessment;
@@ -441,7 +546,8 @@ export type Measurement = {
   semantic_reason: string;
   evidence_mode: "prose" | "structured_fact";
   ai_recommendation: "admit" | "reject" | "flag" | "unavailable";
-  ai_review_failure_code?: string;
+  /** Set on exactly an `unavailable` recommendation: why the independent review gave none. */
+  ai_review_failure_code: FailureCode | "";
   ai_review_reason: string;
   admission_status: "needs_review" | "approved" | "rejected" | "not_eligible" | "auto_admitted";
   admission_reason: string;
@@ -491,7 +597,8 @@ export type SourcePassageDisposition = {
   reason: string;
   url: string;
   insight_id: string;
-  failure_code: string;
+  /** Set on exactly a `not_assessed` status, blank on a verdict. */
+  failure_code: FailureCode | "";
 };
 
 export type Conformity = {
@@ -504,7 +611,8 @@ export type Conformity = {
   target_label: string;
   target_quote: string;
   target_meeting_count: number;
-  target_meeting_rate: number;
+  /** 0..1 unweighted observed share; null when no comparator was admitted. */
+  target_meeting_rate: number | null;
   verdict: string;
   benchmark_count: number;
   benchmark_minimum: number | null;
@@ -527,18 +635,28 @@ export type PrecedentLabel =
   | "direct"
   | "adjacent"
   | "none"
-  | "unknown";
+  | "unknown"
+  | NoEvidence
+  | NotSearched
+  | NotAssessed;
 
 export type PrecedentSignal = {
   attribute_ref: string;
   precedent: PrecedentLabel;
-  outcome: "favorable" | "mixed" | "unfavorable" | "unknown";
+  /**
+   * One classification decides both axes, so a failure leaves both `not_assessed`, a
+   * variable no insight reached leaves both `no_evidence`, and one left out at review
+   * leaves both `not_searched`.
+   */
+  outcome: "favorable" | "mixed" | "unfavorable" | "unknown" | NoEvidence | NotSearched | NotAssessed;
   reason: string;
   doc_block_ids: string[];
   coverage_insight_ids: string[];
   outcome_insight_ids: string[];
   supporting_insight_ids: string[];
   supporting_findings: Finding[];
+  /** Set on exactly the `not_assessed` signals, blank on a verdict. */
+  failure_code: FailureCode | "";
 };
 
 export type DevelopmentProgram = {
@@ -547,6 +665,8 @@ export type DevelopmentProgram = {
   source_role: SourceRole;
   target_relationship: TargetRelationship;
   target_relationship_reason: string;
+  /** Set on exactly a `not_assessed` relationship, blank on a verdict. */
+  target_relationship_failure_code: FailureCode | "";
   sponsors: string[];
   phases: string[];
   statuses: string[];
@@ -568,27 +688,11 @@ export type SafetyObservation = {
   source_role: SourceRole;
   target_relationship: TargetRelationship;
   target_relationship_reason: string;
+  /** Set on exactly a `not_assessed` relationship, blank on a verdict. */
+  target_relationship_failure_code: FailureCode | "";
   attribute_refs: string[];
   supporting_findings: Finding[];
 };
-
-/** One place's reading of one indicator, exactly as the provider stated it. */
-export type IndicatorReading = {
-  place: string;
-  spatial_type: string;
-  year: number;
-  value: number | null;
-  value_text: string;
-  parent_place: string;
-};
-
-/**
- * One health indicator and every reading retrieved for it.
- *
- * Deliberately unsummarised: no total across countries and no single headline number. A
- * total over whichever countries happened to be retrieved would read as a total for the
- * disease.
- */
 
 /**
  * One exact document quotation, and the block it was copied out of.
@@ -633,6 +737,11 @@ export type Variable = {
     | "manufacturing"
     | "delivery"
     | "commercial_access";
+  /**
+   * The run scope dimension this variable's document value supplies (`region` for a
+   * target-geography field), or blank. Mirrors `RUN_SCOPE_DIMENSIONS`.
+   */
+  supplies_scope: RunScopeDimension | "";
   entities: Array<{
     name: string;
     entity_type: string;
@@ -664,16 +773,46 @@ export type QuantitativeTarget = {
   semantic_provenance: Record<keyof QuantitativeSemanticProfile, DocumentSpan[]>;
   provenance_spans: DocumentSpan[];
   ai_recommendation: "confirm" | "exclude" | "flag" | "unavailable";
-  ai_review_failure_code?: string;
+  /** Set on exactly an `unavailable` recommendation: why the independent review gave none. */
+  ai_review_failure_code: FailureCode | "";
   ai_review_reason: string;
   review_status: "needs_review" | "approved" | "rejected";
 };
+
+/**
+ * Why a statement's numeric review did not finish. Mirrors
+ * `QUANTITATIVE_REVIEW_FAILURE_CODES` in `services/scout/models.py`: the model returned
+ * no usable review, or the targets it proposed failed structural validation.
+ */
+export type QuantitativeReviewFailureCode = "invalid_model_response" | "invalid_target_mapping";
+
+/** The structural checks a proposed target can fail. Mirrors `TARGET_MAPPING_ISSUE_CODES`. */
+export const TARGET_MAPPING_ISSUE_CODES = [
+  "invalid_target_list",
+  "invalid_target_object",
+  "missing_field_links",
+  "invalid_field_links",
+  "invalid_target_expression",
+  "target_expression_must_be_bound",
+  "invalid_target_role",
+  "invalid_target_semantic_profile",
+  "invalid_target_comparison_contract",
+  "invalid_target_quote",
+  "invalid_semantic_provenance",
+  "missing_target_provenance",
+  "invalid_target_provenance",
+  "duplicate_atomic_target",
+  "missing_target_mapping",
+] as const;
+export type TargetMappingIssueCode = (typeof TARGET_MAPPING_ISSUE_CODES)[number];
 
 export type QuantitativeStatementDisposition = {
   quote: string;
   block_ids: string[];
   disposition: "context_only" | "non_scalar" | "range_or_set" | "uncertain" | "mapping_failed";
-  failure_code?: string;
+  failure_code: QuantitativeReviewFailureCode | "";
+  /** Which structural checks failed; non-empty exactly on `invalid_target_mapping`. */
+  issue_codes: TargetMappingIssueCode[];
   reason: string;
   attribute_refs: string[];
 };
@@ -683,7 +822,9 @@ export type QuantitativeLedgerReview = {
   block_id: string;
   quote: string;
   classification: "target" | "partial_target" | "context_only" | "non_scalar" | "range_or_set" | "non_numeric" | "uncertain" | "mapping_failed";
-  failure_code?: string;
+  failure_code: QuantitativeReviewFailureCode | "";
+  /** Which structural checks failed; non-empty exactly on `invalid_target_mapping`. */
+  issue_codes: TargetMappingIssueCode[];
   reason: string;
   attribute_refs: string[];
   target_ids: string[];
@@ -731,6 +872,49 @@ export type QuantitativeSemanticProfile = {
   conditions: SemanticSlot;
 };
 
+/** Scope dimensions a run states once for every query. Mirrors `RUN_SCOPE_DIMENSIONS`. */
+export const RUN_SCOPE_DIMENSIONS = ["condition", "intervention", "region"] as const;
+export type RunScopeDimension = (typeof RUN_SCOPE_DIMENSIONS)[number];
+
+/**
+ * One scope dimension's value for a run, and where it came from.
+ *
+ * `unset` carries no value and is a deliberate widening, not a gap; `document` cites the
+ * blocks the value was read from, and only it does.
+ */
+export type ScopeEntry = {
+  dimension: RunScopeDimension;
+  value: string;
+  provenance: "header" | "document" | "config_default" | "unset";
+  block_ids: string[];
+};
+
+/** What a run searches for. Every dimension has an entry, including the unset ones. */
+export type RetrievalScope = { entries: ScopeEntry[] };
+
+/** The identity layers Scout runs, in run order. Mirrors `IDENTITY_LAYERS`. */
+export const IDENTITY_LAYERS = ["document_units", "quantitative_targets", "insights", "projections"] as const;
+export type IdentityLayer = (typeof IDENTITY_LAYERS)[number];
+
+/**
+ * What one identity layer decided about one set, or that it could not decide.
+ *
+ * `not_reconciled` means the call failed and the set went on unmerged, so duplicates in it
+ * may be counted separately; it carries a `FailureCode` and merged nothing. `reconciled`
+ * with `merged: 0` is the layer finding nothing to merge, a different claim.
+ */
+export type IdentityReconciliation = {
+  layer: IdentityLayer;
+  /** The field name for `insights`; blank for a document-wide or run-wide set. */
+  scope: string;
+  status: "reconciled" | "not_reconciled";
+  /** Members of the set (two or more), and how many were merged into another member. */
+  items: number;
+  merged: number;
+  failure_code: FailureCode | "";
+  reason: string;
+};
+
 export type ScoutResponse = {
   phase: "target_review" | "evidence_review" | "final";
   org: string;
@@ -745,12 +929,32 @@ export type ScoutResponse = {
    *  always sends it. */
   published_since?: string;
   context_validation: {
-    status: "match" | "mismatch" | "uncertain" | "not_checked";
+    /** Only `mismatch` stops a run; `not_assessed` means the check obtained no answer. */
+    status: "match" | "mismatch" | "uncertain" | NotAssessed;
     configured_indication: string;
     document_indication: string;
     reason: string;
     doc_block_ids: string[];
+    /** Set on exactly a `not_assessed` validation, blank on a verdict. */
+    failure_code: FailureCode | "";
   };
+  /**
+   * What the run searches for, resolved before target review and carried on the draft.
+   *
+   * The continuation reads it back rather than resolving it again, so a draft sent to
+   * `continueScout` must keep it: the request is refused without it.
+   */
+  retrieval_scope: RetrievalScope;
+  /** One record per identity call the run made, in the order they ran. */
+  reconciliations: IdentityReconciliation[];
+  /**
+   * Searchable fields the reviewer left out of evidence search at target review.
+   *
+   * The one statement of that selection: the checkpoint edits it on the draft, the whole
+   * draft goes back to `continueScout`, and the final result keeps it. Empty searches every
+   * field. Each name holds `not_searched` on grounding and precedent.
+   */
+  not_searched_fields: string[];
   quantitative_ledger: QuantitativeLedger;
   variables: Variable[];
   search_plan?: SearchTrace[];
@@ -978,15 +1182,15 @@ export type GateSpec = {
 };
 
 /**
- * What became of one gate question. Three values, each traceable.
+ * What became of one gate question. Four values, each traceable.
  *
  * `not_applicable` means the question's own text states a class this run is not, so
- * no model read it and it is not a shortfall. `answered` and `not_found` are what a
- * model concluded from the material supplied.
+ * no model read it and it is not a shortfall. `answered`, `partly_answered` and
+ * `not_found` are what a model concluded from the material supplied.
  *
- * `not_found` rather than `absent`: the claim has to hold whether or not the bank's
- * "not found in what was supplied" is what the run establishes, whatever anyone expected
- * the documents to hold.
+ * `not_found` rather than `absent`: "not found in what was supplied" is what the run
+ * establishes, whatever anyone expected the documents to hold.
+ *
  * There were five states; two of them rested on a judgment about which document
  * could answer a question, which the source question bank does not contain.
  */
@@ -996,28 +1200,6 @@ export type QuestionState =
   | "partly_answered"
   | "not_found";
 
-/**
- * Where an answer came from.
- *
- * `document` carries `cited_block_ids` and can be checked. `context` names a
- * transient item the user pasted for that run, whose text is deliberately not
- * retained anywhere — so the label is the entire record, and an answer sourced
- * that way can never be verified from the saved file. There is no third value, so
- * nothing can look cited without being so.
- */
-/**
- * One tone per question state, on the shared scale.
- *
- * It lived in `screener-coverage-strip.tsx` as hand-written background classes, which
- * made it a fifth tone vocabulary beside the four the scale already holds - and it was
- * unreachable from the metrics row, which is why Screener's counts were the only ones
- * with no dot beside them.
- *
- * `not_found` is `neutral`, matching Aligner's `not_addressed`: both say the material is
- * silent on the subject, and silence is not a failure. Its own comment said so - "the
- * strongest mark, because it is the actionable one, not because it is a failure" - and a
- * danger tone would have made exactly the claim it was refusing.
- */
 /** What each state is called where a reader sees it. */
 export const QUESTION_STATE_LABEL: Record<QuestionState, string> = {
   answered: "Answered",
@@ -1031,6 +1213,19 @@ export const QUESTION_REQUIREMENT_LABEL: Record<QuestionAssessment["requirement"
   anticipatory: "Anticipatory",
 };
 
+/**
+ * One tone per question state, on the shared scale.
+ *
+ * It lived in `screener-coverage-strip.tsx` as hand-written background classes, which
+ * made it a fifth tone vocabulary beside the four the scale already holds - and it was
+ * unreachable from the metrics row, which is why Screener's counts were the only ones
+ * with no dot beside them.
+ *
+ * `not_found` is `neutral`, matching Aligner's `not_addressed`: both say the material is
+ * silent on the subject, and silence is not a failure. Its own comment said so - "the
+ * strongest mark, because it is the actionable one, not because it is a failure" - and a
+ * danger tone would have made exactly the claim it was refusing.
+ */
 export const QUESTION_STATE_TONE: Record<QuestionState, Tone> = {
   answered: "success",
   partly_answered: "warning",
@@ -1141,11 +1336,47 @@ export const API_BASE =
   configuredApiUrl ||
   (configuredApiHost ? `https://${configuredApiHost}` : unconfiguredApiBase);
 
-async function jsonRequest<T>(path: string, init?: RequestInit): Promise<T> {
-  const res = await fetch(`${API_BASE}${path}`, init);
-  if (!res.ok) {
-    throw new Error((await res.text()) || `Request failed: ${res.status}`);
+/**
+ * `fetch`, with a failure to reach the server said in words.
+ *
+ * The browser's own message for a refused connection, a dropped network or a blocked
+ * origin is "Failed to fetch", which a reader cannot act on.
+ */
+async function reach(input: string, init?: RequestInit): Promise<Response> {
+  try {
+    return await fetch(input, init);
+  } catch (error) {
+    if (error instanceof TypeError) {
+      throw new Error("Could not reach the PDIS server. Check your connection and try again.");
+    }
+    throw error;
   }
+}
+
+/**
+ * What a refused request says, in the server's words.
+ *
+ * FastAPI sends `{"detail": "..."}`, or for a malformed request a list of `{msg}`. The body
+ * was shown as it came, so a reader saw `{"detail":"Unsupported file type"}` - JSON where
+ * a sentence belonged.
+ */
+export async function responseError(res: Response, fallback = "Request failed"): Promise<Error> {
+  const text = await res.text().catch(() => "");
+  let detail: unknown = text;
+  try {
+    detail = (JSON.parse(text) as { detail?: unknown }).detail ?? text;
+  } catch {
+    // Not JSON: a proxy's page or plain text, said as it came.
+  }
+  const message = Array.isArray(detail)
+    ? detail.map((item) => (item && typeof item === "object" && "msg" in item ? String(item.msg) : String(item))).join("; ")
+    : typeof detail === "string" ? detail.trim() : "";
+  return new Error(message || `${fallback} (${res.status})`);
+}
+
+async function jsonRequest<T>(path: string, init?: RequestInit): Promise<T> {
+  const res = await reach(`${API_BASE}${path}`, init);
+  if (!res.ok) throw await responseError(res);
   return res.json() as Promise<T>;
 }
 
@@ -1159,39 +1390,58 @@ async function streamRequest<T>(
   onStage?: (stage: string, progress?: StageProgress) => void,
   headers?: HeadersInit,
 ): Promise<T> {
-  const res = await fetch(`${API_BASE}${path}`, { method: "POST", body, headers });
-  if (!res.ok || !res.body) {
-    throw new Error((await res.text()) || `Request failed: ${res.status}`);
-  }
+  const res = await reach(`${API_BASE}${path}`, { method: "POST", body, headers });
+  if (!res.ok || !res.body) throw await responseError(res);
   const reader = res.body.getReader();
   const decoder = new TextDecoder();
-  let buffer = "";
+  // Text after the last newline seen. Only each new chunk is searched for line breaks:
+  // rescanning the held text from its start after every chunk made a final event of
+  // several megabytes - a result with retained images - quadratic to read.
+  let partial = "";
   let result: T | null = null;
   let error: string | null = null;
 
-  while (true) {
-    const { value, done } = await reader.read();
-    if (done) break;
-    buffer += decoder.decode(value, { stream: true });
-    let nl: number;
-    while ((nl = buffer.indexOf("\n")) !== -1) {
-      const line = buffer.slice(0, nl).trim();
-      buffer = buffer.slice(nl + 1);
-      if (!line) continue;
-      const event = JSON.parse(line) as StreamEvent<T>;
-      if (event.event === "stage") {
-        const progress =
-          event.completed != null && event.total != null
-            ? { completed: event.completed, total: event.total }
-            : undefined;
-        onStage?.(event.name, progress);
-      } else if (event.event === "complete") {
-        result = event.result;
-      } else if (event.event === "error") {
-        error = event.detail;
-      }
+  function handle(line: string) {
+    if (!line.trim()) return;
+    const event = JSON.parse(line) as StreamEvent<T>;
+    if (event.event === "stage") {
+      const progress =
+        event.completed != null && event.total != null
+          ? { completed: event.completed, total: event.total }
+          : undefined;
+      onStage?.(event.name, progress);
+    } else if (event.event === "complete") {
+      result = event.result;
+    } else if (event.event === "error") {
+      error = event.detail;
     }
   }
+
+  while (true) {
+    let chunk: ReadableStreamReadResult<Uint8Array>;
+    try {
+      chunk = await reader.read();
+    } catch (failure) {
+      // A connection that broke mid-stream - a network drop, a sleeping laptop, a proxy
+      // reset - is the same observation as a stream that closed early, so it takes the
+      // same sentence below. The browser's own text for it was "network error".
+      if (failure instanceof TypeError) break;
+      throw failure;
+    }
+    const { value, done } = chunk;
+    if (done) break;
+    const text = decoder.decode(value, { stream: true });
+    const lastBreak = text.lastIndexOf("\n");
+    if (lastBreak === -1) {
+      partial += text;
+      continue;
+    }
+    const lines = (partial + text.slice(0, lastBreak)).split("\n");
+    partial = text.slice(lastBreak + 1);
+    lines.forEach(handle);
+  }
+  // Whatever the decoder still holds, and a last event the stream closed without ending.
+  handle(partial + decoder.decode());
 
   if (error) throw new Error(error);
   if (result === null) {
@@ -1433,12 +1683,15 @@ export type DraftObservation = {
   product: string;
   measure: string;
   quote: string;
-  value: { value: number | null; lower: number | null; upper: number | null; unit: string } | null;
+  /** `text` is the quote's own words for the number, which code checked are in the quote. */
+  value: { value: number | null; lower: number | null; upper: number | null; unit: string; text: string } | null;
   numeric_eligible: boolean;
 };
 
 export type DraftGroupSummary = {
   unit: string;
+  /** The observations this group's values came from, so a figure can be traced to its quotes. */
+  observation_ids: string[];
   count: number;
   minimum: number;
   maximum: number;
@@ -1464,11 +1717,18 @@ export type DraftVariable = {
   description: string;
   evidence_domain: string;
   status: "complete" | "failed";
-  failure: { code: "search_planning_failed" | "evidence_unavailable" | "suggestion_failed"; message: string } | null;
+  failure: {
+    code: "search_planning_failed" | "evidence_unavailable" | "suggestion_failed";
+    message: string;
+    /** Why the call failed; null only for `evidence_unavailable`, which no call raised. */
+    cause: FailureCode | null;
+  } | null;
   observations: DraftObservation[];
   statistics: DraftGroupSummary[];
   suggestion: DraftSuggestion | null;
   unread_findings: number;
+  /** Quotes a reader offered that their excerpt does not contain, so were not kept. */
+  unverified_quotes: number;
 };
 
 export type DraftResult = {
@@ -1505,14 +1765,12 @@ export async function runDrafter(
  * The server names the file, so the browser never restates a document extension.
  */
 export async function exportDrafterDocx(result: DraftResult): Promise<{ blob: Blob; filename: string }> {
-  const res = await fetch(`${API_BASE}/api/drafter/export`, {
+  const res = await reach(`${API_BASE}/api/drafter/export`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ result }),
   });
-  if (!res.ok) {
-    throw new Error((await res.text()) || `Export failed: ${res.status}`);
-  }
+  if (!res.ok) throw await responseError(res, "Export failed");
   const named = /filename="([^"]+)"/.exec(res.headers.get("Content-Disposition") ?? "");
   return { blob: await res.blob(), filename: named?.[1] ?? "pdis-drafter" };
 }

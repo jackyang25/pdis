@@ -1,9 +1,21 @@
-import { ALIGNMENT_VERDICTS, VERDICTS } from "./api.ts";
+import {
+  ALIGNMENT_VERDICTS,
+  FAILURE_CODES,
+  IDENTITY_LAYERS,
+  NO_EVIDENCE,
+  NOT_ASSESSED,
+  NOT_SEARCHED,
+  RUN_SCOPE_DIMENSIONS,
+  TARGET_MAPPING_ISSUE_CODES,
+  VERDICTS,
+} from "./api.ts";
 import type {
   AlignerResponse,
   DisciplineReview,
   DraftResult,
   DraftVariable,
+  EvidenceAssessment,
+  PrecedentSignal,
   ScreenerResponse,
   InspectorResponse,
   QuestionAssessment,
@@ -48,6 +60,9 @@ function requireArray(tool: ResultType, value: unknown, name: string): unknown[]
 function requireText(tool: ResultType, value: unknown, name: string): void {
   if (typeof value !== "string" || !value.trim()) fail(tool, `${name} is missing`);
 }
+
+/** Why a model call produced no usable answer (`shared.ai.FAILURE_CODES`), for every tool. */
+const KNOWN_FAILURE_CODES = new Set<string>(FAILURE_CODES);
 
 const SUPPORTED_IMAGE_MEDIA_TYPES = new Set([
   "image/gif",
@@ -159,6 +174,14 @@ function assertInspectorReadable(result: unknown): void {
     || Array.isArray(inspection.applicability_facts)
     || Object.values(inspection.applicability_facts).some(value => !["yes", "no", "unknown"].includes(value))) fail("inspector", "invalid product facts");
   requireArray("inspector", inspection.document_findings, "document_findings");
+  // A failure is a process fact and carries its code; any other status carries none.
+  if (inspection.consistency_status === "failed") {
+    if (!KNOWN_FAILURE_CODES.has(String(inspection.consistency_failure_code))) {
+      fail("inspector", "a failed consistency check carries no failure code");
+    }
+  } else if (inspection.consistency_failure_code !== null) {
+    fail("inspector", "a consistency failure code requires a failed check");
+  }
 }
 
 // --- Aligner -----------------------------------------------------------------
@@ -167,10 +190,11 @@ function assertInspectorReadable(result: unknown): void {
  * What an alignment must contain to be rendered.
  *
  * Documents and comparisons that refer to each other, and findings that refer to a
- * comparison this file actually made. The service checks far more — that each side's
- * citations land in that side's document, that a shortfall names its gap — and cannot be
- * repeated here, because those checks read the parsed blocks. What is repeated is
- * whatever the view would otherwise crash on, or silently render as empty.
+ * comparison this file actually made, every comparison carrying its requirements in the
+ * order they were read. The service checks far more — that each side's text citations
+ * land in that side's document, that exactly `falls_short` and `not_comparable` carry a
+ * `gap` — and those are not repeated here. What is repeated is whatever the view would
+ * otherwise crash on, or silently render as empty or out of order.
  */
 function assertAlignerReadable(result: unknown): void {
   const alignment = (result as AlignerResponse | null)?.alignment;
@@ -195,9 +219,19 @@ function assertAlignerReadable(result: unknown): void {
   // whole tool exists to prevent.
   const findings = requireArray("aligner", alignment.findings, "findings");
   if (findings.length === 0) fail("aligner", "it carries no findings");
+  const perEdge = new Map<string, number>();
   for (const finding of findings as AlignerResponse["alignment"]["findings"]) {
     if (!edgeIds.has(finding.edge_id)) {
       fail("aligner", "a finding names a comparison the file does not carry");
+    }
+    // Requirement IDs are minted positionally per comparison (`requirement_id` in the
+    // service), so each comparison's findings run r-001, r-002, ... in order. Anything
+    // else is a finding filed under the wrong comparison, or a requirement gone missing.
+    const position = (perEdge.get(finding.edge_id) ?? 0) + 1;
+    perEdge.set(finding.edge_id, position);
+    const expected = `${finding.edge_id}/r-${String(position).padStart(3, "0")}`;
+    if (finding.requirement_id !== expected) {
+      fail("aligner", `finding ${finding.requirement_id} is out of sequence; expected ${expected}`);
     }
     if (!ALIGNMENT_VERDICTS.includes(finding.verdict)) {
       fail("aligner", `a finding carries an unknown verdict (${finding.verdict})`);
@@ -214,6 +248,11 @@ function assertAlignerReadable(result: unknown): void {
       if (ids.some(id => typeof id !== "string" || !allowed.has(id))) fail("aligner", "a visual citation does not name a retained image on its own side");
       if (side === "comparison" && finding.verdict === "not_addressed" && ids.length) fail("aligner", "an unaddressed requirement cannot cite a visual");
     }
+  }
+  // A reference document states at least one requirement, so a comparison with none is a
+  // read that failed, not a document that asks for nothing.
+  for (const edgeId of edgeIds) {
+    if (!perEdge.has(edgeId)) fail("aligner", `comparison ${edgeId} carries no findings`);
   }
 }
 
@@ -268,6 +307,13 @@ function assertScreenerReadable(result: unknown): void {
       if (held.state === "partly_answered" && !held.missing?.trim()) {
         fail("screener", "a partial answer does not say what it leaves open");
       }
+      // Every model decision says what the material holds, `not_found` included; the one
+      // state no model reached says nothing.
+      if (held.state === "not_applicable") {
+        if (held.statement) fail("screener", "an inapplicable question carries a statement, but no model read it");
+      } else if (typeof held.statement !== "string" || !held.statement.trim()) {
+        fail("screener", `a ${held.state} question carries no statement`);
+      }
       if (held.state !== "answered" && held.state !== "partly_answered") {
         // An older file's `absent`, `not_answerable`, or `not_assessable` reaches here
         // as an unknown string. The version gate is what actually refuses it; this only
@@ -313,8 +359,32 @@ function assertDrafterReadable(result: unknown): void {
     const observations = new Set(requireArray("drafter", variable.observations, "observations").map(
       (observation) => (observation as { id: string }).id,
     ));
+    for (const count of ["unread_findings", "unverified_quotes"] as const) {
+      const value = variable[count];
+      if (!Number.isInteger(value) || value < 0) fail("drafter", `${count} is a count`);
+    }
+    // A number names the words that state it, and a figure the observations it came from,
+    // so every figure on screen can be traced back to a quote.
+    for (const observation of variable.observations) {
+      if (observation.value && !observation.value.text?.trim()) fail("drafter", "a number does not name the words that state it");
+    }
+    const eligible = new Set(variable.observations.filter((observation) => observation.numeric_eligible).map((observation) => observation.id));
+    for (const group of requireArray("drafter", variable.statistics, "figures") as DraftVariable["statistics"]) {
+      const ids = requireArray("drafter", group.observation_ids, "a figure's observations") as string[];
+      if (ids.length !== group.count || ids.some((id) => !eligible.has(id))) {
+        fail("drafter", "a figure does not name the observations it was computed from");
+      }
+    }
     if (variable.status === "failed") {
       if (!DRAFT_FAILURE_CODES.has(variable.failure?.code ?? "")) fail("drafter", "a failed variable carries no known failure code");
+      // A failed call says why by code; a variable left without evidence was concluded
+      // from counts, so it names no call's cause.
+      const cause = variable.failure?.cause ?? null;
+      if (variable.failure?.code === "evidence_unavailable") {
+        if (cause !== null) fail("drafter", "a variable left without evidence carries no call's cause");
+      } else if (!KNOWN_FAILURE_CODES.has(String(cause))) {
+        fail("drafter", "a failed call carries no known cause");
+      }
       continue;
     }
     const suggestion = variable.suggestion;
@@ -353,7 +423,12 @@ const LEANS_ON_BASES = {
  * to check. The structure is shared; the depth is each tool's own.
  */
 function assertScoutReadable(result: unknown): void {
-  const scout = result as ScoutResponse;
+  const scout = result as ScoutResponse | null;
+  if (!scout || typeof scout !== "object") fail("scout", "it carries no analysis");
+  // The two lists every Scout view is built from. Checked here rather than on the page,
+  // so the import boundary is the one place that refuses a file without them.
+  requireArray("scout", scout.variables, "variables");
+  requireArray("scout", scout.matches, "matches");
   if (
     !isScoutResultFinal(scout)
     || !hasCompleteComparisonContract(scout)
@@ -366,6 +441,289 @@ function assertScoutReadable(result: unknown): void {
   }
   if (!hasCompleteSafetyObservationContract(scout)) {
     fail("scout", "its safety observation contract is incomplete");
+  }
+  assertScoutVerdictsAndFailures(scout);
+  assertScoutFieldCoverage(scout);
+  assertScoutNumericReviewFailures(scout);
+  assertScoutRetrievalScope(scout);
+  assertScoutReconciliations(scout);
+}
+
+/**
+ * Each axis's model vocabulary. `not_assessed` is never one of them; see below. Nor are
+ * `no_evidence` and `not_searched`, which code records on the axes that judge retrieved
+ * evidence.
+ */
+const SCOUT_VERDICTS = {
+  relation: new Set(["contradicts", "extends", "confirms", "unrelated"]),
+  grounding: new Set(["well_grounded", "partial", "thin", "unsupported", "unknown"]),
+  precedent: new Set(["direct", "adjacent", "none", "unknown"]),
+  outcome: new Set(["favorable", "mixed", "unfavorable", "unknown"]),
+  context: new Set(["match", "mismatch", "uncertain"]),
+  target: new Set(["direct", "analogous", "adjacent", "unrelated", "unknown"]),
+} as const;
+
+
+/**
+ * A model's verdict and a pipeline failure never share a value.
+ *
+ * Every axis holds either one of the model's closed vocabulary, carrying no failure code,
+ * or `not_assessed` - which only code records - carrying the code saying why. The service's
+ * contract, mirrored: a file that mixed them would read a failed call as a finding, or a
+ * finding as a failure. Each list's sources are distinct for the same reason a stored count
+ * is refused: one source cited twice is counted twice by anything that reads the list.
+ */
+function assertScoutVerdictsAndFailures(scout: ScoutResponse): void {
+  const check = (
+    value: unknown,
+    failureCode: unknown,
+    verdicts: Set<string>,
+    context: string,
+  ) => {
+    if (value === NOT_ASSESSED) {
+      if (!KNOWN_FAILURE_CODES.has(String(failureCode))) {
+        fail("scout", `${context} is not assessed without a known failure code`);
+      }
+      return;
+    }
+    if (!verdicts.has(String(value)) && !(recordsCodeStates && CODE_RECORDED_STATES.has(String(value)))) {
+      fail("scout", `${context} is not a known verdict`);
+    }
+    if (failureCode) fail("scout", `${context} is a verdict but carries a failure code`);
+  };
+  // Set per axis below: only the axes that judge retrieved evidence can have had none, or
+  // been left out of search.
+  let recordsCodeStates = false;
+  // A source is one record however many links reached it, so it is keyed by the record's
+  // identity, and by its URL only where a saved finding states none.
+  const distinctSources = (findings: unknown, context: string) => {
+    const records = requireArray("scout", findings, `${context} sources`)
+      .map((finding) => {
+        const { record_key: key, url } = finding as { record_key?: unknown; url?: unknown };
+        return typeof key === "string" && key ? `record:${key}` : `url:${String(url)}`;
+      });
+    if (new Set(records).size !== records.length) fail("scout", `${context} cites one source twice`);
+  };
+  // No state code records draws on evidence, so none may cite any.
+  const citesNothing = (
+    value: string,
+    record: { supporting_insight_ids?: unknown[]; supporting_findings?: unknown[] },
+    context: string,
+  ) => {
+    if (
+      (value === NOT_ASSESSED || CODE_RECORDED_STATES.has(value))
+      && ((record.supporting_insight_ids?.length ?? 0) > 0 || (record.supporting_findings?.length ?? 0) > 0)
+    ) {
+      fail("scout", `${context} is ${value} but cites evidence`);
+    }
+  };
+
+  const validation = scout.context_validation;
+  if (!validation) fail("scout", "it carries no document-context check");
+  check(validation.status, validation.failure_code, SCOUT_VERDICTS.context, "the document-context check");
+  for (const match of scout.matches) {
+    check(match.relation, match.failure_code, SCOUT_VERDICTS.relation, "an evidence relation");
+  }
+  const insightFields = new Set(scout.matches.map((match) => match.insight?.attribute_ref));
+  recordsCodeStates = true;
+  for (const assessment of requireArray("scout", scout.assessments, "assessments") as ScoutResponse["assessments"]) {
+    const context = `the grounding for ${assessment.attribute_ref}`;
+    check(assessment.strength, assessment.failure_code, SCOUT_VERDICTS.grounding, context);
+    citesNothing(assessment.strength, assessment, context);
+    if (assessment.strength === NO_EVIDENCE && insightFields.has(assessment.attribute_ref)) {
+      fail("scout", `${context} is no_evidence beside its insights`);
+    }
+    distinctSources(assessment.supporting_findings, "a field grounding");
+  }
+  for (const signal of requireArray("scout", scout.precedents, "precedents") as ScoutResponse["precedents"]) {
+    // One classification decides both axes, so one code answers for both.
+    const context = `the precedent for ${signal.attribute_ref}`;
+    check(signal.precedent, signal.failure_code, SCOUT_VERDICTS.precedent, `the precedent coverage for ${signal.attribute_ref}`);
+    check(signal.outcome, signal.failure_code, SCOUT_VERDICTS.outcome, `the precedent outcome for ${signal.attribute_ref}`);
+    // And one absence empties both: no evidence for one axis is no evidence for the other,
+    // and a field left out of search was left out on both.
+    for (const state of CODE_RECORDED_STATES) {
+      if ((signal.precedent === state) !== (signal.outcome === state)) {
+        fail("scout", `${context} records ${state} on both precedent axes or neither`);
+      }
+    }
+    citesNothing(signal.precedent, signal, context);
+    if (signal.precedent === NO_EVIDENCE && insightFields.has(signal.attribute_ref)) {
+      fail("scout", `${context} is no_evidence beside its insights`);
+    }
+    distinctSources(signal.supporting_findings, "a precedent");
+  }
+  recordsCodeStates = false;
+  for (const projection of [...scout.development_landscape, ...scout.safety_observations]) {
+    check(
+      projection.target_relationship,
+      projection.target_relationship_failure_code,
+      SCOUT_VERDICTS.target,
+      "a record's relation to the product",
+    );
+    distinctSources(projection.supporting_findings, "a record");
+  }
+}
+
+/** The states code records on the axes that judge retrieved evidence, beside `not_assessed`. */
+const CODE_RECORDED_STATES = new Set<string>([NO_EVIDENCE, NOT_SEARCHED]);
+
+/**
+ * Every searchable field has exactly one grounding and one precedent record - a judgement,
+ * `no_evidence`, `not_assessed` or `not_searched` - so none can read as a field the run never
+ * considered. `not_searched` is exactly the fields the reviewer left out, and such a field
+ * holds nothing a search would have produced. Mirrors the service contract: searchable is a
+ * stated target with its spans.
+ */
+function assertScoutFieldCoverage(scout: ScoutResponse): void {
+  const searchable = new Set(
+    scout.variables
+      .filter((variable) => variable.document_target && variable.document_spans?.length)
+      .map((variable) => variable.name),
+  );
+  const names = requireArray("scout", scout.not_searched_fields, "fields left out of search").map(String);
+  const excluded = new Set(names);
+  if (excluded.size !== names.length) fail("scout", "it leaves one field out of search twice");
+  for (const name of excluded) {
+    if (!searchable.has(name)) fail("scout", `not_searched_fields names ${name}, which is not a searchable field`);
+  }
+  const lists: [string, { attribute_ref: string }[], (record: never) => string][] = [
+    ["evidence assessment", scout.assessments, (record: EvidenceAssessment) => record.strength],
+    ["precedent signal", scout.precedents, (record: PrecedentSignal) => record.precedent],
+  ];
+  for (const [label, records, state] of lists) {
+    const refs = records.map((record) => record.attribute_ref);
+    const covered = new Set(refs);
+    if (covered.size !== refs.length) fail("scout", `a field holds more than one ${label}`);
+    const differing = [...covered, ...searchable].filter((ref) => covered.has(ref) !== searchable.has(ref));
+    if (differing.length) {
+      fail("scout", `every searchable field needs one ${label}: ${[...new Set(differing)].sort().join(", ")}`);
+    }
+    for (const record of records) {
+      if ((state(record as never) === NOT_SEARCHED) !== excluded.has(record.attribute_ref)) {
+        fail("scout", `the ${label} for ${record.attribute_ref} must be not_searched exactly when the reviewer excluded it`);
+      }
+    }
+  }
+  for (const match of scout.matches) {
+    if (excluded.has(match.insight?.attribute_ref ?? "")) {
+      fail("scout", `${match.insight.attribute_ref} was not searched but holds an insight`);
+    }
+  }
+  for (const trace of scout.search_plan ?? []) {
+    if (excluded.has(trace.attribute_ref)) fail("scout", `a search names ${trace.attribute_ref}, which was not searched`);
+  }
+  for (const score of scout.conformity) {
+    if (score.attribute_refs.every((ref) => excluded.has(ref))) {
+      fail("scout", `a calibration belongs only to fields that were not searched (${score.target_id})`);
+    }
+  }
+  for (const projection of [...scout.development_landscape, ...scout.safety_observations]) {
+    if (projection.attribute_refs.some((ref) => excluded.has(ref))) {
+      fail("scout", "a record names a field that was not searched");
+    }
+  }
+}
+
+/**
+ * The run says what it searched for: one entry per scope dimension, unset included, and a
+ * document-derived value cites blocks the result holds. Mirrors `RetrievalScopeLedger`.
+ */
+function assertScoutRetrievalScope(scout: ScoutResponse): void {
+  const scope = scout.retrieval_scope;
+  if (!scope || typeof scope !== "object") fail("scout", "it carries no retrieval scope");
+  const entries = requireArray("scout", scope.entries, "retrieval scope entries") as ScoutResponse["retrieval_scope"]["entries"];
+  const known = new Set(scout.blocks?.map((block) => block.id) ?? []);
+  const dimensions = entries.map((entry) => entry.dimension);
+  if (new Set(dimensions).size !== dimensions.length) fail("scout", "its retrieval scope states a dimension twice");
+  const missing = RUN_SCOPE_DIMENSIONS.filter((dimension) => !dimensions.includes(dimension));
+  if (missing.length) fail("scout", `its retrieval scope omits ${missing.join(", ")}`);
+  for (const entry of entries) {
+    if (!(RUN_SCOPE_DIMENSIONS as readonly string[]).includes(entry.dimension)) {
+      fail("scout", `its retrieval scope names an unknown dimension (${String(entry.dimension)})`);
+    }
+    if (!SCOPE_PROVENANCE.has(entry.provenance)) {
+      fail("scout", `retrieval scope ${entry.dimension} has an unknown source (${String(entry.provenance)})`);
+    }
+    if ((entry.provenance === "unset") === Boolean(entry.value)) {
+      fail("scout", `retrieval scope ${entry.dimension} is unset with a value, or set without one`);
+    }
+    const blocks = requireArray("scout", entry.block_ids, `retrieval scope ${entry.dimension} blocks`);
+    if ((entry.provenance === "document") !== (blocks.length > 0)) {
+      fail("scout", `retrieval scope ${entry.dimension}: a document-derived value, and only one, must cite blocks`);
+    }
+    if (blocks.some((id) => !known.has(String(id)))) {
+      fail("scout", `retrieval scope ${entry.dimension} cites a block the result does not hold`);
+    }
+  }
+}
+
+const SCOPE_PROVENANCE = new Set<string>(["header", "document", "config_default", "unset"]);
+
+/**
+ * Each identity layer either decided or says by code that it could not, and an undecided
+ * set merged nothing. Mirrors `IdentityReconciliation` and the service contract.
+ */
+function assertScoutReconciliations(scout: ScoutResponse): void {
+  const fields = new Set(scout.variables.map((variable) => variable.name));
+  const records = requireArray("scout", scout.reconciliations, "identity reconciliations") as ScoutResponse["reconciliations"];
+  for (const record of records) {
+    if (!(IDENTITY_LAYERS as readonly string[]).includes(record.layer)) {
+      fail("scout", `it names an unknown identity layer (${String(record.layer)})`);
+    }
+    if (record.status !== "reconciled" && record.status !== "not_reconciled") {
+      fail("scout", `${record.layer} has an unknown reconciliation status`);
+    }
+    const unreconciled = record.status === "not_reconciled";
+    if (unreconciled !== Boolean(record.failure_code)) {
+      fail("scout", `${record.layer}: an unreconciled set, and only one, carries a failure code`);
+    }
+    if (record.failure_code && !KNOWN_FAILURE_CODES.has(record.failure_code)) {
+      fail("scout", `${record.layer} carries an unknown failure code`);
+    }
+    if (!Number.isInteger(record.items) || record.items < 2 || !Number.isInteger(record.merged)
+      || record.merged < 0 || record.merged >= record.items) {
+      fail("scout", `${record.layer}: an identity layer partitions two or more items`);
+    }
+    if (unreconciled && record.merged) fail("scout", `${record.layer}: an unreconciled set merged nothing`);
+    if (record.layer === "insights" ? !fields.has(record.scope) : Boolean(record.scope)) {
+      fail(
+        "scout",
+        record.layer === "insights"
+          ? `insight reconciliation names an unknown field (${record.scope})`
+          : `${record.layer} reconciliation is document-wide, not per field`,
+      );
+    }
+  }
+}
+
+const NUMERIC_REVIEW_FAILURE_CODES = new Set(["", "invalid_model_response", "invalid_target_mapping"]);
+const ISSUE_CODES = new Set<string>(TARGET_MAPPING_ISSUE_CODES);
+
+/**
+ * A numeric review that did not finish says why by code, and a mapping that failed
+ * structural validation names exactly which checks it failed.
+ *
+ * The page words the reviewer's explanation from these codes, so a file whose codes
+ * disagree with each other would be explained as something it is not.
+ */
+function assertScoutNumericReviewFailures(scout: ScoutResponse): void {
+  const items = [
+    ...requireArray("scout", scout.quantitative_ledger?.reviews, "numeric reviews"),
+    ...scout.variables.flatMap((variable) => variable.quantitative_statement_dispositions ?? []),
+  ] as { failure_code?: unknown; issue_codes?: unknown }[];
+  for (const item of items) {
+    const code = item.failure_code ?? "";
+    if (!NUMERIC_REVIEW_FAILURE_CODES.has(String(code))) {
+      fail("scout", `a numeric review carries an unknown failure code (${String(code)})`);
+    }
+    const issues = requireArray("scout", item.issue_codes, "a numeric review's failed checks");
+    if (issues.some((issue) => !ISSUE_CODES.has(String(issue))) || new Set(issues).size !== issues.length) {
+      fail("scout", "a numeric review names an unknown or repeated check");
+    }
+    if ((code === "invalid_target_mapping") !== (issues.length > 0)) {
+      fail("scout", "a target mapping failure, and only one, names its failed checks");
+    }
   }
 }
 
@@ -446,7 +804,7 @@ function hasCompleteProjectionRoleContract(value: unknown): boolean {
     "experimental", "comparator", "control", "co_intervention", "unknown",
   ]);
   const relationships = new Set([
-    "direct", "analogous", "adjacent", "unrelated", "unknown",
+    "direct", "analogous", "adjacent", "unrelated", "unknown", NOT_ASSESSED,
   ]);
   // Burden indicators are deliberately absent: a disease reading is not experimental or
   // comparator, and not direct or analogous to a target. It carries no role to check.

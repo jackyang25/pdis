@@ -1,10 +1,6 @@
 "use client";
 
-import {
-  SignalHelp,
-  SignalLabel,
-  type SignalTopic,
-} from "@/components/ui/signal-help";
+import { SignalHelp, type SignalTopic } from "@/components/ui/signal-help";
 
 /**
  * Aligner's vocabulary. The wording is Aligner's; the popover behaviour is shared with
@@ -66,22 +62,6 @@ const TOPICS: Record<AlignerSignalTopic, SignalTopic> = {
 
 /** Publication order, shared by the tooltips and the documentation panel. */
 export const ALIGNER_TOPIC_LIST: readonly SignalTopic[] = Object.values(TOPICS);
-
-export function AlignerSignalLabel({
-  topic,
-  children,
-  className,
-}: {
-  topic: AlignerSignalTopic;
-  children: React.ReactNode;
-  className?: string;
-}) {
-  return (
-    <SignalLabel topic={TOPICS[topic]} className={className}>
-      {children}
-    </SignalLabel>
-  );
-}
 
 export function AlignerSignalHelp() {
   return (

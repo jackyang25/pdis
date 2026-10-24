@@ -29,12 +29,15 @@ import { cn } from "@/lib/utils";
 
 type DocumentSourceContextValue = {
   blocks: ContentBlock[];
+  /** Indexed once per block collection, so no trigger rebuilds it for itself. */
+  blocksById: ReadonlyMap<string, ContentBlock>;
   onOpenInTrace?: (focus: TraceFocus) => void;
 };
 
 /** Exported so any surface resolving a block ID resolves it the same way. */
 export const DocumentSourceContext = createContext<DocumentSourceContextValue>({
   blocks: [],
+  blocksById: new Map(),
 });
 
 export function DocumentSourceProvider({
@@ -46,8 +49,14 @@ export function DocumentSourceProvider({
   children: ReactNode;
   onOpenInTrace?: (focus: TraceFocus) => void;
 }) {
+  // Memoized so a page re-rendering above the provider does not re-render every
+  // trigger beneath it with a new context value.
+  const value = useMemo(
+    () => ({ blocks, blocksById: new Map(blocks.map((block) => [block.id, block])), onOpenInTrace }),
+    [blocks, onOpenInTrace],
+  );
   return (
-    <DocumentSourceContext.Provider value={{ blocks, onOpenInTrace }}>
+    <DocumentSourceContext.Provider value={value}>
       {children}
     </DocumentSourceContext.Provider>
   );
@@ -69,9 +78,7 @@ export function DocumentSourceTrace({
    */
   annotationId?: string;
 }) {
-  const { blocks, onOpenInTrace } = useContext(DocumentSourceContext);
   const [open, setOpen] = useState(false);
-  const [copiedBlockId, setCopiedBlockId] = useState<string | null>(null);
   const uniqueBlockIds = useMemo(
     () => Array.from(new Set(blockIds ?? [])),
     [blockIds],
@@ -86,7 +93,57 @@ export function DocumentSourceTrace({
 
   if (!uniqueBlockIds.length) return null;
 
-  const blocksById = new Map(blocks.map((block) => [block.id, block]));
+  return (
+    <Popover open={open} onOpenChange={setOpen}>
+      <PopoverTrigger asChild>
+        <button type="button" aria-label={sourcePassageAriaLabel(uniqueBlockIds.length)} {...stopRowToggle}>
+          <ProvenanceTrigger
+            icon={FileText}
+            label="In document"
+            count={uniqueBlockIds.length}
+            ariaLabel={sourcePassageAriaLabel(uniqueBlockIds.length)}
+          />
+        </button>
+      </PopoverTrigger>
+      <PopoverContent
+        align="start"
+        sideOffset={6}
+        collisionPadding={12}
+        onEscapeKeyDown={closeDocumentVisualOnEscape}
+        className={cn(PROVENANCE_PANEL.width, "overscroll-contain p-0")}
+      >
+        {/* Its own component, so the passages are read only once the panel mounts: a page
+            renders one closed trigger per finding, and none of them needs the passage. */}
+        <SourcePassagePanel
+          blockIds={uniqueBlockIds}
+          spans={spans}
+          annotationId={annotationId}
+          selectedBlockId={selectedBlockId}
+          onSelect={setSelectedBlockId}
+          onClose={() => setOpen(false)}
+        />
+      </PopoverContent>
+    </Popover>
+  );
+}
+
+function SourcePassagePanel({
+  blockIds: uniqueBlockIds,
+  spans,
+  annotationId,
+  selectedBlockId,
+  onSelect: setSelectedBlockId,
+  onClose,
+}: {
+  blockIds: string[];
+  spans: DocumentSpan[];
+  annotationId?: string;
+  selectedBlockId: string;
+  onSelect: (blockId: string) => void;
+  onClose: () => void;
+}) {
+  const { blocksById, onOpenInTrace } = useContext(DocumentSourceContext);
+  const [copiedBlockId, setCopiedBlockId] = useState<string | null>(null);
   const selectedBlock = blocksById.get(selectedBlockId) ?? null;
   const selectedQuotes = Array.from(new Set(
     spans
@@ -125,171 +182,153 @@ export function DocumentSourceTrace({
   }
 
   return (
-    <Popover open={open} onOpenChange={setOpen}>
-      <PopoverTrigger asChild>
-        <button type="button" aria-label={sourcePassageAriaLabel(uniqueBlockIds.length)} {...stopRowToggle}>
-          <ProvenanceTrigger
-            icon={FileText}
-            label="In document"
-            count={uniqueBlockIds.length}
-            ariaLabel={sourcePassageAriaLabel(uniqueBlockIds.length)}
-          />
-        </button>
-      </PopoverTrigger>
-      <PopoverContent
-        align="start"
-        sideOffset={6}
-        collisionPadding={12}
-        onEscapeKeyDown={closeDocumentVisualOnEscape}
-        className={cn(PROVENANCE_PANEL.width, "overscroll-contain p-0")}
-      >
-        <TracePanelHeader
-          eyebrow="Source passage"
-          className="sticky top-0 z-10 bg-card"
-          title={panelTitle}
-          description="Passages cited by this result."
-          action={<Button type="button" variant="ghost" size="icon" className="h-8 w-8" aria-label="Close source passages" onClick={() => setOpen(false)}><X className="h-4 w-4" aria-hidden="true" /></Button>}
-        />
-        <div className={uniqueBlockIds.length > 1 ? "grid min-h-0 sm:grid-cols-[180px_minmax(0,1fr)]" : "min-h-0"}>
-          {uniqueBlockIds.length > 1 && (
-            // The surface stretches with the grid row; only the list is height-capped.
-            // Capping the surface itself left the divider and background cut short
-            // whenever the selected passage was taller than the navigation.
-            <div className="min-w-0 border-b border-border/80 bg-foreground/[0.045] sm:border-b-0 sm:border-r">
-            <nav
-              aria-label="Source passages"
-              className="flex max-h-32 gap-1 overflow-auto overscroll-contain p-2 sm:max-h-72 sm:flex-col"
-            >
-              {uniqueBlockIds.map((blockId, index) => {
-                const block = blocksById.get(blockId);
-                return (
-                  <button
-                    key={blockId}
-                    type="button"
-                    onClick={() => setSelectedBlockId(blockId)}
-                    aria-current={selectedBlockId === blockId ? "true" : undefined}
-                    className={`min-w-32 rounded-md px-2.5 py-2 text-left outline-none transition-colors focus-visible:ring-2 focus-visible:ring-ring/20 sm:min-w-0 ${
-                      selectedBlockId === blockId
-                        ? "bg-card text-foreground shadow-raised"
-                        : "text-muted-foreground hover:bg-foreground/[0.045] hover:text-foreground"
-                    }`}
-                  >
-                    <span className={cn("block", EYEBROW)}>
-                      Passage {index + 1}
-                    </span>
-                    {block && (
-                      <PassageSource
-                        className="mt-1"
-                        format={block.source_format}
-                        document={spansDocuments ? displayDocumentName(block.doc_id) : undefined}
-                        location={documentBlockLocationLabel(block)}
-                      />
-                    )}
-                    <span className="mt-1 line-clamp-2 text-xs leading-relaxed text-muted-foreground">
-                      {block ? passagePreview(block) : "Source passage unavailable"}
-                    </span>
-                  </button>
-                );
-              })}
-            </nav>
-            </div>
-          )}
-          {/* The same scroll box as its three sibling panels. It was 58vh where they were 60,
-                a difference of two viewport percent that marked nothing. */}
-          <article className={cn(PROVENANCE_PANEL.scroll, "min-w-0 overflow-y-auto px-4 py-4")}>
-            {selectedBlock ? (
-              <>
-                <div className="min-w-0">
-                  {spansDocuments && (
+    <>
+      <TracePanelHeader
+        eyebrow="Source passage"
+        className="sticky top-0 z-10 bg-card"
+        title={panelTitle}
+        description="Passages cited by this result."
+        action={<Button type="button" variant="ghost" size="icon" className="h-8 w-8" aria-label="Close source passages" onClick={onClose}><X className="h-4 w-4" aria-hidden="true" /></Button>}
+      />
+      <div className={uniqueBlockIds.length > 1 ? "grid min-h-0 sm:grid-cols-[180px_minmax(0,1fr)]" : "min-h-0"}>
+        {uniqueBlockIds.length > 1 && (
+          // The surface stretches with the grid row; only the list is height-capped.
+          // Capping the surface itself left the divider and background cut short
+          // whenever the selected passage was taller than the navigation.
+          <div className="min-w-0 border-b border-border/60 bg-foreground/[0.045] sm:border-b-0 sm:border-r">
+          <nav
+            aria-label="Source passages"
+            className="flex max-h-32 gap-1 overflow-auto overscroll-contain p-2 sm:max-h-72 sm:flex-col"
+          >
+            {uniqueBlockIds.map((blockId, index) => {
+              const block = blocksById.get(blockId);
+              return (
+                <button
+                  key={blockId}
+                  type="button"
+                  onClick={() => setSelectedBlockId(blockId)}
+                  aria-current={selectedBlockId === blockId ? "true" : undefined}
+                  className={`min-w-32 rounded-md px-2.5 py-2 text-left outline-none transition-colors focus-visible:ring-2 focus-visible:ring-ring/60 sm:min-w-0 ${
+                    selectedBlockId === blockId
+                      ? "bg-card text-foreground shadow-raised"
+                      : "text-muted-foreground hover:bg-foreground/[0.045] hover:text-foreground"
+                  }`}
+                >
+                  <span className={cn("block", EYEBROW)}>
+                    Passage {index + 1}
+                  </span>
+                  {block && (
                     <PassageSource
-                      className="mb-1.5"
-                      format={selectedBlock.source_format}
-                      document={displayDocumentName(selectedBlock.doc_id)}
+                      className="mt-1"
+                      format={block.source_format}
+                      document={spansDocuments ? displayDocumentName(block.doc_id) : undefined}
+                      location={documentBlockLocationLabel(block)}
                     />
                   )}
-                  <p className="break-words text-xs font-semibold text-foreground">{selectedHeading}</p>
-                  <p className="mt-0.5 text-[10px] capitalize text-muted-foreground">
-                    {selectedBlock.block_type.replaceAll("_", " ")} · passage {selectedBlock.ordinal + 1}
+                  <span className="mt-1 line-clamp-2 text-xs leading-relaxed text-muted-foreground">
+                    {block ? passagePreview(block) : "Source passage unavailable"}
+                  </span>
+                </button>
+              );
+            })}
+          </nav>
+          </div>
+        )}
+        {/* The same scroll box as its three sibling panels. It was 58vh where they were 60,
+              a difference of two viewport percent that marked nothing. */}
+        <article className={cn(PROVENANCE_PANEL.scroll, "min-w-0 overflow-y-auto px-4 py-4")}>
+          {selectedBlock ? (
+            <>
+              <div className="min-w-0">
+                {spansDocuments && (
+                  <PassageSource
+                    className="mb-1.5"
+                    format={selectedBlock.source_format}
+                    document={displayDocumentName(selectedBlock.doc_id)}
+                  />
+                )}
+                <p className="break-words text-xs font-semibold text-foreground">{selectedHeading}</p>
+                <p className="mt-0.5 text-[10px] capitalize text-muted-foreground">
+                  {selectedBlock.block_type.replaceAll("_", " ")} · passage {selectedBlock.ordinal + 1}
+                </p>
+              </div>
+              {selectedBlock.image && (
+                <DocumentVisual block={selectedBlock} />
+              )}
+              {selectedBlock.content && selectedBlock.block_type !== "image" && (
+                <section className="mt-3">
+                  <p className={EYEBROW}>
+                    Passage
                   </p>
-                </div>
-                {selectedBlock.image && (
-                  <DocumentVisual block={selectedBlock} />
-                )}
-                {selectedBlock.content && selectedBlock.block_type !== "image" && (
-                  <section className="mt-3">
-                    <p className={EYEBROW}>
-                      Passage
-                    </p>
-                    {/* The cited words marked where they sit, not repeated above. Showing them
-                        in their own box and again inside the passage was the same sentence
-                        twice, and left the reader matching two strings to find which part of
-                        the passage was actually cited. */}
-                    <p className="mt-1.5 whitespace-pre-wrap break-words text-xs leading-6 text-foreground">
-                      {citedPassage.segments.map((segment, index) =>
-                        segment.cited ? (
-                          <CitedMark key={index}>{segment.text}</CitedMark>
-                        ) : (
-                          <span key={index}>{segment.text}</span>
-                        ),
-                      )}
-                    </p>
-                    {/* A quote the passage does not contain is shown rather than lost. With
-                        the separate box gone this is the only thing standing between an
-                        unlocatable citation and it vanishing. */}
-                    {citedPassage.unplaced.length > 0 && (
-                      <div className="mt-2.5">
-                        <p className={EYEBROW}>
-                          Cited text not found in this passage
-                        </p>
-                        {citedPassage.unplaced.map((quote) => (
-                          <Quoted key={quote}>{quote}</Quoted>
-                        ))}
-                      </div>
+                  {/* The cited words marked where they sit, not repeated above. Showing them
+                      in their own box and again inside the passage was the same sentence
+                      twice, and left the reader matching two strings to find which part of
+                      the passage was actually cited. */}
+                  <p className="mt-1.5 whitespace-pre-wrap break-words text-xs leading-6 text-foreground">
+                    {citedPassage.segments.map((segment, index) =>
+                      segment.cited ? (
+                        <CitedMark key={index}>{segment.text}</CitedMark>
+                      ) : (
+                        <span key={index}>{segment.text}</span>
+                      ),
                     )}
-                  </section>
-                )}
-              </>
-            ) : (
-              <EmptyState
-                message="Source passage unavailable"
-                detail="This imported result references the passage but does not retain its source content."
-              />
-            )}
-            <footer className="mt-4 flex flex-wrap items-center gap-2 border-t border-border/70 pt-3">
-              <span className={EYEBROW}>Block ID</span>
-              <BlockReferenceId
-                blockId={selectedBlockId}
-                className="min-w-0 flex-1 truncate text-[10px] text-muted-foreground"
-              />
+                  </p>
+                  {/* A quote the passage does not contain is shown rather than lost. With
+                      the separate box gone this is the only thing standing between an
+                      unlocatable citation and it vanishing. */}
+                  {citedPassage.unplaced.length > 0 && (
+                    <div className="mt-2.5">
+                      <p className={EYEBROW}>
+                        Cited text not found in this passage
+                      </p>
+                      {citedPassage.unplaced.map((quote) => (
+                        <Quoted key={quote}>{quote}</Quoted>
+                      ))}
+                    </div>
+                  )}
+                </section>
+              )}
+            </>
+          ) : (
+            <EmptyState
+              message="Source passage unavailable"
+              detail="This imported result references the passage but does not retain its source content."
+            />
+          )}
+          <footer className="mt-4 flex flex-wrap items-center gap-2 border-t border-border/60 pt-3">
+            <span className={EYEBROW}>Block ID</span>
+            <BlockReferenceId
+              blockId={selectedBlockId}
+              className="min-w-0 flex-1 truncate text-[10px] text-muted-foreground"
+            />
+            <button
+              type="button"
+              onClick={() => void copyBlockId(selectedBlockId)}
+              aria-label={`Copy block ID ${selectedBlockId}`}
+              className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-muted-foreground outline-none transition-colors hover:bg-foreground/[0.045] hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/60 motion-reduce:transition-none"
+            >
+              {copiedBlockId === selectedBlockId
+                ? <Check className="h-3.5 w-3.5" />
+                : <Copy className="h-3.5 w-3.5" />}
+            </button>
+            {onOpenInTrace && selectedBlock && (
               <button
                 type="button"
-                onClick={() => void copyBlockId(selectedBlockId)}
-                aria-label={`Copy block ID ${selectedBlockId}`}
-                className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-muted-foreground outline-none transition-colors hover:bg-foreground/[0.045] hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/20 motion-reduce:transition-none"
+                onClick={() => {
+                  onClose();
+                  window.requestAnimationFrame(() =>
+                    onOpenInTrace({ blockId: selectedBlockId, annotationId }),
+                  );
+                }}
+                className="inline-flex min-h-7 items-center gap-1.5 rounded-md border border-border/80 bg-background px-2.5 text-[10px] font-medium text-foreground outline-none transition-colors hover:bg-foreground/[0.045] focus-visible:ring-2 focus-visible:ring-ring/60 motion-reduce:transition-none"
               >
-                {copiedBlockId === selectedBlockId
-                  ? <Check className="h-3.5 w-3.5" />
-                  : <Copy className="h-3.5 w-3.5" />}
+                <LocateFixed className="h-3.5 w-3.5" aria-hidden="true" />
+                View in document
               </button>
-              {onOpenInTrace && selectedBlock && (
-                <button
-                  type="button"
-                  onClick={() => {
-                    setOpen(false);
-                    window.requestAnimationFrame(() =>
-                      onOpenInTrace({ blockId: selectedBlockId, annotationId }),
-                    );
-                  }}
-                  className="inline-flex min-h-7 items-center gap-1.5 rounded-md border border-border/80 bg-background px-2.5 text-[10px] font-medium text-foreground outline-none transition-colors hover:bg-foreground/[0.045] focus-visible:ring-2 focus-visible:ring-ring/20 motion-reduce:transition-none"
-                >
-                  <LocateFixed className="h-3.5 w-3.5" aria-hidden="true" />
-                  View in document
-                </button>
-              )}
-            </footer>
-          </article>
-        </div>
-      </PopoverContent>
-    </Popover>
+            )}
+          </footer>
+        </article>
+      </div>
+    </>
   );
 }

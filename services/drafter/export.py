@@ -12,7 +12,7 @@ from typing import Any
 from docx import Document
 from docx.shared import Pt
 
-from shared.vocabulary import search_term
+from shared.vocabulary import display_label
 
 from .contract import validate_result_contract
 
@@ -24,7 +24,7 @@ def export_docx(result: dict[str, Any]) -> bytes:
     validate_result_contract(result)
     document = Document()
     document.add_heading("Draft iTPP targets", level=1)
-    context = f"{result['display_name']} · {_label(search_term(result['indication']))}"
+    context = f"{result['display_name']} · {display_label(result['indication'])}"
     document.add_paragraph(context)
     document.add_paragraph(
         "Suggested by PDIS Drafter from comparable products' results and published guidance. "
@@ -84,7 +84,3 @@ def _sources(variable: dict[str, Any], basis_ids: list[str]) -> str:
         observation = by_id[identifier]
         lines.append(f"{observation['title']} ({observation['source_label']}) {observation['url']}".strip())
     return "\n".join(dict.fromkeys(lines))
-
-
-def _label(text: str) -> str:
-    return text[:1].upper() + text[1:]

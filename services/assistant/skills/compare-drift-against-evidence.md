@@ -55,7 +55,9 @@ the cTPP" is two different findings and a reader cannot tell which one you made.
 3. `read_result` at each finding's path for its quoted spans and its `statement`.
 4. `find_result` for `matches` and any assessments in the Scout result. Each carries an
    insight, its relation to the document (`contradicts`, `extends`, `confirms`,
-   `unrelated`), and the document blocks it was assessed against.
+   `unrelated`), and the document blocks it was assessed against. A `not_assessed`
+   relation or grounding means Scout could not complete that check: it cites no blocks
+   and supports no pair. Report it as unchecked, never as agreement or silence.
 5. Pair only where the **block IDs overlap**. Two items that both mention efficacy are
    not necessarily about the same target; the shared passage is the only evidence that
    they are. State which passage a pair rests on.

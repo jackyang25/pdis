@@ -12,7 +12,8 @@ def observation(identifier: str, basis: str = "comparable_product") -> dict:
         "id": identifier, "basis": basis, "url": "https://example.org/a", "title": "Trial A",
         "source_label": "PubMed", "product": "RTS,S", "measure": "efficacy",
         "quote": "Efficacy was 56% over 12 months.",
-        "value": {"value": 56.0, "lower": None, "upper": None, "unit": "%"} if basis == "comparable_product" else None,
+        "value": {"value": 56.0, "lower": None, "upper": None, "unit": "%", "text": "56%"}
+        if basis == "comparable_product" else None,
         "numeric_eligible": basis == "comparable_product",
     }
 
@@ -77,12 +78,53 @@ class ContractTests(unittest.TestCase):
         self.assertRefused(result(variable))
 
     def test_a_failure_is_not_a_suggestion(self):
-        failed = suggested(status="failed", failure={"code": "suggestion_failed", "message": "No valid reply."})
+        failed = suggested(status="failed", failure={"code": "suggestion_failed", "message": "No valid reply.",
+                                                     "cause": "invalid_model_response"})
         self.assertRefused(result(failed))
         failed["suggestion"] = None
         validate_result_contract(result(failed))
         failed["failure"]["code"] = "something_else"
         self.assertRefused(result(failed))
+
+    def test_a_failed_call_carries_its_cause_and_missing_evidence_carries_none(self):
+        failed = suggested(status="failed", suggestion=None,
+                           failure={"code": "suggestion_failed", "message": "Cut off.", "cause": None})
+        self.assertRefused(result(failed))
+        failed["failure"]["cause"] = "not_a_cause"
+        self.assertRefused(result(failed))
+        failed["failure"] = {"code": "evidence_unavailable", "message": "Sources failed.", "cause": "provider_error"}
+        self.assertRefused(result(failed))
+        failed["failure"]["cause"] = None
+        validate_result_contract(result(failed))
+
+    def test_stored_figures_must_be_the_arithmetic_of_the_observations(self):
+        variable = suggested()
+        second = observation("vaccine.efficacy:o2")
+        second["quote"] = "Efficacy was 60% over 12 months."
+        second["value"] = {"value": 60.0, "lower": None, "upper": None, "unit": "%", "text": "60%"}
+        variable["observations"].append(second)
+        self.assertRefused(result(variable))
+        variable["statistics"] = [{"unit": "%", "observation_ids": ["vaccine.efficacy:o1", "vaccine.efficacy:o2"],
+                                   "count": 2, "minimum": 56.0, "maximum": 60.0, "median": 58.0,
+                                   "lower_quartile": 57.0, "upper_quartile": 59.0}]
+        validate_result_contract(result(variable))
+        variable["statistics"][0]["observation_ids"] = ["vaccine.efficacy:o2", "vaccine.efficacy:o1"]
+        self.assertRefused(result(variable))
+        variable["statistics"][0]["observation_ids"] = ["vaccine.efficacy:o1", "vaccine.efficacy:o2"]
+        variable["statistics"][0]["median"] = 70.0
+        self.assertRefused(result(variable))
+
+    def test_a_stated_value_carries_the_words_of_its_quote_that_state_it(self):
+        variable = suggested()
+        variable["observations"][0]["value"]["text"] = "65%"
+        self.assertRefused(result(variable))
+        variable["observations"][0]["value"]["text"] = ""
+        self.assertRefused(result(variable))
+
+    def test_the_basis_a_suggestion_leans_on_is_the_basis_it_cites(self):
+        variable = suggested()
+        variable["suggestion"]["leans_on"] = "comparable_products"
+        self.assertRefused(result(variable))
 
     def test_a_guidance_value_never_enters_statistics(self):
         variable = suggested()

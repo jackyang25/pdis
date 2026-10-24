@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
-from urllib.parse import quote
+from urllib.parse import quote, urlencode
 
 from ..models import (
     DevelopmentRecord,
@@ -15,25 +15,22 @@ from ..models import (
     SourceSpec,
 )
 from .literature import active_tracks
-from .planning import facet_groups, request_lineage
+from .planning import request_lineage
 from .tooluniverse_records import (
     TOOLUNIVERSE_INTEGRATION,
     parse_datetime,
-    ranked_records,
-    relevant_excerpt,
     result_records,
     run_tool,
+    structured_excerpt,
     text,
 )
 
 DRUG_LABEL_TOOL = "FDA_search_drug_labels"
 DEVICE_510K_TOOL = "OpenFDA_search_device_510k"
-MAX_CANDIDATES = 20
 MAX_RESULTS = 10
 MIN_REQUEST_INTERVAL_SECONDS = 0.3
-# openFDA is the tightest connector lane in the suite, so one intent stays
-# close to the single request it made before facet narrowing existed.
-MAX_REQUESTS_PER_INTENT = 2
+#: openFDA counts every call from one client together, whichever lane makes it.
+OPENFDA_RATE_GROUP = "openfda"
 
 
 class FDASource:
@@ -42,7 +39,7 @@ class FDASource:
         label="FDA Regulatory",
         worker_limit=4,
         request_interval_seconds=MIN_REQUEST_INTERVAL_SECONDS,
-        max_requests_per_intent=MAX_REQUESTS_PER_INTENT,
+        rate_group=OPENFDA_RATE_GROUP,
         default_enabled=False,
         integration_key=TOOLUNIVERSE_INTEGRATION,
         operations=(DRUG_LABEL_TOOL, DEVICE_510K_TOOL),
@@ -60,50 +57,40 @@ class FDASource:
     )
 
     def plan(self, intent: RetrievalIntent) -> list[SearchRequest]:
-        # The product class selects the openFDA endpoint, so it stays the intent's
-        # rather than a per-query facet. Only the searched condition varies.
+        # The product class selects the openFDA endpoint and the condition is the
+        # intent's anchor, so no query can vary the request: one per intent, carrying
+        # every query in its lineage.
         intervention = intent.intervention_class.strip().casefold()
-        requests: list[SearchRequest] = []
-        for scope, queries in facet_groups(
-            intent,
-            fields=("condition",),
-            fallbacks={"condition": intent.indication or intent.topic},
-            anchors=("condition",),
-            limit=self.spec.max_requests_per_intent,
-        ):
-            intent_ids, input_queries, document_refs = request_lineage(queries)
-            condition = scope["condition"]
-            if intervention in {"device", "diagnostic"}:
-                operation = DEVICE_510K_TOOL
-                native_query = f'device_name:"{_lucene_phrase(condition)}"'
-                options = (
-                    ("search", native_query),
-                    ("limit", str(MAX_CANDIDATES)),
-                    ("ranking", "all_input_queries"),
-                )
-            else:
-                operation = DRUG_LABEL_TOOL
-                native_query = f"indication:{condition}"
-                options = (
-                    ("indication", condition),
-                    ("limit", str(MAX_CANDIDATES)),
-                    ("ranking", "all_input_queries"),
-                )
-            requests.append(
-                SearchRequest(
-                    scope_ref=intent.scope_ref,
-                    source=self.spec.key,
-                    query=native_query,
-                    tracks=tuple(active_tracks(intent)),
-                    document_refs=document_refs,
-                    intent_ids=intent_ids,
-                    input_queries=input_queries,
-                    connector=TOOLUNIVERSE_INTEGRATION,
-                    operation=operation,
-                    options=options,
-                )
+        intent_ids, input_queries, document_refs = request_lineage(list(intent.queries))
+        condition = (intent.indication or intent.topic).strip()
+        if intervention in {"device", "diagnostic"}:
+            operation = DEVICE_510K_TOOL
+            phrase = _lucene_phrase(condition)
+            # A 510(k) record names its device twice: `device_name` is the trade name,
+            # `openfda.device_name` the product-code classification ("Antigen, RSV").
+            # A condition is usually in the second. Asking both (openFDA reads a space
+            # as OR) found 57 RSV clearances live where the trade name alone found 16,
+            # and the one HIV clearance the trade name missed entirely.
+            native_query = f'device_name:"{phrase}" openfda.device_name:"{phrase}"'
+            options: tuple[tuple[str, str], ...] = (("search", native_query),)
+        else:
+            operation = DRUG_LABEL_TOOL
+            native_query = f"indication:{condition}"
+            options = (("indication", condition),)
+        return [
+            SearchRequest(
+                scope_ref=intent.scope_ref,
+                source=self.spec.key,
+                query=native_query,
+                tracks=tuple(active_tracks(intent)),
+                document_refs=document_refs,
+                intent_ids=intent_ids,
+                input_queries=input_queries,
+                connector=TOOLUNIVERSE_INTEGRATION,
+                operation=operation,
+                options=options,
             )
-        return requests
+        ]
 
     def search(
         self,
@@ -111,7 +98,6 @@ class FDASource:
         runtime: SearchRuntime,
         *,
         max_tokens: int,
-        max_uses: int,
     ) -> list[Finding]:
         if request.operation == DRUG_LABEL_TOOL:
             return _search_labels(request, runtime)
@@ -123,31 +109,30 @@ class FDASource:
 def _search_labels(request: SearchRequest, runtime: SearchRuntime) -> list[Finding]:
     result = run_tool(
         runtime,
+        FDASource.spec,
         DRUG_LABEL_TOOL,
         {
             "indication": request.option("indication"),
-            "limit": int(request.option("limit", str(MAX_CANDIDATES))),
+            "limit": FDASource.spec.max_results,
         },
-    )
-    records = ranked_records(
-        result_records(result, "data"),
-        request,
-        limit=MAX_RESULTS,
     )
     retrieved_at = datetime.now(timezone.utc)
     findings: list[Finding] = []
-    for record in records:
+    for record in result_records(result, "data"):
+        # The tool's `spl_id` is openFDA's `id`: one version of a label, not the set id
+        # that names the label across versions. It was being sent to DailyMed as a set
+        # id, which DailyMed answers with an empty page (checked live), and a label with
+        # no id fell back to the API's documentation page - one URL for every such label.
         spl_id = text(record.get("spl_id"))
+        if not spl_id:
+            continue
         brand = text(record.get("brand_name"))
         generic = text(record.get("generic_name"))
         title = brand or generic or "FDA drug label"
         if generic and generic.casefold() != title.casefold():
             title += f" ({generic})"
-        url = (
-            "https://dailymed.nlm.nih.gov/dailymed/drugInfo.cfm?setid="
-            + quote(spl_id)
-            if spl_id
-            else "https://open.fda.gov/apis/drug/label/"
+        url = "https://api.fda.gov/drug/label.json?" + urlencode(
+            {"search": f'id:"{spl_id}"'}
         )
         findings.append(
             Finding(
@@ -155,7 +140,10 @@ def _search_labels(request: SearchRequest, runtime: SearchRuntime) -> list[Findi
                 title=title,
                 query=request.query,
                 retrieved_at=retrieved_at,
-                excerpt=relevant_excerpt(
+                excerpt_kind="structured_fields",
+                identifiers={"spl_id": spl_id},
+                record_key=f"fda:label:{spl_id}",
+                excerpt=structured_excerpt(
                     record,
                     (
                         ("indications_and_usage", "Indications and usage"),
@@ -169,7 +157,6 @@ def _search_labels(request: SearchRequest, runtime: SearchRuntime) -> list[Findi
                         ("route", "Route"),
                         ("pharm_class", "Pharmacologic class"),
                     ),
-                    request,
                 ),
                 source="fda",
                 development_records=[
@@ -189,20 +176,16 @@ def _search_labels(request: SearchRequest, runtime: SearchRuntime) -> list[Findi
 def _search_devices(request: SearchRequest, runtime: SearchRuntime) -> list[Finding]:
     result = run_tool(
         runtime,
+        FDASource.spec,
         DEVICE_510K_TOOL,
         {
             "search": request.option("search"),
-            "limit": int(request.option("limit", str(MAX_CANDIDATES))),
+            "limit": FDASource.spec.max_results,
         },
-    )
-    records = ranked_records(
-        result_records(result, "results"),
-        request,
-        limit=MAX_RESULTS,
     )
     retrieved_at = datetime.now(timezone.utc)
     findings: list[Finding] = []
-    for record in records:
+    for record in result_records(result, "results"):
         k_number = text(record.get("k_number"))
         if not k_number:
             continue
@@ -220,7 +203,10 @@ def _search_devices(request: SearchRequest, runtime: SearchRuntime) -> list[Find
                     "%Y%m%d",
                     "%Y-%m-%d",
                 ),
-                excerpt=relevant_excerpt(
+                excerpt_kind="structured_fields",
+                identifiers={"k_number": k_number},
+                record_key=f"fda:510k:{k_number}",
+                excerpt=structured_excerpt(
                     record,
                     (
                         ("decision_description", "Decision"),
@@ -230,7 +216,6 @@ def _search_devices(request: SearchRequest, runtime: SearchRuntime) -> list[Find
                         ("statement_or_summary", "Statement or summary"),
                         ("decision_date", "Decision date"),
                     ),
-                    request,
                 ),
                 source="fda",
                 development_records=[

@@ -93,8 +93,13 @@ export function ResultLayout({
   actions?: ReactNode;
   tabValue: string;
   onTabChange: (value: string) => void;
-  /** The triggers only. This owns the row they sit in. */
-  tabs: ReactNode;
+  /**
+   * The triggers only. This owns the row they sit in.
+   *
+   * Omitted when a result has one view: a row holding a single tab is navigation with
+   * nowhere to go, and it was Drafter's whole tab row.
+   */
+  tabs?: ReactNode;
   /**
    * What to look at first, and the tab its points rest on.
    *
@@ -121,6 +126,7 @@ export function ResultLayout({
     <CollapsibleCard
       title={title}
       subtitle={subtitle}
+      collapsible={false}
       meta={
         <p className="text-xs leading-relaxed text-muted-foreground">
           AI-generated results may contain errors or unsupported claims. Verify findings
@@ -146,9 +152,14 @@ export function ResultLayout({
       <Tabs value={tabValue} onValueChange={onTabChange}>
         {notices && <ResultNotices className="px-5 pb-4 sm:px-6">{notices}</ResultNotices>}
         {scopeControl && <div className="px-5 pb-4 sm:px-6">{scopeControl}</div>}
-        <div className="overflow-x-auto border-b border-border/60 px-5 pt-1.5 sm:px-6">
-          <TabsList className="min-w-max">{tabs}</TabsList>
-        </div>
+        {tabs ? (
+          <div className="overflow-x-auto border-b border-border/60 px-5 pt-1.5 sm:px-6">
+            <TabsList className="min-w-max">{tabs}</TabsList>
+          </div>
+        ) : (
+          // The tab row's edge is the header's one boundary, so without tabs it stays.
+          <hr className="border-border/60" />
+        )}
         {/* A band, flush like the tab row above it and the toolbar below it. It used to
             be an inset bordered card between two full-bleed bands, so three consecutive
             zones had three different treatments and only one of them lined up with the

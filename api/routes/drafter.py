@@ -5,8 +5,7 @@ from __future__ import annotations
 from fastapi import APIRouter, Form, HTTPException
 from fastapi.responses import Response, StreamingResponse
 
-from services.drafter import find_config, run_pipeline
-from services.drafter.export import export_docx
+from services.drafter import export_docx, find_config, run_pipeline
 from shared.vocabulary import indications_for
 
 from api.deps import MissingCredentialError, get_openai_client, get_search_runtime

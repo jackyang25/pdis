@@ -1,15 +1,28 @@
-"""Stage: assess weight of evidence for one document unit (attribute/claim)."""
+"""Stage: assess weight of evidence for one document unit (attribute/claim).
+
+One request per variable, over every insight retrieved for it: grounding is a
+judgement about that set. A variable no insight reached is recorded ``no_evidence``
+without a model call - nothing was there to weigh, and that is neither the model's
+``unknown`` nor a failure. A model answer that stays invalid after one retry, is
+refused, or whose provider fails is ``not_assessed`` with the failure's code - a
+processing gap, never a grounding judgement.
+"""
 
 from __future__ import annotations
 
-import logging
+from shared.ai import RECORDABLE_FAILURES, Effort, ModelTask, failure_code
 
-from services.searcher import Finding
-
-from ..ai import request_structured
+from ..ai import request_validated
 from ..ai_contracts import evidence_assessment
-from ..context import limit_document_context
+from ..insight_evidence import (
+    binding_message,
+    insights_message,
+    selected_insights,
+    supporting_findings,
+)
 from ..models import (
+    NO_EVIDENCE,
+    NOT_ASSESSED,
     Attribute,
     EvidenceAssessment,
     Insight,
@@ -17,14 +30,20 @@ from ..models import (
     VALID_EVIDENCE_STRENGTHS,
 )
 
-logger = logging.getLogger(__name__)
-
-DEFAULT_MAX_TOKENS = 16000
+#: One assessment per variable: the answer is one judgement about the variable's set.
+VARIABLES_PER_REQUEST = 1
+#: The reasoning tier at low effort, by measurement (README, Call policy): one call per
+#: variable, and the consequential one. All three policies gave the same four strengths
+#: on real RSV evidence; low effort took a median 2.7 s, medium 6.1 s.
+TASK: ModelTask = "reasoning"
+EFFORT: Effort = "low"
+#: One strength, one sentence and a list of indices; the rest is reasoning room.
+MAX_TOKENS = 16000
 
 
 def assess_evidence(
     attribute: Attribute,
-    doc_text: str,
+    binding: str,
     insights: list[Insight],
     llm_client: LLMClientProtocol,
     *,
@@ -32,68 +51,75 @@ def assess_evidence(
     intervention_class: str,
     framing: str = "",
     images: list[dict[str, str]] | None = None,
-    max_tokens: int = DEFAULT_MAX_TOKENS,
+    max_tokens: int = MAX_TOKENS,
 ) -> EvidenceAssessment:
     """Assess whether external evidence grounds the document target for one unit."""
-    if not attribute.target_resolved or not attribute.document_target:
-        return _failed_assessment(
-            attribute,
-            reason="No resolved document target was available for assessment.",
-        )
+    if not attribute.document_target:
+        raise ValueError(f"{attribute.name} has no document target to assess")
     if not insights:
-        return _failed_assessment(
-            attribute,
-            reason="No external-evidence insights were available for assessment.",
-        )
-    system_prompt = build_system_prompt(
-        attribute=attribute,
-        indication=indication,
-        intervention_class=intervention_class,
-        framing=framing,
-    )
-    user_message = _user_message(attribute, doc_text, insights)
+        return no_evidence_assessment(attribute)
 
-    contract = evidence_assessment(len(insights))
-    parsed = request_structured(
-        llm_client,
-        contract,
-        system_prompt,
-        user_message,
-        max_tokens=max_tokens,
-        images=images,
-        task="fast",
-    )
-    if not isinstance(parsed, dict) or not _has_valid_lineage(parsed, insights):
-        logger.warning("evidence_assessor produced no complete structured decision for %s; retrying once", attribute.name)
-        parsed = request_structured(
+    def parse(parsed: object) -> EvidenceAssessment:
+        if not isinstance(parsed, dict):
+            raise ValueError("no structured assessment was returned")
+        strength = str(parsed.get("strength", "")).strip().lower()
+        reason = str(parsed.get("reason", "")).strip()
+        if strength not in VALID_EVIDENCE_STRENGTHS or not reason:
+            raise ValueError("a strength from the closed list and a reason are required")
+        selected = selected_insights(parsed.get("supporting_insight_indices"), insights)
+        if strength != "unknown" and not selected:
+            raise ValueError("a strength other than unknown must cite the insights it used")
+        return EvidenceAssessment(
+            attribute_ref=attribute.name,
+            strength=strength,
+            reason=reason,
+            doc_target=attribute.document_target,
+            doc_block_ids=list(attribute.block_ids),
+            supporting_insight_ids=[insight.id for insight in selected],
+            supporting_findings=supporting_findings(selected),
+        )
+
+    try:
+        return request_validated(
             llm_client,
-            contract,
-            system_prompt,
-            user_message,
+            evidence_assessment(len(insights)),
+            build_system_prompt(
+                attribute=attribute,
+                indication=indication,
+                intervention_class=intervention_class,
+                framing=framing,
+            ),
+            binding_message(binding),
             max_tokens=max_tokens,
+            parse=parse,
+            failure=f"Evidence assessment failed for {attribute.name}",
             images=images,
-            task="fast",
+            trailing_text=insights_message(insights, "Assess the evidence now."),
+            task=TASK,
+            effort=EFFORT,
+        )
+    except RECORDABLE_FAILURES as exc:
+        return EvidenceAssessment(
+            attribute_ref=attribute.name,
+            strength=NOT_ASSESSED,
+            reason=str(exc),
+            doc_target=attribute.document_target,
+            doc_block_ids=list(attribute.block_ids),
+            failure_code=failure_code(exc),
         )
 
-    if not isinstance(parsed, dict) or not _has_valid_lineage(parsed, insights):
-        return _failed_assessment(attribute)
 
-    strength = str(parsed.get("strength", "")).strip().lower()
-    if strength not in VALID_EVIDENCE_STRENGTHS:
-        strength = "unknown"
-    reason = str(parsed.get("reason", "")).strip() or "assessment failed"
-    selected = _selected_insights(parsed, insights)
-    supporting_findings = _dedupe_findings(
-        finding for insight in selected for finding in insight.supporting_findings
-    )
+def no_evidence_assessment(attribute: Attribute) -> EvidenceAssessment:
+    """The record for a variable no insight reached: no call, and no reason to quote.
+
+    The reason is empty because no model wrote one; the interface states the absence
+    in its own voice, as Drafter does for a variable no source spoke to.
+    """
     return EvidenceAssessment(
         attribute_ref=attribute.name,
-        strength=strength,
-        reason=reason,
+        strength=NO_EVIDENCE,
         doc_target=attribute.document_target,
         doc_block_ids=list(attribute.block_ids),
-        supporting_insight_ids=[insight.id for insight in selected],
-        supporting_findings=supporting_findings,
     )
 
 
@@ -120,13 +146,13 @@ def build_system_prompt(
         "Task:\n"
         "1. Assess only the canonical document binding supplied in the user message. "
         "Do not rewrite, broaden, or replace it.\n"
-        "If no external-evidence insights are supplied, preserve the target but return "
-        "strength=unknown with no supporting insight indices.\n"
         "2. Identify which claim form applies:\n"
         "   - IMPROVEMENT TARGET: judge whether the improvement over the current baseline is justified and achievable.\n"
         "   - THRESHOLD OR CONSTRAINT: judge whether current products or evidence show the bar can be met; already meeting it is support, not weakness.\n"
         "   - PLAN COMMITMENT OR ASSUMPTION: judge whether external benchmarks support its feasibility, timing, scale, cost, or requirements.\n"
-        "3. Weigh the actual cited evidence by directness, study design, population/product comparability, regulatory relevance, and limitations.\n\n"
+        "3. Weigh the actual cited evidence by directness, study design, population/product comparability, regulatory relevance, recency, and limitations. "
+        "Each insight lists the records it rests on with their source, evidence class, publication date and the opening of their excerpt: read design and relevance from those, not from the insight's wording. "
+        "An excerpt marked as a search engine's summary is a description of a source, weaker than the source's own text.\n\n"
         "Strength enum (apply to the claim form above):\n"
         "- well_grounded: strong, directly comparable evidence supports achievability, justification, or feasibility.\n"
         "- partial: the target is plausibly supported, but the evidence has gaps.\n"
@@ -140,71 +166,3 @@ def build_system_prompt(
         "reason: one sentence (<=25 words) giving ONLY your evidence judgment - do NOT restate "
         "the document target. Return only the schema-bound response."
     )
-
-
-def _user_message(
-    attribute: Attribute,
-    doc_text: str,
-    insights: list[Insight],
-) -> str:
-    doc_text = limit_document_context(doc_text)
-    lines = [
-        "Canonical document binding (authoritative; do not reinterpret):",
-        doc_text,
-        "",
-        "External-evidence insights for this variable:",
-    ]
-    for i, insight in enumerate(insights):
-        urls = ", ".join(f.url for f in insight.supporting_findings)
-        lines.append(f"[{i}] ({insight.id}) {insight.statement}")
-        if insight.query_tracks:
-            lines.append(f"    discovery tracks: {', '.join(insight.query_tracks)}")
-        if urls:
-            lines.append(f"    sources: {urls}")
-    lines.append("\nAssess the evidence now.")
-    return "\n".join(lines)
-
-
-def _failed_assessment(
-    attribute: Attribute,
-    *,
-    reason: str = "assessment failed",
-) -> EvidenceAssessment:
-    return EvidenceAssessment(
-        attribute_ref=attribute.name,
-        strength="unknown",
-        reason=reason,
-        doc_target=attribute.document_target if attribute.target_resolved else "",
-        doc_block_ids=list(attribute.block_ids) if attribute.target_resolved else [],
-        supporting_findings=[],
-    )
-
-
-def _selected_insights(parsed: dict, insights: list[Insight]) -> list[Insight]:
-    raw = parsed.get("supporting_insight_indices", []) or []
-    indices = list(
-        dict.fromkeys(
-            item
-            for item in raw
-            if isinstance(item, int)
-            and not isinstance(item, bool)
-            and 0 <= item < len(insights)
-        )
-    )
-    return [insights[index] for index in indices]
-
-
-def _has_valid_lineage(parsed: dict, insights: list[Insight]) -> bool:
-    strength = str(parsed.get("strength", "")).strip().lower()
-    return strength == "unknown" or bool(_selected_insights(parsed, insights))
-
-
-def _dedupe_findings(findings) -> list[Finding]:
-    seen: set[str] = set()
-    out: list[Finding] = []
-    for finding in findings:
-        if finding.url in seen:
-            continue
-        seen.add(finding.url)
-        out.append(finding)
-    return out

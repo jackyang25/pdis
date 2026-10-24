@@ -63,7 +63,7 @@ extraction remain reviewable. None of these failures silently admits a proposal.
 `NumericExpression.display` supplies calendar-year presentation or grammatical
 unit forms. Mapping authors this metadata; the shared browser formatter consumes
 it without guessing from the number. It changes neither numeric identity nor
-arithmetic. Scout's artifact version is 2 for the expanded saved contract.
+arithmetic.
 
 For a disposable preview of both checkpoints and their decision states, see
 [the review preview guide](../../web/test-support/README.md).
@@ -84,11 +84,10 @@ uncertain and partially overlapping claims separate rather than forcing a merge.
 Code validates a complete partition of transient unit IDs, retains every member's
 exact passages and entities, and derives the merged target from those passages using
 the existing `Attribute` contract. Unique downstream names are assigned afterward;
-name allocation makes no semantic decisions. Invalid partitions receive one retry,
-then stop the run before retrieval; provider errors propagate. Zero or one unit needs
-no reconciliation call. The step adds one model request normally, with no change to
-fixed TPP fields, saved-result shapes, or the separate quantitative/evidence identity
-layers. No word-level citation selection or string-based duplicate fallback is used.
+name allocation makes no semantic decisions. Zero or one unit needs no reconciliation
+call. A failed partition is handled as every identity layer handles it (see Identity
+layers): the units continue unmerged and the run records why. No word-level citation
+selection or string-based duplicate fallback is used.
 
 When one source statement contains several atomic targets, each structurally
 valid target is retained independently. A failed sibling is retried once and,
@@ -103,9 +102,59 @@ human-review item.
 Fixed TPP coverage is maintained in `shared/attributes.yaml`; adding an authored
 domain field extends this vocabulary without adding a pipeline branch.
 
-`ScoutResult` contains attributes, source blocks, query and retrieval traces,
-insights, independent evidence judgments, quantitative review and calibration,
-and deterministic landscape and safety views.
+`ScoutResult` contains attributes, source blocks, the retrieval scope, query and
+retrieval traces, insights, independent evidence judgments, quantitative review and
+calibration, deterministic landscape and safety views, and one record per identity
+call. Scout's saved analysis version is 5 for this contract.
+
+## Identity layers
+
+Four layers decide which of their items are the same thing, each by one model call over
+its set, because the answer is a statement about the set: dynamically extracted claims
+(`unit_reconciler`), calculation-compatible numeric targets (`conformity`), one field's
+insights (`insight_reconciler`), and program and product names before the landscape and
+safety views group by them (`projection_reconciler`). Each may only partition the IDs it
+was given and name an existing member as representative. Nothing else decides identity:
+insights are not pre-merged for reading alike, names are not case-folded into one
+program, and a source record is the record its provider identifiers name
+(`Finding.record_key`, `Finding.identifiers`), never one read out of a URL or a title.
+
+They share one mechanic (`identity.partition`) and one failure rule. A partition that
+stays invalid after one retry naming the error, is refused, or whose provider fails
+leaves the set unmerged, and `ScoutResult.reconciliations` records the layer, the set
+(a field name for insights), `not_reconciled` and the failure's code. Stopping would
+discard a run over a duplicate a reader can see; merging on a guess would hide one. A
+`reconciled` record with `merged == 0` is the layer finding nothing to merge, a
+different claim from a layer that never answered. Claim reconciliation runs on OpenAI:
+identity is not mapping, and Anthropic is limited to target and measurement mapping.
+
+Identical insights the layer keeps apart derive one ID; the second is given a suffixed
+one, an allocation that decides nothing.
+
+## Call policy and prompt layout
+
+Every stage states its tier and effort beside its `*_PER_REQUEST` constant, with the
+reason. The three judging stages run on the reasoning tier at low effort, chosen by a
+live comparison on the RSV maternal iTPP (4 fields, 30 insights from PubMed, Europe PMC
+and ClinicalTrials.gov, each judged under three policies):
+
+| Policy | Drift relations | Grounding | Precedent | Median call (drift / grounding / precedent) |
+|---|---|---|---|---|
+| fast, low | 18 extends, 9 confirms, 3 contradicts | 4 of 4 as below | 2 of 4 differ | 2.3 s / 1.8 s / 2.4 s |
+| reasoning, low | 30 extends | partial ×3, well_grounded | — | 2.8 s / 2.7 s / 2.9 s |
+| reasoning, medium | identical to low | identical to low | identical to low | 2.8 s / 6.1 s / 4.2 s |
+
+The fast tier's three `contradicts` were comparator shortfalls, which question 2 of the
+drift procedure files as `extends`; its `confirms` credited a named comparator's result
+to the document's unnamed product. Medium effort changed no verdict. Preflight and
+bookkeeping stages - the context check, query planning, binding, extraction, scope and
+announcement reading, projection labels - stay on the fast tier. Every request is laid out the same way: stable instructions in the system
+prompt, then the document or bindings the stage's requests share, then their images,
+then the one item the request is about as `trailing_text`. Anthropic caches that prefix
+(`cache_control` on the last shared block); OpenAI reuses only identical requests, so
+there the layout is what a future prefix cache would read. A stage that sends a whole
+document or chunk with every request checks the request against
+`shared.request_budget` once, before it fans out.
 
 A run may declare `published_since`, an ISO date scoping retrieval. It is applied
 where retrieved evidence enters the run rather than at display, so every insight,
@@ -113,7 +162,8 @@ precedent, and benchmark describes the cohort it admitted. The window is declare
 before retrieval and carried on the reviewed draft, so a continuation searches the
 window the user chose rather than widening it after targets were approved. A
 finding whose source supplied no publication date is admitted — an absent date is
-not evidence of age. `ScoutResult.published_since` records the window because a
+not evidence of age — and a date stated only to the month or year is held out only if
+all of it falls before the window (`Finding.published_before`). `ScoutResult.published_since` records the window because a
 benchmark read without it answers a different question, and each
 `SearchTrace.excluded_before_window` names the subset of that trace's
 `source_urls` the window held out.
@@ -166,7 +216,12 @@ That stage is a normalisation, not an extraction - the geography is already boun
 cited by the target resolver. What it decides is narrower: whether the text names an
 indexable place. "LMIC focus, Gavi-eligible countries" is a real document target and not
 a location any registry holds, so the honest answer is that this document narrows nothing
-and `region` stays `unset`. Diagnostic has no geography variable at all, so its region is
+and `region` stays `unset`. A reading that stays invalid after its one retry stops the
+run instead: recording it `unset` would widen the search on a failure and look like that
+honest answer. The ledger is resolved in `run_pipeline`, before target review, and
+carried on the draft as `retrieval_scope`: a failed reading stops the run before anyone
+has reviewed anything, the reviewer sees the geography retrieval will use, and the
+continuation searches exactly that. Diagnostic has no geography variable at all, so its region is
 always unset - a vocabulary gap left as a finding, since adding a variable changes what
 every diagnostic run analyses.
 
@@ -213,9 +268,11 @@ carries reliability. A reader asking what competitors are doing should look in o
 
 So the row shows what it rests on. `record_types` is rendered per program, because "Phase
 3" from a registry and "Phase 3" from a company announcement are the same string and not
-equally checkable. The reader also reports a pair - announcements read, and how many named
-a program - because an announcement naming none leaves no row, so without the attempts a
-weak reading and a quiet week produce the same empty view.
+equally checkable. The reader also reports announcements read, how many named a program,
+and how many could not be read after one retry - because an announcement naming none
+leaves no row, so without the attempts a weak reading and a quiet week produce the same
+empty view, and a failed reading is the pipeline's gap rather than an announcement that
+named nothing.
 
 The only required field is the program name. A record may not infer a missing sponsor,
 phase or status, so a release naming only a candidate yields a row with that candidate and
@@ -276,6 +333,14 @@ the balance was a coincidence eleven files agreed on rather than a decision anyo
 review. A config may still override a share, and doing so now means something: that this
 document type needs a different balance.
 
+Every query is the model's. A track missing coverage of a reviewed target is retried once;
+a target still uncovered keeps only its field's general queries, which the search plan
+shows as no target lineage, rather than receiving a query code assembled from its
+descriptor. A track that returns no query at all stops the run, because an unsearched
+field reads exactly like one the evidence was silent about. Queries collapse only when the
+model wrote the same text with the same facets: a case difference or a different facet is
+a different request.
+
 ## Request scope
 
 `batching.py` owns one rule for every model stage: a request may contain several
@@ -289,6 +354,21 @@ justification. Throughput comes from `map_ordered` fan-out, never from packing
 unrelated items into one prompt.
 
 ## Evidence semantics
+
+Insight extraction creates objects and decides no identity: `insight_reconciler` groups
+statements of one fact, so the extraction prompt never asks the model to merge copies. A
+batch that returns no valid answer after its retry stops the run rather than contributing
+no insights. Insights cite their records by `record_key`, so two records sharing a page
+stay two citations, and their coverage tracks and targets come from the requests that
+returned those records (`lineage.RetrievalLineage`, read from each finding's retrieval
+paths), not from matching query text.
+
+The three stages that judge insights - relationship, grounding and precedent - see the
+same rendering of the evidence (`insight_evidence`): each insight with every record it
+rests on, named by title, lane and evidence class, publication date at the precision
+the source stated, the kind of excerpt it carries, and the excerpt's verbatim opening.
+Their rubrics weigh recency, study design and regulatory relevance, which a paraphrase
+and a URL could not show.
 
 Insight extraction retains source-owned facts, including explicit negative findings,
 not commentary about what a search batch failed to find. Missing confirmation does
@@ -344,13 +424,22 @@ the actual evidence. Presentation never changes the saved contract.
 Before review, a document-wide reconciliation pass may group repeated or
 paraphrased representations of the same atomic claim. It can only partition
 existing, calculation-compatible target IDs; code combines their field links
-and exact provenance without rewriting meaning. Anthropic then maps source
+and exact provenance without rewriting meaning; it runs on OpenAI, as every identity
+layer does. Anthropic then maps source
 passages into typed measurement candidates and classifies each source record as
 one comparison unit, explicitly disjoint arms or cohorts, or overlapping and
 uncertain. OpenAI independently reviews document-target proposals and all
 measurement candidates from the same source record together without changing
 their mapped data. Code validates structural provenance, declared-unit
 compatibility, evidence-unit identity, deduplication, and arithmetic.
+
+Measurement mapping reads only the records an insight cites, and each record's whole
+excerpt as Searcher bounded it. Insight extraction is the relevance filter for a
+variable, and every measurement must stay traceable to the insight whose sources it
+came from. A record whose excerpt a model wrote (`excerpt_kind == "generated"`) never
+supplies a number. A source record is identified by its provider identifiers:
+`canonical` when a DOI, PMID, trial number or the lane's own record ID names it,
+`url_fallback` when the lane stated none.
 
 Only explicitly admitted, compatible, evidence-unit-deduplicated scalars enter
 descriptive statistics. Unresolved records remain in the portable audit trail;
@@ -361,6 +450,47 @@ Every source passage keeps a disposition. Three of its statuses are the model's
 verdict on that source; `not_assessed` means this run obtained no verdict and
 names the reason in `failure_code`. A processing gap is never reported as
 evidentiary uncertainty.
+
+The same token means the same thing on every other axis. A drift relation,
+grounding strength, both precedent axes, a projection's `target_relationship`,
+an independent review's `unavailable` recommendation, a source passage and the
+document-context check each record `not_assessed` (or `unavailable`) with a
+`failure_code` from `shared.ai.FAILURE_CODES` (`response_truncated`,
+`response_refused`, `invalid_model_response` or `provider_error`) when their stage
+obtained no valid answer after its retry, was refused, or its provider failed. The
+subject is kept; it is never filed as `unrelated`, `unknown` or `uncertain`, which
+are things the model says about the evidence. No model is offered `not_assessed`.
+Anything other than those failures is a programming error and still stops the run.
+
+Every variable retrieval investigates gets one grounding record and one precedent
+record. A variable no insight reached - retrieval returned nothing for it, or nothing
+it returned bore on it - is `no_evidence` on both, with no model call and an empty
+reason the interface states in its own voice. That is neither the model's `unknown`
+("the evidence I was shown cannot be judged") nor `not_assessed` ("a stage failed").
+The result contract refuses a finished run that leaves a searchable variable without
+either record.
+
+## Field selection
+
+At the target-review checkpoint the reviewer chooses which searchable fields the
+continuation searches. The draft carries the choice as `not_searched_fields` - the
+exclusions, so an untouched draft searches every field as before - and the final result
+keeps it. It is the one record of the selection: the interface edits it on the draft and
+sends the whole draft back.
+
+`continue_pipeline` plans queries, retrieves, extracts insights and runs every judging
+stage for the selected fields only. Each excluded field is recorded `not_searched` on
+grounding and both precedent axes: code-set, never offered to a model, with no failure
+code, no reason and no evidence. It is the reviewer's choice, distinct from `no_evidence`
+(searched, nothing reached it) and `not_assessed` (a stage failed). Its numeric targets stay
+in the ledger as reviewed and receive no conformity record; a target is calibrated when any
+field it defines or constrains was searched. The program-wide questions still run, because
+they belong to no field and their answer does not change with the selection.
+
+The contract holds `not_searched` to exactly the excluded fields and refuses any insight,
+search trace, calibration or projection for them. A draft that excludes every searchable
+field is refused with `FieldSelectionError`, which the route returns as a 400 before the
+stream opens.
 
 ## Development
 

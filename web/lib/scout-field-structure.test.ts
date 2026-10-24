@@ -78,10 +78,10 @@ test("groups inside a field use one row shape", () => {
     "utf8",
   );
   assert.match(shared, /function DisclosureRow\(/);
-  // Four call sites: the field groups plus Landscape's retained field-reference list.
-  // The latter reuses the same disclosure without changing the field groups.
+  // Three call sites, the field groups. Landscape's "Retrieved for" was a fourth until it
+  // became one line, as it already was on a safety observation.
   const uses = PAGE.match(/<DisclosureRow/g) ?? [];
-  assert.equal(uses.length, 4, "a disclosure call site changed; check shared row use");
+  assert.equal(uses.length, 3, "a disclosure call site changed; check shared row use");
   // `group-open/disp` was the numbers-not-used-as-targets row. `group-open/rel` still exists
   // in the projections tab, which is a page-level row of a different tier, not an in-field
   // group, so it is deliberately not checked here.
@@ -215,7 +215,10 @@ test("the run's source count covers every place a source is cited", () => {
   // Measured on a real run: insights, verdicts and measurements share 671 distinct sources,
   // and development and safety records bring it to 827. Dropping one of these collections
   // would narrow the headline silently, since it would still look like a plausible number.
-  const body = functionBody(PAGE, "distinctSourceCount");
+  const body = functionBody(
+    readFileSync(path.resolve(import.meta.dirname, "scout-result-view.ts"), "utf8"),
+    "distinctSourceCount",
+  );
   for (const collection of [
     "result.matches",
     "result.assessments",

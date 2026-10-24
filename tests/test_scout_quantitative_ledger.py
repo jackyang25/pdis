@@ -1,11 +1,13 @@
 from __future__ import annotations
 
 import unittest
+from types import SimpleNamespace
 
 from services.chunker import ContentBlock
 from services.scout.contract import validate_result_contract
-from services.scout.pipeline import _active_quantitative_targets
+from services.scout.pipeline import _calibrated_targets
 from services.scout.models import (
+    RetrievalScopeLedger,
     Attribute,
     ComparisonRule,
     DocumentContextValidation,
@@ -208,10 +210,11 @@ class _LedgerClient:
         self.system_prompt = ""
         self.user_message = ""
 
-    def call_structured(self, system_prompt, user_message, *_args, **_kwargs):
+    def call_structured(self, system_prompt, user_message, *_args, trailing_text="", **_kwargs):
         self.calls += 1
         self.system_prompt = system_prompt
-        self.user_message = user_message
+        # The statement follows the stable prefix as trailing text.
+        self.user_message = user_message + trailing_text
         return {"reviews": [_current_review(review) for review in self.reviews]}
 
 
@@ -222,9 +225,10 @@ class _SequenceLedgerClient:
         self.schemas: list[dict] = []
         self.user_messages: list[str] = []
 
-    def call_structured(self, build_system_prompt, user_message, *_args, schema, **_kwargs):
+    def call_structured(self, build_system_prompt, user_message, *_args, schema,
+                        trailing_text="", **_kwargs):
         self.schemas.append(schema)
-        self.user_messages.append(user_message)
+        self.user_messages.append(user_message + trailing_text)
         response = self.responses[min(self.calls, len(self.responses) - 1)]
         self.calls += 1
         return {"reviews": [_current_review(review) for review in response]}
@@ -383,16 +387,19 @@ class QuantitativeDocumentLedgerTests(unittest.TestCase):
         client = _ReconciliationClient([{
             "representative_target_id": "qt-3",
             "member_target_ids": ["qt-1", "qt-2", "qt-3"],
-            "reason": "The passages repeat the same annual booster limit.",
         }])
 
-        projected, reconciled = reconcile_quantitative_document_ledger(
+        projected, reconciled, record = reconcile_quantitative_document_ledger(
             attributes,
             ledger,
             client,
         )
 
         self.assertEqual(client.calls, 1)
+        self.assertEqual(
+            (record.layer, record.status, record.items, record.merged),
+            ("quantitative_targets", "reconciled", 3, 2),
+        )
         self.assertEqual([item.id for item in reconciled.targets], ["qt-3"])
         self.assertEqual(
             set(reconciled.targets[0].doc_block_ids),
@@ -415,6 +422,19 @@ class QuantitativeDocumentLedgerTests(unittest.TestCase):
         self.assertTrue(
             all(attribute.quantitative_target_ids == ["qt-3"] for attribute in projected)
         )
+
+        # A partition that never validates leaves the ledger unmerged, and says so.
+        incomplete = _ReconciliationClient([{
+            "representative_target_id": "qt-3",
+            "member_target_ids": ["qt-3"],
+        }])
+        _, unmerged, failed = reconcile_quantitative_document_ledger(
+            attributes, ledger, incomplete,
+        )
+        self.assertEqual(incomplete.calls, 2)
+        self.assertEqual([item.id for item in unmerged.targets], ["qt-1", "qt-2", "qt-3"])
+        self.assertEqual((failed.status, failed.failure_code),
+                         ("not_reconciled", "invalid_model_response"))
 
     def test_rejected_targets_remain_auditable_but_are_not_active_downstream(self) -> None:
         approved = QuantitativeTarget(
@@ -482,7 +502,7 @@ class QuantitativeDocumentLedgerTests(unittest.TestCase):
         )
 
         self.assertEqual(
-            [target.id for target in _active_quantitative_targets(ledger)],
+            [target.id for target in _calibrated_targets(ledger, set())],
             [approved.id],
         )
         self.assertEqual(
@@ -490,7 +510,7 @@ class QuantitativeDocumentLedgerTests(unittest.TestCase):
             [approved.id, rejected.id],
         )
 
-    def test_many_canonical_blocks_are_split_into_bounded_batches(self) -> None:
+    def test_every_canonical_block_is_its_own_batch(self) -> None:
         sources = [
             ContentBlock(
                 id=f"document/b-{index:04d}",
@@ -515,16 +535,14 @@ class QuantitativeDocumentLedgerTests(unittest.TestCase):
             target_resolved=True,
         )
 
-        batches = prepare_quantitative_ledger_batches(
-            sources, [attribute], max_units=10
-        )
+        # One block per request (LEDGER_UNITS_PER_REQUEST): unrelated statements never
+        # share a prompt, so there is no multi-unit packing left to bound.
+        batches = prepare_quantitative_ledger_batches(sources, [attribute])
         unit_ids = [unit.id for batch in batches for unit in batch.units]
 
-        self.assertEqual(len(batches), 5)
-        single_block_requests = prepare_quantitative_ledger_batches(sources, [attribute])
-        self.assertEqual(len(single_block_requests), 50)
-        self.assertTrue(all(len(batch.units) == 1 for batch in single_block_requests))
-        self.assertTrue(all(len(batch.units) <= 10 for batch in batches))
+        self.assertEqual(len(batches), 50)
+        self.assertTrue(all(len(batch.units) == 1 for batch in batches))
+        self.assertTrue(all(len(batch.blocks) == 1 for batch in batches))
         self.assertEqual(len(unit_ids), len(set(unit_ids)))
         self.assertEqual(sum(len(batch.blocks) for batch in batches), len(sources))
 
@@ -942,6 +960,7 @@ class QuantitativeDocumentLedgerTests(unittest.TestCase):
             variables=attributes,
             blocks=[_block()],
             phase="target_review",
+            retrieval_scope=RetrievalScopeLedger.of(condition=("malaria", "header")),
         )
         self.assertIs(validate_result_contract(result), result)
 
@@ -1011,16 +1030,9 @@ class QuantitativeDocumentLedgerTests(unittest.TestCase):
             target_resolution_reason="Resolved from exact document spans.",
         )
         batch = prepare_quantitative_ledger_batches(
-            [first_source, second_source], [attribute], max_units=2
-        )[0]
-        first_unit, unit = batch.units
-        retained = {
-            "unit_id": first_unit.id,
-            "classification": "non_numeric",
-            "attribute_ref": "",
-            "reason": "The statement contains no numeric content.",
-            "targets": [],
-        }
+            [first_source, second_source], [attribute]
+        )[1]
+        [unit] = batch.units
         recovered = {
             "unit_id": unit.id,
             "classification": "non_scalar",
@@ -1028,7 +1040,7 @@ class QuantitativeDocumentLedgerTests(unittest.TestCase):
             "reason": "The phase is a development category, not a scalar target.",
             "targets": [],
         }
-        client = _SequenceLedgerClient([[retained], [recovered]])
+        client = _SequenceLedgerClient([[], [recovered]])
 
         result = extract_quantitative_ledger_batch(
             batch,
@@ -1041,72 +1053,11 @@ class QuantitativeDocumentLedgerTests(unittest.TestCase):
         self.assertEqual(client.calls, 2)
         self.assertEqual(
             [review.classification for review in result.reviews],
-            ["non_numeric", "non_scalar"],
+            ["non_scalar"],
         )
-        first_ids = (
-            client.schemas[0]["properties"]["reviews"]["items"]["properties"]
-            ["unit_id"]["enum"]
-        )
-        retry_ids = (
-            client.schemas[1]["properties"]["reviews"]["items"]["properties"]
-            ["unit_id"]["enum"]
-        )
-        self.assertEqual(first_ids, [first_unit.id, unit.id])
-        self.assertEqual(retry_ids, [unit.id])
-        self.assertEqual(
-            client.schemas[1]["properties"]["reviews"]["minItems"],
-            1,
-        )
-
-    def test_missing_response_retries_in_small_source_scoped_batches(self) -> None:
-        blocks = [
-            ContentBlock(
-                id=f"document/b-{index:04d}",
-                doc_id="document",
-                ordinal=index,
-                block_type="paragraph",
-                content=f"Statement {index} contains context only.",
-                heading_stack=[],
-                structural_meta={},
-                style_hint={},
-            )
-            for index in range(1, 7)
-        ]
-        attributes = [
-            Attribute(
-                name=f"drug.context_{index}",
-                description="Context statement",
-                document_target=block.content,
-                document_spans=[DocumentSpan(quote=block.content, block_ids=[block.id])],
-                target_resolved=True,
-            )
-            for index, block in enumerate(blocks)
-        ]
-        batch = prepare_quantitative_ledger_batches(blocks, attributes, max_units=6)[0]
-        client = _SequenceLedgerClient([[], [], []])
-
-        with self.assertRaisesRegex(
-            ValueError,
-            "incomplete schema-bound decisions for 6 statement",
-        ):
-            extract_quantitative_ledger_batch(
-                batch,
-                attributes,
-                client,
-                indication="example condition",
-                intervention_class="drug",
-            )
-
-        requested_ids = [
-            schema["properties"]["reviews"]["items"]["properties"]
-            ["unit_id"]["enum"]
-            for schema in client.schemas
-        ]
-        self.assertEqual([len(ids) for ids in requested_ids], [6, 4, 2])
-        self.assertEqual(
-            requested_ids[1] + requested_ids[2],
-            requested_ids[0],
-        )
+        # The retry resends the same statement and names what was missing.
+        self.assertEqual(client.schemas[0], client.schemas[1])
+        self.assertIn(f"[unit:{unit.id}]", client.user_messages[1].split("failed validation")[1])
 
     def test_retry_preserves_valid_sibling_when_it_repairs_only_failed_target(self) -> None:
         source = ContentBlock(
@@ -1245,9 +1196,13 @@ class QuantitativeDocumentLedgerTests(unittest.TestCase):
             [link.attribute_ref for link in result.targets[0].field_links],
             [resolved.name],
         )
+        target_review = next(
+            option["properties"]
+            for option in client.schemas[0]["properties"]["reviews"]["items"]["anyOf"]
+            if "target" in option["properties"]["classification"]["enum"]
+        )
         allowed_refs = (
-            client.schemas[0]["properties"]["reviews"]["items"]["properties"]
-            ["targets"]["items"]["properties"]["field_links"]["items"]
+            target_review["targets"]["items"]["properties"]["field_links"]["items"]
             ["properties"]["attribute_ref"]["enum"]
         )
         self.assertEqual(allowed_refs, [resolved.name])
@@ -1375,6 +1330,10 @@ class QuantitativeDocumentLedgerTests(unittest.TestCase):
         self.assertEqual(len(result.targets), 1)
         self.assertEqual(result.reviews[0].target_ids, [result.targets[0].id])
         self.assertIn("Source-verifiable targets were retained", result.reviews[0].reason)
+        # Which checks failed is a closed code, not text inside the reason.
+        self.assertEqual(result.reviews[0].failure_code, "invalid_target_mapping")
+        self.assertEqual(result.reviews[0].issue_codes, ["invalid_target_quote"])
+        self.assertNotIn("[", result.reviews[0].reason)
 
     def test_context_block_is_retained_without_calibration(self) -> None:
         source = ContentBlock(
@@ -1432,6 +1391,48 @@ class QuantitativeDocumentLedgerTests(unittest.TestCase):
             {item.disposition for item in attributes[0].quantitative_statement_dispositions},
             {"context_only"},
         )
+
+
+class LedgerReviewFailureCodeTests(unittest.TestCase):
+    def _review(self, **overrides):
+        from services.scout.models import QuantitativeLedgerReview as Review
+
+        values = dict(
+            unit_id="unit-1", block_id=BLOCK_ID, quote="Dose <0.5 mL.",
+            classification="mapping_failed", reason="Target mapping rejected.",
+            review_status="needs_review", failure_code="invalid_target_mapping",
+            issue_codes=["invalid_target_quote"],
+        )
+        values.update(overrides)
+        return Review(**values)
+
+    def test_a_mapping_failure_names_its_checks_from_the_closed_vocabulary(self) -> None:
+        self.assertEqual(self._review().issue_codes, ["invalid_target_quote"])
+        with self.assertRaisesRegex(ValueError, "names its failed checks"):
+            self._review(issue_codes=[])
+        with self.assertRaisesRegex(ValueError, "unknown target mapping issue"):
+            self._review(issue_codes=["target excerpt is not exact"])
+
+    def test_no_usable_model_review_is_its_own_code_without_checks(self) -> None:
+        review = self._review(failure_code="invalid_model_response", issue_codes=[])
+        self.assertEqual(review.failure_code, "invalid_model_response")
+        with self.assertRaisesRegex(ValueError, "names its failed checks"):
+            self._review(failure_code="invalid_model_response")
+        with self.assertRaisesRegex(ValueError, "unknown quantitative review failure code"):
+            self._review(failure_code="mapping_rejected")
+
+    def test_every_issue_code_has_retry_wording(self) -> None:
+        from services.scout.models import TARGET_MAPPING_ISSUE_CODES
+        from services.scout.stages.conformity import _TARGET_MAPPING_ISSUE_LABELS
+
+        self.assertEqual(set(_TARGET_MAPPING_ISSUE_LABELS), set(TARGET_MAPPING_ISSUE_CODES))
+
+    def test_a_review_without_one_usable_answer_records_invalid_model_response(self) -> None:
+        from services.scout.stages.conformity import _failed_unit_review
+
+        unit = SimpleNamespace(id="unit-1", block_id=BLOCK_ID, quote="Dose <0.5 mL.")
+        review = _failed_unit_review(unit, "The model did not return one unique review.")
+        self.assertEqual((review.failure_code, review.issue_codes), ("invalid_model_response", []))
 
 
 if __name__ == "__main__":

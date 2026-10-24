@@ -1,41 +1,26 @@
 """Inspector — document-quality and rubric inspection service.
 
-Consumes Chunker's public parsing/labeling contract and produces an InspectionResult
-per document. Public contract below; internals
+Consumes Chunker's public parsing/labeling contract and produces one
+AggregateInspectionResult per document: a peer review per included rubric. Public contract below; internals
 (`stages/`, `cli.py`) are not part of the contract.
 """
 
 from .models import (
     LLMClientProtocol,
-    BatchInspectionResult,
     InspectionConfig,
     InspectionResult,
     AggregateInspectionResult,
     inspection_result_to_dict,
 )
-from .pipeline import (
-    DEFAULT_MAX_OUTPUT_TOKENS,
-    inspect_blocks,
-    inspect_blocks_batch,
-    run_pipeline,
-    run_pipeline_batch,
-)
-
 __all__ = [
     "available_configs",
     "LLMClientProtocol",
-    "BatchInspectionResult",
-    "DEFAULT_MAX_OUTPUT_TOKENS",
     "InspectionConfig",
     "InspectionResult",
     "AggregateInspectionResult",
     "find_config",
     "has_config",
-    "inspect_blocks",
-    "inspect_blocks_batch",
     "inspection_result_to_dict",
-    "run_pipeline",
-    "run_pipeline_batch",
 ]
 
 from .configuration import (

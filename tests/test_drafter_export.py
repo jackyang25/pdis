@@ -7,7 +7,7 @@ import unittest
 
 from docx import Document
 
-from services.drafter.export import export_docx
+from services.drafter import export_docx
 from tests.test_drafter_contract import result, suggested
 
 
@@ -26,7 +26,7 @@ def insufficient(name: str) -> dict:
 class ExportTests(unittest.TestCase):
     def test_each_row_shows_the_suggestion_what_it_leans_on_and_its_sources(self):
         failed = suggested(name="vaccine.shelf_life", status="failed", suggestion=None,
-                           failure={"code": "suggestion_failed", "message": "No valid reply."})
+                           failure={"code": "suggestion_failed", "message": "No valid reply.", "cause": "invalid_model_response"})
         rows = table_rows(export_docx(result(suggested(), insufficient("vaccine.cogs"), failed)))
         self.assertEqual(rows[0], ["Variable", "Suggested target", "Based on", "Sources"])
         self.assertEqual(rows[1][1], "Minimum: 50%\nPreferred: 75%")

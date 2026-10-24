@@ -16,7 +16,7 @@ import { RESULT_CONTRACTS, type ResultType } from "./result-contracts.ts";
 const TOOLS: ResultType[] = ["aligner", "screener", "inspector", "scout", "drafter"];
 
 function inspectorSections(sections: unknown[]) {
-  return { inspection: { blocks: [], document_findings: [], applicability_facts: {},
+  return { inspection: { blocks: [], document_findings: [], applicability_facts: {}, consistency_status: "complete", consistency_failure_code: null,
     rubric_resolutions: [{ rubric_id: "test", display_name: "Test", status: "included", reason_code: "test", reason: "Test" }],
     reviews: [{ rubric: { id: "test", revision: null, display_name: "Test", authority: "Test", scope: "Test",
       evidence_scope: "mapped_section", stage_guidance: "", mirrors: null, sources: [], requirements: [] }, assessment_status: "complete", sections }] } };
@@ -98,6 +98,18 @@ test("Aligner refuses a result that cannot form a comparison", () => {
         statement: "It states annual dosing.",
         gap: "",
         comparison_spans: [{ quote: "cited", block_ids: ["b:1"] }],
+      },
+      {
+        requirement_id: "b-to-c/r-001",
+        edge_id: "b-to-c",
+        requirement: "Six-monthly dosing.",
+        reference_visual_block_ids: [],
+        comparison_visual_block_ids: [],
+        reference_spans: [{ quote: "cited", block_ids: ["b:1"] }],
+        verdict: "meets",
+        statement: "It states six-monthly dosing.",
+        gap: "",
+        comparison_spans: [{ quote: "cited", block_ids: ["c:1"] }],
       },
     ],
   };
@@ -239,4 +251,53 @@ test("Inspector's contract only requires fields the service publishes", () => {
       `the contract requires ${field}, which the service does not publish`,
     );
   }
+});
+
+test("Aligner refuses a comparison with no findings, or findings out of sequence", () => {
+  // The service mints requirement IDs positionally per comparison, so each comparison's
+  // findings run r-001, r-002, ... A gap is a requirement that went missing; a comparison
+  // with none is a read that failed, because a reference document states at least one.
+  const finding = (edge: string, index: number) => ({
+    requirement_id: `${edge}/r-${String(index).padStart(3, "0")}`,
+    edge_id: edge,
+    requirement: "Annual dosing.",
+    reference_visual_block_ids: [],
+    comparison_visual_block_ids: [],
+    reference_spans: [{ quote: "cited", block_ids: ["a:1"] }],
+    verdict: "meets",
+    statement: "It states annual dosing.",
+    gap: "",
+    comparison_spans: [{ quote: "cited", block_ids: ["b:1"] }],
+  });
+  const alignment = {
+    documents: [{ doc_id: "a" }, { doc_id: "b" }, { doc_id: "c" }],
+    edges: [
+      { edge_id: "a-to-b", reference_doc_id: "a", comparison_doc_id: "b", question: "?" },
+      { edge_id: "b-to-c", reference_doc_id: "b", comparison_doc_id: "c", question: "?" },
+    ],
+    findings: [finding("a-to-b", 1), finding("a-to-b", 2), finding("b-to-c", 1)],
+  };
+  RESULT_CONTRACTS.aligner({ alignment });
+  assert.throws(
+    () => RESULT_CONTRACTS.aligner({ alignment: { ...alignment, findings: alignment.findings.slice(0, 2) } }),
+    /b-to-c carries no findings/,
+  );
+  assert.throws(
+    () => RESULT_CONTRACTS.aligner({ alignment: { ...alignment, findings: [finding("a-to-b", 2), finding("b-to-c", 1)] } }),
+    /out of sequence/,
+  );
+});
+
+test("Screener requires every model decision to say what the material holds", () => {
+  // `not_found` included: it is an observation of the supplied material, not a blank. Only
+  // the one state no model reached, `not_applicable`, says nothing.
+  const review = (question: Record<string, unknown>) => ({ review: {
+    gate_id: "eop1", gate_label: "EOP1", documents: [{ doc_id: "doc" }],
+    blocks: [{ id: "doc:1", doc_id: "doc" }],
+    disciplines: [{ label: "CMC", questions: [{ id: "q1", text: "Is the route set?", cited_block_ids: [], ...question }] }],
+  } });
+  RESULT_CONTRACTS.screener(review({ state: "not_found", statement: "The plan names no route." }));
+  RESULT_CONTRACTS.screener(review({ state: "not_applicable", statement: "" }));
+  assert.throws(() => RESULT_CONTRACTS.screener(review({ state: "not_found", statement: " " })), /statement/);
+  assert.throws(() => RESULT_CONTRACTS.screener(review({ state: "not_applicable", statement: "Read anyway." })), /no model read/);
 });

@@ -1,0 +1,26 @@
+{
+  "description": "Words a label writes in capitals, and the keys that have their own spelling. Read by shared.vocabulary for server-written labels (the Drafter Word export) and mirrored by web/lib/display-label.ts, whose test fails if the two disagree.",
+  "acronyms": [
+    "who",
+    "bmgf",
+    "fda",
+    "tpp",
+    "ipdp",
+    "ppc",
+    "hiv",
+    "rsv",
+    "hpv",
+    "cmv",
+    "covid19",
+    "cogs",
+    "gcp",
+    "glp",
+    "gmp",
+    "poc",
+    "rct"
+  ],
+  "special": {
+    "itpp": "iTPP",
+    "ctpp": "cTPP"
+  }
+}

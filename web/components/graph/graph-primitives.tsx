@@ -9,6 +9,8 @@ import {
   useReactFlow,
   type EdgeProps,
 } from "@xyflow/react";
+// Here rather than in the root layout, so only the pages that draw a graph load its styles.
+import "@xyflow/react/dist/style.css";
 import { Maximize2, Minus, Plus } from "lucide-react";
 import { cn } from "@/lib/utils";
 
@@ -159,7 +161,7 @@ export function GraphControls({ fitPadding = 0.2 }: { fitPadding?: number }) {
             aria-label={label}
             title={label}
             onClick={action}
-            className="flex h-8 w-8 items-center justify-center text-muted-foreground transition-colors hover:bg-foreground/[0.045] hover:text-foreground focus-visible:z-10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/25 motion-reduce:transition-none"
+            className="flex h-8 w-8 items-center justify-center text-muted-foreground transition-colors hover:bg-foreground/[0.045] hover:text-foreground focus-visible:z-10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/60 motion-reduce:transition-none"
           >
             <Icon className="h-3.5 w-3.5" aria-hidden="true" />
           </button>
@@ -206,7 +208,7 @@ export function GraphInspectorShell({
       // Only what both layouts share. A side-by-side caller adds its own
       // height and leading border rather than having to cancel them here.
       className={cn(
-        "min-h-[220px] border-t border-border/80 bg-card px-5 py-5",
+        "min-h-[220px] border-t border-border/60 bg-card px-5 py-5",
         className,
       )}
     >

@@ -8,7 +8,7 @@ searcher through their public contracts only.
 
 from __future__ import annotations
 
-import threading
+import copy
 from datetime import date
 from pathlib import Path
 from typing import Callable, TypeVar
@@ -19,7 +19,7 @@ from services.searcher import (
     lane_class,
     SearchRequest,
     SearchRuntime,
-    merge_findings,
+    dedupe_findings,
     plan_requests,
     run_requests,
 )
@@ -29,10 +29,14 @@ from .context import (
     render_canonical_binding,
     render_document_context,
 )
-from .contract import validate_result_contract
-from shared.batching import budgeted_batches, fixed_batches, map_ordered
+from .contract import require_field_selection, validate_result_contract
+from .lineage import RetrievalLineage
+from shared.batching import budgeted_batches, map_ordered
+from shared.errors import ModelResponseError
+from shared.source_blocks import image_inputs
 from shared.vocabulary import search_term
 from .models import (
+    NOT_SEARCHED,
     PROGRAM_SCOPE_KEY,
     RetrievalScopeLedger,
     Attribute,
@@ -40,6 +44,7 @@ from .models import (
     DocumentContextValidation,
     EvidenceAssessment,
     FunnelStats,
+    IdentityReconciliation,
     Insight,
     LLMClientProtocol,
     Match,
@@ -66,13 +71,14 @@ from .stages.conformity import (
     score_conformity_all,
 )
 from .stages.context_validator import mismatch_message, validate_document_context
-from .stages.drift_classifier import INSIGHTS_PER_REQUEST, classify_drift
-from .stages.evidence_assessor import assess_evidence
+from .stages.drift_classifier import classify_drift
+from .stages.evidence_assessor import assess_evidence, no_evidence_assessment
 from .stages.evidence_reviewer import prefill_evidence_review
-from .stages.insight_extractor import extract_insights, merge_duplicate_insights
+from .stages.insight_extractor import extract_insights
 from .stages.insight_reconciler import reconcile_duplicate_insights
-from .stages.precedent_classifier import classify_precedent
+from .stages.precedent_classifier import classify_precedent, no_evidence_precedent
 from .stages.projection_classifier import classify_projection_relationships
+from .stages.projection_reconciler import reconcile_projection_names
 from .stages.announcement_reader import read_announcements
 from .stages.scope_resolver import resolve_retrieval_scope
 from .stages.query_extractor import extract_queries_for_variable
@@ -81,10 +87,15 @@ from .stages.target_resolver import resolve_document_targets
 from .stages.target_reviewer import prefill_target_review
 from .stages.unit_extractor import extract_units
 
+#: Insight extraction reads one variable's findings in batches, because what it
+#: produces is a statement about the set: one fact reported by a trial registry and by
+#: the paper of its results is one insight citing both, and only a request holding
+#: both can write it that way. Forty records, or fewer when their excerpts would pass
+#: the character budget - Searcher's excerpts run to sixteen thousand characters, so
+#: the budget, not the count, bounds a batch of full-text records.
 FINDINGS_PER_REQUEST = 40
 FINDINGS_CHARS_PER_REQUEST = 240_000
 SEARCH_MAX_TOKENS = 8000
-SEARCH_MAX_USES = 10
 
 # Parallelism for Scout's LLM reasoning fan-outs. Retrieval concurrency belongs
 # to each Searcher source adapter and is not duplicated here.
@@ -138,6 +149,7 @@ def run_pipeline(
     # Preserve block IDs through every doc-aware stage. The model may cite only
     # these markers; each stage validates returned IDs against its input context.
     doc_text = render_document_context(blocks)
+    images = image_inputs(blocks) or None
 
     if progress_callback:
         progress_callback("context")
@@ -145,47 +157,41 @@ def run_pipeline(
         doc_text,
         openai_client,
         indication=indication,
-        images=[
-            {"block_id": block.id, "data_url": block.image.data_url()}
-            for block in blocks
-            if block.image
-        ]
-        or None,
+        images=images,
     )
     if context_validation.status == "mismatch":
         raise ValueError(mismatch_message(context_validation))
 
+    reconciliations: list[IdentityReconciliation] = []
     attributes = _resolve_units(
-        config, doc_text, blocks, openai_client, indication=indication,
-        progress_callback=progress_callback,
+        config, doc_text, openai_client, indication=indication, images=images,
+        reconciliations=reconciliations, progress_callback=progress_callback,
     )
     if not attributes:
         return validate_result_contract(ScoutResult(
             matches=[],
             assessments=[],
-            stats=FunnelStats(
-                queries=0,
-                findings=0,
-                unique_findings=0,
-                insights=0,
-                matches=0,
-                assessments=0,
-            ),
+            stats=_empty_stats(),
             context_validation=context_validation,
             blocks=blocks,
             published_since=published_since,
+            retrieval_scope=_header_scope(indication, intervention_class),
+            reconciliations=reconciliations,
         ))
 
     # Provider-specific work ends here. Fixed definitions are resolved in
     # bounded output batches that share the same document and complete field
     # catalog; dynamically extracted units arrive already bound. Every later
     # stage receives the same canonical Attribute contract.
-    attributes = _resolve_targets_all(
+    attributes = resolve_document_targets(
         attributes,
         doc_text,
-        blocks,
         openai_client,
-        progress=progress_callback,
+        images=images,
+        progress_callback=(
+            (lambda **counts: progress_callback("targets", **counts))
+            if progress_callback else None
+        ),
     )
     unresolved_attributes = [
         attribute
@@ -199,21 +205,30 @@ def run_pipeline(
         )
     ]
     if unresolved_attributes:
-        return _empty_result(
-            blocks=blocks,
-            variables=attributes,
-            quantitative_ledger=QuantitativeLedger(
-                status="not_applicable",
-                reason=(
-                    "Numeric interpretation did not run because document claim "
-                    "resolution stopped before retrieval: "
-                    f"{len(unresolved_attributes)} field decision(s) remained unresolved "
-                    "after one bounded retry."
-                ),
-            ),
-            context_validation=context_validation,
-            published_since=published_since,
+        # Unresolved canonical fields stop retrieval. That is a failed run, not a
+        # finished one: an empty final result would read as a review that found nothing.
+        raise ModelResponseError(
+            "Document claim resolution stopped before retrieval: "
+            f"{len(unresolved_attributes)} field decision(s) remained unresolved after "
+            "one bounded retry ("
+            + ", ".join(attribute.name for attribute in unresolved_attributes)
+            + ")."
         )
+
+    # What the run will search for, resolved before review rather than in the
+    # continuation: two layers read it - query generation, which needs the geography to
+    # write queries about the right places, and the adapters, which filter by it - and a
+    # reading that fails should stop the run before anyone reviews anything. Carried on
+    # the draft, so the reviewer sees it and the continuation cannot re-read it.
+    if progress_callback:
+        progress_callback("scope")
+    retrieval_scope = resolve_retrieval_scope(
+        attributes,
+        openai_client,
+        condition=indication,
+        intervention_class=intervention_class,
+    )
+
     ledger_batches = prepare_quantitative_ledger_batches(blocks, attributes)
 
     def map_ledger_batch(batch):
@@ -238,11 +253,15 @@ def run_pipeline(
         ledger_batches,
         ledger_results,
     )
-    attributes, quantitative_ledger = reconcile_quantitative_document_ledger(
+    # Identity, not mapping: OpenAI, as every identity layer is (AGENTS limits
+    # Anthropic to target and measurement mapping).
+    attributes, quantitative_ledger, reconciliation = reconcile_quantitative_document_ledger(
         attributes,
         quantitative_ledger,
-        quantitative_mapping_client,
+        openai_client,
     )
+    if reconciliation is not None:
+        reconciliations.append(reconciliation)
     if progress_callback:
         progress_callback("target_review")
     attributes, quantitative_ledger = prefill_target_review(
@@ -250,18 +269,12 @@ def run_pipeline(
         quantitative_ledger,
         blocks,
         openai_client,
+        progress=_stage_counts(progress_callback, "target_review"),
     )
     return validate_result_contract(ScoutResult(
         matches=[],
         assessments=[],
-        stats=FunnelStats(
-            queries=0,
-            findings=0,
-            unique_findings=0,
-            insights=0,
-            matches=0,
-            assessments=0,
-        ),
+        stats=_empty_stats(),
         context_validation=context_validation,
         quantitative_ledger=quantitative_ledger,
         variables=attributes,
@@ -270,6 +283,8 @@ def run_pipeline(
         # Declared before retrieval and carried through the review round-trip,
         # so the continuation searches the window the user actually chose.
         published_since=published_since,
+        retrieval_scope=retrieval_scope,
+        reconciliations=reconciliations,
     ))
 
 
@@ -286,30 +301,42 @@ def continue_pipeline(
     indication: str,
     progress_callback=None,
 ) -> ScoutResult:
-    """Continue from one explicitly reviewed, portable target draft."""
+    """Continue from one explicitly reviewed, portable target draft.
+
+    Only the fields the reviewer kept are searched: queries, retrieval, insights, every
+    judging stage and calibration see those alone, and each field left out is recorded
+    ``not_searched``. The program-wide questions still run, because they belong to no
+    field - their answer is the same whichever fields were chosen.
+    """
     validate_result_contract(prepared)
-    # Nothing here re-stamps a block — the draft carries its own, already stamped with
-    # the stored tag — so the tag is only ever text from this point, normalised once for
-    # the same reason as in `run_pipeline`.
+    require_field_selection(prepared)
+    # Blocks arrive already stamped by the draft. Insights are stamped here, with the
+    # stored tags kept below: a saved result keeps the key its configuration was
+    # selected by. Every other use is text, normalised once as in `run_pipeline`.
+    indication_tag, intervention_tag = indication, intervention_class
     indication = search_term(indication)
     intervention_class = search_term(intervention_class)
     if prepared.phase != "target_review":
         raise ValueError("Scout continuation requires a target-review draft")
+    if prepared.retrieval_scope is None:
+        raise ValueError("Scout continuation requires the draft's retrieval scope")
     blocks = prepared.blocks
     context_validation = prepared.context_validation
+    retrieval_scope = prepared.retrieval_scope
+    reconciliations = list(prepared.reconciliations)
     attributes, quantitative_ledger = finalize_quantitative_document_review(
         prepared.variables,
         prepared.quantitative_ledger,
     )
-    active_quantitative_targets = _active_quantitative_targets(quantitative_ledger)
+    not_searched = set(prepared.not_searched_fields)
+    active_quantitative_targets = _calibrated_targets(quantitative_ledger, not_searched)
     # Numeric interpretation is load-bearing only for quantitative calibration.
     # An unresolved statement remains excluded from target-specific queries and
     # statistics, but it must not discard the already verified document-claim
     # ledger or prevent the independent qualitative evidence workflow.
     searchable_attributes = [
-        attribute
-        for attribute in attributes
-        if attribute.document_target and attribute.document_spans
+        attribute for attribute in _searchable(attributes)
+        if attribute.name not in not_searched
     ]
     attribute_descriptions = {
         attribute.name: attribute.description for attribute in searchable_attributes
@@ -323,22 +350,18 @@ def continue_pipeline(
     }
     attribute_images = _images_for_contexts(attribute_contexts, blocks)
 
-    # One statement of what this run is about, recorded with where each value came from.
-    # The header supplies the condition and class; the document supplies the geography,
-    # read from whichever attribute declares `supplies_scope` for it. A dimension nobody
-    # supplies is recorded unset rather than omitted, so it stays distinguishable from a
-    # reader who deliberately widened the search.
-    #
-    # Resolved here rather than beside retrieval, because two layers read it and both are
-    # downstream of this point: query generation, which needs the geography to write
-    # queries about the right places, and the adapters, which need it to filter. Resolved
-    # after retrieval it would reach only the second, which is what it used to do.
-    retrieval_scope = resolve_retrieval_scope(
-        prepared.variables,
-        openai_client,
-        condition=indication,
-        intervention_class=intervention_class,
-    )
+    def empty(**kwargs) -> ScoutResult:
+        return _empty_result(
+            blocks=blocks,
+            variables=attributes,
+            quantitative_ledger=quantitative_ledger,
+            context_validation=context_validation,
+            published_since=prepared.published_since,
+            retrieval_scope=retrieval_scope,
+            reconciliations=reconciliations,
+            not_searched_fields=prepared.not_searched_fields,
+            **kwargs,
+        )
 
     if progress_callback:
         progress_callback("queries")
@@ -358,13 +381,7 @@ def continue_pipeline(
         for query in queries
     ]
     if not flat:
-        return _empty_result(
-            blocks=blocks,
-            variables=attributes,
-            quantitative_ledger=quantitative_ledger,
-            context_validation=context_validation,
-            published_since=prepared.published_since,
-        )
+        return empty()
 
     if progress_callback:
         progress_callback("search")
@@ -390,15 +407,7 @@ def continue_pipeline(
         progress=progress_callback,
     )
     if not findings_by_attribute:
-        return _empty_result(
-            queries=len(flat),
-            blocks=blocks,
-            variables=attributes,
-            quantitative_ledger=quantitative_ledger,
-            search_plan=search_plan,
-            context_validation=context_validation,
-            published_since=prepared.published_since,
-        )
+        return empty(queries=len(flat), search_plan=search_plan)
 
     # Adapters own source-specific parsing. These views consume only normalized
     # records and therefore add no new model judgment or provider branch here.
@@ -406,10 +415,17 @@ def continue_pipeline(
     # read out of them. Before the landscape is built, and only for findings that carry
     # no record yet.
     announcements = read_announcements(
-        findings_by_attribute.get(PROGRAM_SCOPE_KEY, []), openai_client
+        findings_by_attribute.get(PROGRAM_SCOPE_KEY, []),
+        openai_client,
+        progress=_stage_counts(progress_callback, "announcements"),
     )
-    development_landscape = build_development_landscape(findings_by_attribute)
-    safety_observations = build_safety_observations(findings_by_attribute)
+    # Which stated names are one program or product is decided once, by its own layer,
+    # before either view groups by name.
+    names, name_reconciliation = reconcile_projection_names(findings_by_attribute, openai_client)
+    if name_reconciliation is not None:
+        reconciliations.append(name_reconciliation)
+    development_landscape = build_development_landscape(findings_by_attribute, names)
+    safety_observations = build_safety_observations(findings_by_attribute, names)
     development_landscape, safety_observations = classify_projection_relationships(
         searchable_attributes,
         development_landscape,
@@ -419,41 +435,25 @@ def continue_pipeline(
         intervention_class=intervention_class,
     )
 
-    query_tracks_by_attribute: dict[str, dict[str, list[str]]] = {}
-    query_targets_by_attribute: dict[str, dict[str, list[str]]] = {}
-    for task in search_tasks:
-        if task.tracks:
-            track_map = query_tracks_by_attribute.setdefault(task.scope_ref, {})
-            track_map[task.query] = list(
-                dict.fromkeys([*track_map.get(task.query, []), *task.tracks])
-            )
-        if task.target_refs:
-            target_map = query_targets_by_attribute.setdefault(task.scope_ref, {})
-            target_map[task.query] = list(
-                dict.fromkeys(
-                    [*target_map.get(task.query, []), *task.target_refs]
-                )
-            )
-
     if progress_callback:
         progress_callback("insights")
-    insights = _extract_insights_all_variables(
+    insights, insight_reconciliations = _extract_insights_all_variables(
         findings_by_attribute,
         attribute_descriptions,
-        query_tracks_by_attribute,
-        query_targets_by_attribute,
+        RetrievalLineage(search_tasks),
         openai_client,
         indication=indication,
         intervention_class=intervention_class,
         progress=progress_callback,
     )
+    reconciliations.extend(insight_reconciliations)
 
     _stamp(
         insights,
         org=org,
         source_type=source_type,
-        intervention_class=intervention_class,
-        indication=indication,
+        intervention_class=intervention_tag,
+        indication=indication_tag,
     )
 
     if progress_callback:
@@ -500,6 +500,7 @@ def continue_pipeline(
         conformity,
         active_quantitative_targets,
         openai_client,
+        progress=_stage_counts(progress_callback, "evidence_review"),
     )
 
     if progress_callback:
@@ -516,19 +517,20 @@ def continue_pipeline(
         progress=progress_callback,
     )
 
+    # The fields left out at review keep their records, in document order beside the rest.
+    assessments = _with_not_searched(attributes, not_searched, assessments, _not_searched_assessment)
+    precedents = _with_not_searched(attributes, not_searched, precedents, _not_searched_precedent)
     stats = FunnelStats(
         queries=len(flat),
         findings=total_findings,
-        unique_findings=len({
-            finding.url
-            for findings in findings_by_attribute.values()
-            for finding in findings
-        }),
+        unique_findings=_unique_records(findings_by_attribute),
         insights=len(insights),
         matches=len(matches),
         assessments=len(assessments),
         announcements_read=announcements.read,
         announcements_named=announcements.named,
+        announcements_failed=announcements.failed,
+        announcements_failed_by_code=announcements.failed_by_code,
     )
     has_evidence_review = any(
         measurement.admission_status == "needs_review"
@@ -550,38 +552,112 @@ def continue_pipeline(
         blocks=blocks,
         phase="evidence_review" if has_evidence_review else "final",
         published_since=prepared.published_since,
+        retrieval_scope=retrieval_scope,
+        reconciliations=reconciliations,
+        not_searched_fields=prepared.not_searched_fields,
+    ))
+
+
+def _searchable(attributes: list[Attribute]) -> list[Attribute]:
+    """The attributes retrieval investigates: those with a bound, cited document target."""
+    return [
+        attribute
+        for attribute in attributes
+        if attribute.document_target and attribute.document_spans
+    ]
+
+
+def _not_searched_assessment(attribute: Attribute) -> EvidenceAssessment:
+    """The grounding record for a field the reviewer left out: no search, so no reason."""
+    return EvidenceAssessment(
+        attribute_ref=attribute.name,
+        strength=NOT_SEARCHED,
+        doc_target=attribute.document_target,
+        doc_block_ids=list(attribute.block_ids),
+    )
+
+
+def _not_searched_precedent(attribute: Attribute) -> PrecedentSignal:
+    """The precedent record for a field the reviewer left out, on both axes."""
+    return PrecedentSignal(
+        attribute_ref=attribute.name,
+        precedent=NOT_SEARCHED,
+        outcome=NOT_SEARCHED,
+        doc_block_ids=list(attribute.block_ids),
+    )
+
+
+_Record = TypeVar("_Record", EvidenceAssessment, PrecedentSignal)
+
+
+def _with_not_searched(
+    attributes: list[Attribute],
+    not_searched: set[str],
+    records: list[_Record],
+    build: Callable[[Attribute], _Record],
+) -> list[_Record]:
+    """One record per searchable field, in document order: the searched fields' own, and a
+    ``not_searched`` record for each field the reviewer excluded."""
+    by_field = {record.attribute_ref: record for record in records}
+    return [
+        build(attribute) if attribute.name in not_searched else by_field[attribute.name]
+        for attribute in _searchable(attributes)
+        if attribute.name in not_searched or attribute.name in by_field
+    ]
+
+
+def _header_scope(indication: str, intervention_class: str) -> RetrievalScopeLedger:
+    """The scope a run has before any attribute is bound: the header's two values."""
+    return resolve_retrieval_scope(
+        [], None, condition=indication, intervention_class=intervention_class,
+    )
+
+
+def _empty_stats() -> FunnelStats:
+    return FunnelStats(
+        queries=0, findings=0, unique_findings=0, insights=0, matches=0, assessments=0,
+    )
+
+
+def _unique_records(findings_by_attribute: dict[str, list[Finding]]) -> int:
+    """How many distinct records the run retrieved, across every field."""
+    return len(dedupe_findings(
+        copy.copy(finding)
+        for findings in findings_by_attribute.values()
+        for finding in findings
     ))
 
 
 def _resolve_units(
     config: ScoutTypeConfig,
     doc_text: str,
-    blocks: list[ContentBlock],
     openai_client: LLMClientProtocol,
     *,
     indication: str,
+    images: list[dict[str, str]] | None,
+    reconciliations: list[IdentityReconciliation],
     progress_callback: ProgressFn | None = None,
 ) -> list[Attribute]:
     """Get definitions from the configured provider.
 
     ``vocabulary`` reads fixed definitions; ``extract`` returns dynamically
-    defined units already bound to their document targets. The next stage binds
-    fixed definitions so provider-specific semantics end before retrieval.
+    defined units already bound to their document targets, after their identity
+    layer, whose record joins ``reconciliations``. The next stage binds fixed
+    definitions so provider-specific semantics end before retrieval.
     """
     if config.unit_provider == "extract":
-        return extract_units(
+        units, record = extract_units(
             doc_text,
             intervention_class=config.intervention_term,
             source_type=config.source_type,
             indication=indication,
             llm_client=openai_client,
             progress_callback=progress_callback,
-            images_by_block_id={
-                block.id: block.image.data_url()
-                for block in blocks
-                if block.image
-            },
+            images=images,
         )
+        if record is not None:
+            reconciliations.append(record)
+        return units
     return load_attributes(config.intervention_class)
 
 
@@ -630,29 +706,26 @@ def _parallel_map(
     progress: ProgressFn | None,
 ) -> list[_R]:
     """Run `fn` over `items` concurrently, preserving input order, emitting
-    `progress(stage, completed, total)` as each task FINISHES.
-
-    The completion counter is lock-guarded because tasks finish on worker
-    threads; the streaming queue the callback writes to is itself thread-safe.
-    """
-    total = len(items)
-    if total == 0:
+    `progress(stage, completed, total)` from zero and as each task FINISHES."""
+    if not items:
         return []
     if progress:
-        progress(stage, completed=0, total=total)
+        progress(stage, completed=0, total=len(items))
+    return map_ordered(
+        items,
+        fn,
+        workers=workers,
+        on_progress=_stage_counts(progress, stage),
+    )
 
-    lock = threading.Lock()
-    state = {"done": 0}
 
-    def run_one(item: _T) -> _R:
-        result = fn(item)
-        if progress:
-            with lock:
-                state["done"] += 1
-                progress(stage, completed=state["done"], total=total)
-        return result
-
-    return map_ordered(items, run_one, workers=workers)
+def _stage_counts(
+    progress: ProgressFn | None, stage: str,
+) -> Callable[[int, int], None] | None:
+    """Adapt the run's progress reporter to a stage's `(completed, total)` hook."""
+    if progress is None:
+        return None
+    return lambda completed, total: progress(stage, completed=completed, total=total)
 
 
 def _extract_queries_all_variables(
@@ -678,7 +751,6 @@ def _extract_queries_all_variables(
             openai_client,
             indication=indication,
             scope=scope,
-            queries_per_variable=config.queries_per_variable,
             document_context=query_contexts.get(attribute.name, ""),
         )
 
@@ -688,74 +760,40 @@ def _extract_queries_all_variables(
     return {name: queries for name, queries in results if queries}
 
 
-def _resolve_targets_all(
-    attributes: list[Attribute],
-    document_context: str,
-    blocks: list[ContentBlock],
-    openai_client: LLMClientProtocol,
-    *,
-    progress: ProgressFn | None = None,
-) -> list[Attribute]:
-    """Build one canonical claim ledger, then expose its Attribute projection."""
-    resolved = resolve_document_targets(
-        attributes,
-        document_context,
-        openai_client,
-        images=[
-            {"block_id": block.id, "data_url": block.image.data_url()}
-            for block in blocks
-            if block.image
-        ]
-        or None,
-        progress_callback=(
-            (lambda **counts: progress("targets", **counts)) if progress else None
-        ),
-    )
-    return resolved
-
-
 def _images_for_contexts(
     contexts: dict[str, str],
     blocks: list[ContentBlock],
 ) -> dict[str, list[dict[str, str]]]:
     """Attach visuals by the exact block IDs present in each bounded context."""
-    output: dict[str, list[dict[str, str]]] = {}
-    for attribute_ref, context in contexts.items():
-        context_ids = document_block_ids(context)
-        output[attribute_ref] = [
-            {
-                "block_id": block.id,
-                "data_url": block.image.data_url(),
-            }
-            for block in blocks
-            if block.image and block.id in context_ids
-        ]
-    return output
+    return {
+        attribute_ref: image_inputs(
+            block for block in blocks if block.id in document_block_ids(context)
+        )
+        for attribute_ref, context in contexts.items()
+    }
 
 
 def _extract_insights_all_variables(
     findings_by_attribute: dict[str, list[Finding]],
     attribute_descriptions: dict[str, str],
-    query_tracks_by_attribute: dict[str, dict[str, list[str]]],
-    query_targets_by_attribute: dict[str, dict[str, list[str]]],
+    lineage: RetrievalLineage,
     openai_client: LLMClientProtocol,
     *,
     indication: str,
     intervention_class: str,
     progress: ProgressFn | None = None,
-) -> list[Insight]:
+) -> tuple[list[Insight], list[IdentityReconciliation]]:
     """Run insight extraction concurrently across all (variable, finding-batch)
-    units.
+    units, then decide their identity once per field.
 
     Every evidence-role finding is retained; reference-role records are excluded
     because they carry catalog metadata rather than evidence. Batches are bounded
     by both item count and rendered character size so one unusually large source
-    cannot crowd the model context.
-    Each task remains single-variable and results are deterministically merged,
-    preventing duplicate insights created at batch boundaries."""
+    cannot crowd the model context. Each task remains single-variable; which
+    statements are one fact is `insight_reconciler`'s, after all batches."""
     items = list(findings_by_attribute.items())
     if not items:
-        return []
+        return [], []
 
     # Flatten to independent (attribute_ref, batch) units in document-variable order.
     #
@@ -774,7 +812,7 @@ def _extract_insights_all_variables(
         )
     ]
     if not batch_tasks:
-        return []
+        return [], []
 
     def one(task: tuple[str, list[Finding]]) -> list[Insight]:
         attribute_ref, batch = task
@@ -785,24 +823,14 @@ def _extract_insights_all_variables(
             intervention_class=intervention_class,
             attribute_ref=attribute_ref,
             attribute_description=attribute_descriptions.get(attribute_ref, ""),
-            query_tracks=query_tracks_by_attribute.get(attribute_ref, {}),
-            query_targets=query_targets_by_attribute.get(attribute_ref, {}),
+            lineage=lineage,
         )
 
     results = _parallel_map(
         batch_tasks, one, workers=MAX_WORKERS, stage="insights", progress=progress
     )
-
-    insights: list[Insight] = []
-    for batch_insights in results:
-        insights.extend(batch_insights)
-    # Extraction creates objects; identity is decided after it. Code merges only
-    # statements that are literally the same, then one bounded model layer groups
-    # the paraphrases no single extraction request could see.
-    return reconcile_duplicate_insights(
-        merge_duplicate_insights(insights),
-        openai_client,
-    )
+    insights = [insight for batch_insights in results for insight in batch_insights]
+    return reconcile_duplicate_insights(insights, openai_client)
 
 
 def _interleave_by_evidence_class(findings: list[Finding]) -> list[Finding]:
@@ -870,7 +898,12 @@ def _search_all(
 
     A source that supplied no publication date leaves the finding admitted. Web
     pages rarely carry one, and treating an absent date as an old date would
-    silently discard current evidence.
+    silently discard current evidence. A date stated only to the month or year is
+    before the window only if all of it is (`Finding.published_before`).
+
+    One record retrieved by several requests of one field is one finding, merged by
+    record identity with every lane and path kept (`dedupe_findings`). Each field gets
+    its own copies, so merging one field's retrievals never rewrites another's.
     """
     if not tasks:
         return {}, 0, []
@@ -879,40 +912,21 @@ def _search_all(
         tasks,
         runtime=runtime,
         max_tokens=SEARCH_MAX_TOKENS,
-        max_uses=SEARCH_MAX_USES,
-        progress=(
-            lambda completed, total: progress(
-                "search", completed=completed, total=total
-            )
-        )
-        if progress
-        else None,
+        progress=_stage_counts(progress, "search"),
     )
 
-    def before_window(finding: Finding) -> bool:
-        if window_start is None or finding.published_at is None:
-            return False
-        return finding.published_at.date() < window_start
-
-    findings_by_attribute: dict[str, list[Finding]] = {}
-    by_attribute_url: dict[str, dict[str, Finding]] = {}
+    retrieved: dict[str, list[Finding]] = {}
     excluded_by_outcome: dict[int, list[str]] = {}
     total_findings = 0
     for outcome in outcomes:
-        task = outcome.request
         excluded = excluded_by_outcome.setdefault(id(outcome), [])
-        output = findings_by_attribute.setdefault(task.scope_ref, [])
-        by_url = by_attribute_url.setdefault(task.scope_ref, {})
+        output = retrieved.setdefault(outcome.request.scope_ref, [])
         for finding in outcome.findings:
-            if before_window(finding):
+            if window_start is not None and finding.published_before(window_start):
                 excluded.append(finding.url)
                 continue
             total_findings += 1
-            if finding.url in by_url:
-                merge_findings(by_url[finding.url], finding)
-                continue
-            by_url[finding.url] = finding
-            output.append(finding)
+            output.append(copy.copy(finding))
 
     def trace_for(outcome) -> SearchTrace:
         task = outcome.request
@@ -932,6 +946,9 @@ def _search_all(
             applicability_reason=task.applicability_reason,
             status=outcome.status,
             error=outcome.error,
+            error_code=outcome.error_code,
+            provider_query=outcome.provider_query,
+            warnings=list(outcome.warnings),
             # The retrieval record stays complete: `source_urls` is what the
             # source returned, and the exclusions name which of those the window
             # held out.
@@ -944,7 +961,11 @@ def _search_all(
 
     search_plan = [trace_for(outcome) for outcome in outcomes]
     return (
-        {attribute: findings for attribute, findings in findings_by_attribute.items() if findings},
+        {
+            attribute: dedupe_findings(findings)
+            for attribute, findings in retrieved.items()
+            if findings
+        },
         total_findings,
         search_plan,
     )
@@ -961,22 +982,17 @@ def _classify_drift_all(
     attribute_images: dict[str, list[dict[str, str]]] | None = None,
     progress: ProgressFn | None = None,
 ) -> list[Match]:
-    """Classify drift in single-variable batches against that variable's context."""
+    """Classify each insight against its own variable's binding, one request each."""
     if not insights:
         return []
-
     grouped = _group_insights_by_attribute(insights, set(attribute_contexts))
-    tasks = [
-        (attribute_ref, attribute_contexts.get(attribute_ref, ""), batch)
-        for attribute_ref, variable_insights in grouped.items()
-        for batch in fixed_batches(variable_insights, INSIGHTS_PER_REQUEST)
-    ]
+    tasks = [insight for variable_insights in grouped.values() for insight in variable_insights]
 
-    def one(task: tuple[str, str, list[Insight]]) -> list[Match]:
-        attribute_ref, context, batch = task
+    def one(insight: Insight) -> Match:
+        attribute_ref = insight.attribute_ref or ""
         return classify_drift(
-            [context],
-            batch,
+            attribute_contexts.get(attribute_ref, ""),
+            insight,
             openai_client,
             indication=indication,
             intervention_class=intervention_class,
@@ -984,13 +1000,7 @@ def _classify_drift_all(
             images=(attribute_images or {}).get(attribute_ref) or None,
         )
 
-    results = _parallel_map(
-        tasks, one, workers=MAX_WORKERS, stage="classify", progress=progress
-    )
-    matches: list[Match] = []
-    for batch_matches in results:
-        matches.extend(batch_matches)
-    return matches
+    return _parallel_map(tasks, one, workers=MAX_WORKERS, stage="classify", progress=progress)
 
 
 def _assess_evidence_all_variables(
@@ -1057,15 +1067,7 @@ def _score_conformity_all_variables(
         openai_client,
         indication=indication,
         intervention_class=intervention_class,
-        progress_callback=(
-            (
-                lambda completed, total: progress(
-                    "conformity", completed=completed, total=total
-                )
-            )
-            if progress
-            else None
-        ),
+        progress_callback=_stage_counts(progress, "conformity"),
     )
 
 
@@ -1083,15 +1085,15 @@ def _classify_precedent_all_variables(
 ) -> list[PrecedentSignal]:
     """Classify precedent per attribute with bounded concurrency.
 
-    Self-gating: returns a signal only for variables with external evidence
-    (classify_precedent returns None otherwise)."""
+    One signal per searchable attribute: a variable no insight reached is recorded
+    ``no_evidence`` without a call, never dropped."""
     if not attributes:
         return []
     insights_by_attribute = _group_insights_by_attribute(
         insights, {attribute.name for attribute in attributes}
     )
 
-    def one(attribute: Attribute) -> PrecedentSignal | None:
+    def one(attribute: Attribute) -> PrecedentSignal:
         return classify_precedent(
             attribute,
             attribute_contexts.get(attribute.name, ""),
@@ -1103,10 +1105,9 @@ def _classify_precedent_all_variables(
             images=(attribute_images or {}).get(attribute.name) or None,
         )
 
-    results = _parallel_map(
+    return _parallel_map(
         attributes, one, workers=MAX_WORKERS, stage="precedent", progress=progress
     )
-    return [signal for signal in results if signal is not None]
 
 
 def _group_insights_by_attribute(
@@ -1128,49 +1129,79 @@ def _group_insights_by_attribute(
 def _empty_result(
     *,
     context_validation: DocumentContextValidation,
+    retrieval_scope: RetrievalScopeLedger,
     queries: int = 0,
-    findings: int = 0,
-    unique_findings: int = 0,
-    insights: int = 0,
     blocks: list[ContentBlock] | None = None,
     variables: list[Attribute] | None = None,
     quantitative_ledger: QuantitativeLedger | None = None,
     search_plan: list[SearchTrace] | None = None,
     published_since: str = "",
+    reconciliations: list[IdentityReconciliation] | None = None,
+    not_searched_fields: list[str] | None = None,
 ) -> ScoutResult:
+    """A final result for a run whose retrieval returned nothing to read.
+
+    Every searched variable still gets its grounding and precedent record, as
+    ``no_evidence``: the subject is kept, so "nothing was retrieved for it" reads as
+    that rather than as a variable the run never considered. A variable the reviewer
+    left out is ``not_searched``.
+    """
+    not_searched = set(not_searched_fields or [])
+    searchable = _searchable(variables or [])
+    assessments = [
+        _not_searched_assessment(attribute) if attribute.name in not_searched
+        else no_evidence_assessment(attribute)
+        for attribute in searchable
+    ]
     return validate_result_contract(ScoutResult(
         matches=[],
-        assessments=[],
+        assessments=assessments,
         stats=FunnelStats(
             queries=queries,
-            findings=findings,
-            unique_findings=unique_findings,
-            insights=insights,
+            findings=0,
+            unique_findings=0,
+            insights=0,
             matches=0,
-            assessments=0,
+            assessments=len(assessments),
         ),
         variables=variables or [],
         quantitative_ledger=quantitative_ledger or QuantitativeLedger(),
         conformity=empty_conformity_scores(
             (
-                _active_quantitative_targets(quantitative_ledger)
+                _calibrated_targets(quantitative_ledger, not_searched)
                 if quantitative_ledger
                 else []
             )
         ),
+        precedents=[
+            _not_searched_precedent(attribute) if attribute.name in not_searched
+            else no_evidence_precedent(attribute)
+            for attribute in searchable
+        ],
         search_plan=search_plan or [],
         context_validation=context_validation,
         blocks=blocks or [],
         published_since=published_since,
+        retrieval_scope=retrieval_scope,
+        reconciliations=reconciliations or [],
+        not_searched_fields=list(not_searched_fields or []),
     ))
 
 
-def _active_quantitative_targets(
+def _calibrated_targets(
     ledger: QuantitativeLedger,
+    not_searched: set[str],
 ) -> list[QuantitativeTarget]:
-    """Project approved claims from the immutable review audit ledger."""
+    """Approved claims that drive at least one searched field.
+
+    A target whose fields were all left out at review stays in the ledger as reviewed
+    and is not calibrated: no insight of a searched field could measure it.
+    """
     return [
-        target for target in ledger.targets if target.review_status == "approved"
+        target
+        for target in ledger.targets
+        if target.review_status == "approved"
+        and any(ref not in not_searched for ref in target.analysis_attribute_refs)
     ]
 
 

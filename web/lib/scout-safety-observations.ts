@@ -1,4 +1,5 @@
 import type { SafetyObservation } from "./api.ts";
+import { matchesQuery, normalizeQuery } from "./result-search.ts";
 import {
   filterProjectionsByRelationship,
   type ProjectionRelationshipFilter,
@@ -77,26 +78,21 @@ export function groupSafetyObservations(
     relationship?: ProjectionRelationshipFilter;
   } = {},
 ): SafetyObservationSection[] {
-  const query = options.query?.trim().toLocaleLowerCase() ?? "";
+  const query = normalizeQuery(options.query ?? "");
   const relationship = options.relationship ?? "all";
   const relationshipMatches = filterProjectionsByRelationship(
     observations,
     relationship,
   );
-  const visible = relationshipMatches.filter((observation) => {
-    if (!query) return true;
-    return [
-      observation.product_name,
-      observation.label,
-      observation.detail,
-      observation.qualification,
-      safetySourceSystemLabel(observation.source_system),
-      safetyRecordTypeLabel(observation.record_type),
-    ]
-      .join(" ")
-      .toLocaleLowerCase()
-      .includes(query);
-  });
+  const visible = relationshipMatches.filter((observation) => matchesQuery(
+    query,
+    observation.product_name,
+    observation.label,
+    observation.detail,
+    observation.qualification,
+    safetySourceSystemLabel(observation.source_system),
+    safetyRecordTypeLabel(observation.record_type),
+  ));
 
   return SECTION_DEFINITIONS.flatMap((section) => {
     const sectionObservations = visible.filter((observation) =>

@@ -55,7 +55,7 @@ export default function DocsPage() {
         <DocsNavigation entries={NAVIGATION} />
 
         <article className="min-w-0">
-          <header className="border-b border-border pb-9">
+          <header className="border-b border-border/60 pb-9">
             <div className={cn("flex items-center gap-2", EYEBROW)}>
               <BookOpen className="h-3.5 w-3.5" aria-hidden="true" />
               Documentation
@@ -71,7 +71,7 @@ export default function DocsPage() {
                 href="/"
                 className="gap-2"
               >
-                Open workspace
+                All tools
                 <ArrowRight className="h-3 w-3" aria-hidden="true" />
               </Link></Button>
               <Button asChild size="sm" variant="outline"><a
@@ -119,16 +119,16 @@ export default function DocsPage() {
 function MobileContents() {
   return (
     <details className="group/contents mt-5 rounded-md border border-border px-3 py-3 lg:hidden">
-      <summary className="flex cursor-pointer list-none items-center justify-between text-sm font-medium focus-visible:outline-offset-2 [&::-webkit-details-marker]:hidden">
+      <summary className="flex cursor-pointer list-none items-center justify-between text-sm font-medium rounded-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/60 [&::-webkit-details-marker]:hidden">
         On this page
         <ChevronDown className="h-4 w-4 group-open/contents:rotate-180" aria-hidden="true" />
       </summary>
-      <div className="mt-2 grid grid-cols-2 gap-1 border-t border-border pt-2">
+      <div className="mt-2 grid grid-cols-2 gap-1 border-t border-border/60 pt-2">
         {NAVIGATION.map(([href, label]) => (
           <a
             key={href}
             href={`#${href}`}
-            className="rounded px-1.5 py-2 text-xs text-muted-foreground hover:bg-accent hover:text-foreground focus-visible:outline-offset-2"
+            className="rounded px-1.5 py-2 text-xs text-muted-foreground hover:bg-accent hover:text-foreground rounded-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/60"
           >
             {label}
           </a>

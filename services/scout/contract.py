@@ -14,7 +14,12 @@ from services.searcher import SOURCE_ROLES
 from services.chunker import ContentBlock, ImageAsset
 
 from .models import (
+    CODE_RECORDED_EVIDENCE_STATES,
+    NO_EVIDENCE,
+    NOT_ASSESSED,
+    NOT_SEARCHED,
     PROGRAM_SCOPE_KEY,
+    VALID_CONTEXT_STATUSES,
     valid_query_tracks,
     QUANTITATIVE_SEMANTIC_FIELDS,
     VALID_EVIDENCE_STRENGTHS,
@@ -29,15 +34,50 @@ from .models import (
     DocumentSpan,
     EvidenceEntity,
     FunnelStats,
+    IdentityReconciliation,
     NumericExpression,
     QuantitativeFieldLink,
     QuantitativeLedger,
     QuantitativeLedgerReview,
     QuantitativeStatementDisposition,
     QuantitativeTarget,
+    RetrievalScopeLedger,
+    ScopeEntry,
     ScoutResult,
     SemanticSlot,
+    require_verdict_or_failure,
 )
+
+
+class FieldSelectionError(ValueError):
+    """A continuation whose reviewer left every searchable field out of evidence search.
+
+    A request the caller can correct, so its own type: the route answers it with a 400
+    before any work starts, where a malformed draft is a 422.
+    """
+
+
+def require_field_selection(result: ScoutResult) -> None:
+    """Refuse a draft that would search nothing while it states fields it could search.
+
+    A continuation over no field would run, retrieve nothing for the document and finish
+    as a result in which every field reads as excluded - indistinguishable from a review
+    nobody could have wanted.
+    """
+    searchable = _searchable_names(result)
+    if searchable and searchable <= set(result.not_searched_fields):
+        raise FieldSelectionError(
+            "Select at least one field to search for evidence before continuing."
+        )
+
+
+def _searchable_names(result: ScoutResult) -> set[str]:
+    """The fields retrieval can investigate: a stated target with its exact spans."""
+    return {
+        attribute.name
+        for attribute in result.variables
+        if attribute.document_target and attribute.document_spans
+    }
 
 
 def validate_result_contract(result: ScoutResult) -> ScoutResult:
@@ -63,6 +103,17 @@ def validate_result_contract(result: ScoutResult) -> ScoutResult:
         result.safety_observations,
     )):
         raise ValueError("target-review result cannot contain downstream analysis")
+    # The reviewer's selection names searchable fields, each once. A field named here was
+    # never planned, so nothing below may hold evidence, a search or a verdict for it.
+    searchable = _searchable_names(result)
+    _require_unique(result.not_searched_fields, "not-searched field")
+    unsearchable = set(result.not_searched_fields) - searchable
+    if unsearchable:
+        raise ValueError(
+            "not_searched_fields names a field that is not searchable: "
+            + ", ".join(sorted(unsearchable))
+        )
+    not_searched = set(result.not_searched_fields)
 
     _require_subset(
         result.quantitative_ledger.block_ids,
@@ -245,10 +296,19 @@ def validate_result_contract(result: ScoutResult) -> ScoutResult:
     for match in result.matches:
         insight = match.insight
         _require_field(insight.attribute_ref, variables, f"insight {insight.id!r}")
+        if insight.attribute_ref in not_searched:
+            raise ValueError(
+                f"field {insight.attribute_ref!r} was not searched but holds insight "
+                f"{insight.id!r}"
+            )
         if insight.id in insight_by_id:
             raise ValueError(f"duplicate insight ID {insight.id!r}")
-        if match.relation not in VALID_RELATIONS:
-            raise ValueError(f"invalid drift relation {match.relation!r}")
+        require_verdict_or_failure(
+            f"drift relation for insight {insight.id!r}",
+            match.relation, VALID_RELATIONS, match.failure_code,
+        )
+        if match.relation == NOT_ASSESSED and match.doc_block_ids:
+            raise ValueError(f"unassessed match for {insight.id!r} cites document blocks")
         if set(insight.query_tracks) - VALID_QUERY_TRACKS:
             raise ValueError(f"insight {insight.id!r} has an unknown query track")
         _require_subset(
@@ -269,6 +329,31 @@ def validate_result_contract(result: ScoutResult) -> ScoutResult:
         )
         insight_by_id[insight.id] = insight
 
+    insights_by_field: dict[str, list[str]] = {}
+    for insight in insight_by_id.values():
+        insights_by_field.setdefault(insight.attribute_ref, []).append(insight.id)
+    # Every searchable variable gets one grounding and one precedent record in a finished
+    # run - a judgement, `no_evidence`, `not_assessed`, or `not_searched` - so a variable
+    # can never be read as one the run did not consider. `not_searched` is exactly the
+    # reviewer's exclusions: on any other field it would hide a search that ran.
+    if result.phase != "target_review":
+        for label, records, states in (
+            ("evidence assessment", result.assessments,
+             {record.attribute_ref: record.strength for record in result.assessments}),
+            ("precedent signal", result.precedents,
+             {record.attribute_ref: record.precedent for record in result.precedents}),
+        ):
+            covered = {record.attribute_ref for record in records}
+            if covered != searchable:
+                detail = ", ".join(sorted(covered ^ searchable))
+                raise ValueError(f"every searchable field needs one {label}: {detail}")
+            for field_name, state in states.items():
+                if (state == NOT_SEARCHED) != (field_name in not_searched):
+                    raise ValueError(
+                        f"{label} for {field_name!r} is {state}; it must be not_searched "
+                        "exactly when the reviewer excluded the field"
+                    )
+
     assessment_fields: set[str] = set()
     for assessment in result.assessments:
         _require_field(
@@ -281,8 +366,21 @@ def validate_result_contract(result: ScoutResult) -> ScoutResult:
                 f"duplicate evidence assessment for {assessment.attribute_ref!r}"
             )
         assessment_fields.add(assessment.attribute_ref)
-        if assessment.strength not in VALID_EVIDENCE_STRENGTHS:
-            raise ValueError(f"invalid grounding strength {assessment.strength!r}")
+        require_verdict_or_failure(
+            f"grounding strength for {assessment.attribute_ref!r}",
+            assessment.strength, VALID_EVIDENCE_STRENGTHS, assessment.failure_code,
+            recorded=CODE_RECORDED_EVIDENCE_STATES,
+        )
+        if assessment.strength in {NOT_ASSESSED, *CODE_RECORDED_EVIDENCE_STATES} and (
+            assessment.supporting_insight_ids or assessment.supporting_findings
+        ):
+            raise ValueError(
+                f"{assessment.strength} grounding for {assessment.attribute_ref!r} cites evidence"
+            )
+        if assessment.strength == NO_EVIDENCE and insights_by_field.get(assessment.attribute_ref):
+            raise ValueError(
+                f"grounding for {assessment.attribute_ref!r} is no_evidence beside its insights"
+            )
         _require_subset(
             assessment.doc_block_ids,
             set(variables[assessment.attribute_ref].block_ids),
@@ -307,10 +405,26 @@ def validate_result_contract(result: ScoutResult) -> ScoutResult:
         if signal.attribute_ref in precedent_fields:
             raise ValueError(f"duplicate precedent signal for {signal.attribute_ref!r}")
         precedent_fields.add(signal.attribute_ref)
-        if signal.precedent not in VALID_PRECEDENT:
-            raise ValueError(f"invalid precedent coverage {signal.precedent!r}")
-        if signal.outcome not in VALID_PRECEDENT_OUTCOMES:
-            raise ValueError(f"invalid precedent outcome {signal.outcome!r}")
+        require_verdict_or_failure(
+            f"precedent coverage for {signal.attribute_ref!r}",
+            signal.precedent, VALID_PRECEDENT, signal.failure_code,
+            recorded=CODE_RECORDED_EVIDENCE_STATES,
+        )
+        require_verdict_or_failure(
+            f"precedent outcome for {signal.attribute_ref!r}",
+            signal.outcome, VALID_PRECEDENT_OUTCOMES, signal.failure_code,
+            recorded=CODE_RECORDED_EVIDENCE_STATES,
+        )
+        if signal.precedent in {NOT_ASSESSED, *CODE_RECORDED_EVIDENCE_STATES} and (
+            signal.supporting_insight_ids or signal.supporting_findings
+        ):
+            raise ValueError(
+                f"{signal.precedent} precedent for {signal.attribute_ref!r} cites evidence"
+            )
+        if signal.precedent == NO_EVIDENCE and insights_by_field.get(signal.attribute_ref):
+            raise ValueError(
+                f"precedent for {signal.attribute_ref!r} is no_evidence beside its insights"
+            )
         _require_subset(
             signal.doc_block_ids,
             set(variables[signal.attribute_ref].block_ids),
@@ -341,12 +455,24 @@ def validate_result_contract(result: ScoutResult) -> ScoutResult:
             f"precedent {signal.attribute_ref!r}",
         )
 
+    # A target is calibrated when a field it drives was searched: only a searched field's
+    # insights hold measurements. One whose fields were all excluded stays in the ledger,
+    # reviewed and uncalibrated.
+    calibrated_targets = {
+        target_id
+        for target_id, target in targets_by_id.items()
+        if any(ref not in not_searched for ref in target.analysis_attribute_refs)
+    }
     score_targets: set[str] = set()
     for score in result.conformity:
         target = targets_by_id.get(score.target_id)
         if target is None or score.attribute_refs != target.analysis_attribute_refs:
             raise ValueError(
                 f"calibration {score.target_id!r} drifted from its target field links"
+            )
+        if score.target_id not in calibrated_targets:
+            raise ValueError(
+                f"calibration {score.target_id!r} belongs only to fields that were not searched"
             )
         if score.target_id in score_targets:
             raise ValueError(f"duplicate calibration for target {score.target_id!r}")
@@ -434,9 +560,9 @@ def validate_result_contract(result: ScoutResult) -> ScoutResult:
                 insight_by_id,
                 f"source disposition {disposition.source_id!r}",
             )
-    if result.phase != "target_review" and score_targets != set(targets_by_id):
-        missing = set(targets_by_id) - score_targets
-        extra = score_targets - set(targets_by_id)
+    if result.phase != "target_review" and score_targets != calibrated_targets:
+        missing = calibrated_targets - score_targets
+        extra = score_targets - calibrated_targets
         detail = ", ".join(sorted([*missing, *extra]))
         raise ValueError(f"quantitative ledgers do not cover the target set: {detail}")
 
@@ -450,6 +576,11 @@ def validate_result_contract(result: ScoutResult) -> ScoutResult:
         run_scoped = trace.attribute_ref == PROGRAM_SCOPE_KEY
         if not run_scoped:
             _require_field(trace.attribute_ref, variables, f"search trace {trace.query!r}")
+        if trace.attribute_ref in not_searched:
+            raise ValueError(
+                f"search trace {trace.query!r} names field {trace.attribute_ref!r}, "
+                "which was not searched"
+            )
         if trace.status not in {"complete", "failed", "skipped"}:
             raise ValueError(f"invalid search status {trace.status!r}")
         if trace.applicability not in {"applicable", "not_applicable"}:
@@ -521,11 +652,12 @@ def validate_result_contract(result: ScoutResult) -> ScoutResult:
                 raise ValueError(
                     f"{projection_name} has invalid source role {projection.source_role!r}"
                 )
-            if projection.target_relationship not in TARGET_RELATIONSHIPS:
-                raise ValueError(
-                    f"{projection_name} has invalid target relationship "
-                    f"{projection.target_relationship!r}"
-                )
+            require_verdict_or_failure(
+                f"{projection_name} target relationship",
+                projection.target_relationship,
+                TARGET_RELATIONSHIPS,
+                projection.target_relationship_failure_code,
+            )
             _require_subset(
                 projection.attribute_refs,
                 # A projection retrieved by the run's own questions rather than by a
@@ -535,17 +667,40 @@ def validate_result_contract(result: ScoutResult) -> ScoutResult:
                 set(variables) | {PROGRAM_SCOPE_KEY},
                 f"{projection_name} field references",
             )
+            if not_searched & set(projection.attribute_refs):
+                raise ValueError(
+                    f"{projection_name} {projection.projection_id!r} names a field "
+                    "that was not searched"
+                )
             for supporting_finding in projection.supporting_findings:
                 if not supporting_finding.url or not supporting_finding.source:
                     raise ValueError(
                         f"{projection_name} contains an untraceable supporting finding"
                     )
+            _require_unique(
+                [finding.record_key for finding in projection.supporting_findings],
+                f"{projection_name} supporting record",
+            )
 
+    require_verdict_or_failure(
+        "document-context validation status",
+        result.context_validation.status,
+        VALID_CONTEXT_STATUSES,
+        result.context_validation.failure_code,
+    )
     _require_subset(
         result.context_validation.doc_block_ids,
         known_blocks,
         "document-context validation blocks",
     )
+    _require_scope(result.retrieval_scope, known_blocks)
+    for record in result.reconciliations:
+        if result.phase == "target_review" and record.layer in {"insights", "projections"}:
+            raise ValueError("a target-review draft cannot record retrieval identity layers")
+        if record.layer == "insights" and record.scope not in variables:
+            raise ValueError(f"insight reconciliation names unknown field {record.scope!r}")
+        if record.layer != "insights" and record.scope:
+            raise ValueError(f"{record.layer} reconciliation is document-wide, not per field")
     if result.stats.matches != len(result.matches):
         raise ValueError("Scout match count does not match the emitted matches")
     if result.stats.insights != len(result.matches):
@@ -553,6 +708,14 @@ def validate_result_contract(result: ScoutResult) -> ScoutResult:
     if result.stats.assessments != len(result.assessments):
         raise ValueError("Scout assessment count does not match the emitted assessments")
     return result
+
+
+def _require_scope(scope: RetrievalScopeLedger | None, known_blocks: set[str]) -> None:
+    """Every result states what its run searched for, cited to blocks it holds."""
+    if scope is None:
+        raise ValueError("Scout result is missing its retrieval scope")
+    for entry in scope.entries:
+        _require_subset(entry.block_ids, known_blocks, f"retrieval scope {entry.dimension}")
 
 
 def _require_field(value: str | None, fields: dict, context: str) -> None:
@@ -601,16 +764,19 @@ def _require_finding_lineage(
     insights: dict,
     context: str,
 ) -> None:
-    allowed_urls = {
-        finding.url
+    allowed_records = {
+        key
         for insight_id in insight_ids
         for finding in insights[insight_id].supporting_findings
+        for key in finding.identity_keys()
     }
-    _require_subset(
-        [finding.url for finding in findings],
-        allowed_urls,
-        f"{context} finding lineage",
-    )
+    records = [finding.record_key for finding in findings]
+    _require_unique(records, f"{context} supporting record")
+    # A supporting entry may be several retrievals of one record merged, so it is in
+    # lineage when any of its identities is one of the cited insights' records.
+    for finding in findings:
+        if not finding.identity_keys() & allowed_records:
+            raise ValueError(f"{context} finding lineage cites a record outside its insights")
 
 
 def _require_source_url(
@@ -661,7 +827,7 @@ def result_from_target_review(payload: dict) -> ScoutResult:
     targets = [_target_from_dict(item) for item in ledger_payload["targets"]]
     known_target_ids = {target.id for target in targets}
 
-    return ScoutResult(
+    prepared = ScoutResult(
         matches=[],
         assessments=[],
         stats=FunnelStats(**payload["stats"]),
@@ -687,7 +853,25 @@ def result_from_target_review(payload: dict) -> ScoutResult:
         # the continuation retrieves, and the statistics would then describe a
         # different question than the one the run was scoped to.
         published_since=payload.get("published_since", ""),
+        # Resolved before review, for the same reason: the continuation searches the
+        # geography the reviewer saw, and does not read it again.
+        retrieval_scope=RetrievalScopeLedger(entries=tuple(
+            ScopeEntry(
+                dimension=entry["dimension"],
+                value=entry["value"],
+                provenance=entry["provenance"],
+                block_ids=tuple(entry["block_ids"]),
+            )
+            for entry in payload["retrieval_scope"]["entries"]
+        )),
+        reconciliations=[
+            IdentityReconciliation(**record) for record in payload.get("reconciliations", [])
+        ],
+        # The reviewer's field selection, made at this checkpoint and carried back with it.
+        not_searched_fields=list(payload.get("not_searched_fields", [])),
     )
+    require_field_selection(prepared)
+    return prepared
 
 
 def _target_from_dict(raw: dict) -> QuantitativeTarget:
@@ -717,6 +901,7 @@ def _attribute_from_dict(raw: dict, known_target_ids: set[str]) -> Attribute:
         document_spans=[DocumentSpan(**span) for span in raw["document_spans"]],
         definition_mode=raw["definition_mode"],
         target_resolved=raw["target_resolved"],
+        supplies_scope=raw.get("supplies_scope", ""),
         target_resolution_reason=raw["target_resolution_reason"],
         evidence_domain=raw["evidence_domain"],
         entities=[EvidenceEntity(**entity) for entity in raw["entities"]],

@@ -2,11 +2,7 @@
 
 import { QUESTION_REQUIREMENT_LABEL } from "@/lib/api";
 
-import {
-  SignalHelp,
-  SignalLabel,
-  type SignalTopic,
-} from "@/components/ui/signal-help";
+import { SignalHelp, type SignalTopic } from "@/components/ui/signal-help";
 
 /**
  * Screener's vocabulary. The wording is Screener's; the popover behaviour is shared
@@ -58,22 +54,6 @@ const TOPICS: Record<ScreenerSignalTopic, SignalTopic> = {
 
 /** Publication order, shared by the tooltips and the documentation panel. */
 export const SCREENER_TOPIC_LIST: readonly SignalTopic[] = Object.values(TOPICS);
-
-export function ScreenerSignalLabel({
-  topic,
-  children,
-  className,
-}: {
-  topic: ScreenerSignalTopic;
-  children: React.ReactNode;
-  className?: string;
-}) {
-  return (
-    <SignalLabel topic={TOPICS[topic]} className={className}>
-      {children}
-    </SignalLabel>
-  );
-}
 
 export function ScreenerSignalHelp() {
   return (

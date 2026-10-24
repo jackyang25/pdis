@@ -24,7 +24,7 @@ from services.searcher.sources.literature import (
     build_pubmed_query,
     build_semantic_scholar_query,
 )
-from services.searcher.sources.planning import facet_groups
+from services.searcher.sources.planning import facet_groups, planned_variants
 
 
 def _intent(*queries: SourceQueryIntent) -> RetrievalIntent:
@@ -203,16 +203,42 @@ class AdditiveRequestTests(unittest.TestCase):
             for index in range(9)
         ])
 
-        groups = facet_groups(
-            intent,
-            fields=("condition", "intervention"),
-            fallbacks={"condition": "malaria", "intervention": "vaccine"},
+        groups = planned_variants(
+            facet_groups(
+                intent,
+                fields=("condition", "intervention"),
+                fallbacks={"condition": "malaria", "intervention": "vaccine"},
+            ),
             limit=3,
         )
 
         self.assertEqual(len(groups), 3)
         # The scope request survives truncation; precision is what gets dropped.
         self.assertEqual(groups[0][0]["intervention"], "vaccine")
+
+    def test_a_region_twin_is_counted_against_the_budget(self) -> None:
+        """A twin is a request. Adding it after the budget let a source exceed its bound."""
+        intent = _intent(*[
+            SourceQueryIntent(
+                text=f"product {index}",
+                facets=QueryFacets(intervention=f"product-{index}"),
+            )
+            for index in range(3)
+        ])
+        groups = facet_groups(
+            intent,
+            fields=("condition", "intervention"),
+            fallbacks={"condition": "malaria", "intervention": "vaccine"},
+            anchors=("condition",),
+        )
+
+        variants = planned_variants(groups, region="Kenya", limit=3)
+
+        self.assertEqual(
+            [(scope["intervention"], location) for scope, _, location in variants],
+            [("vaccine", ""), ("vaccine", "Kenya"), ("product-0", "")],
+        )
+        self.assertEqual(len(planned_variants(groups, region="Kenya")), 8)
 
     def test_no_budget_keeps_every_distinct_scope(self) -> None:
         intent = _intent(*[
@@ -267,7 +293,8 @@ class SingleAnchorTests(unittest.TestCase):
 
         query = build_pubmed_query(intent, "general", list(intent.queries))
 
-        self.assertTrue(query.startswith('"Plasmodium falciparum" AND '))
+        # Unquoted, so PubMed's term mapping still reaches the organism's MeSH heading.
+        self.assertTrue(query.startswith("(Plasmodium falciparum) AND "))
 
     def test_a_plain_text_grammar_still_names_every_declared_entity(self) -> None:
         """Excluded from an AND is not excluded from the request."""

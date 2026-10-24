@@ -1,5 +1,6 @@
 "use client";
 
+import { FEEDBACK_CONTACTS } from "@/lib/finding-report";
 import Link from "next/link";
 import { BookOpen, Megaphone, MessageSquare } from "lucide-react";
 import { ThemeToggle } from "@/components/theme-toggle";
@@ -12,7 +13,7 @@ import { cn } from "@/lib/utils";
 
 /** One shape for every control in the header, the theme toggle included. */
 const HEADER_ACTION = cn(
-  "inline-flex h-8 min-w-8 items-center justify-center gap-1.5 rounded-md px-2 text-[11px] font-medium text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/20 aria-[current=page]:bg-foreground/[0.045] aria-[current=page]:text-foreground motion-reduce:transition-none",
+  "inline-flex h-8 min-w-8 items-center justify-center gap-1.5 rounded-md px-2 text-[11px] font-medium text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/60 aria-[current=page]:bg-foreground/[0.045] aria-[current=page]:text-foreground motion-reduce:transition-none",
   SURFACE.hover,
 );
 
@@ -58,7 +59,7 @@ function FeedbackDetails() {
     <div className="space-y-3">
       <HelpHeading>Share your feedback</HelpHeading>
       <p>We’d love to hear how you’re using PDIS and what you’d like it to do next.</p>
-      <p>Message Jack Yang or Shyam Bhaskaran on Teams to request a feature, send feedback, or set up a user session.</p>
+      <p>Message {FEEDBACK_CONTACTS} on Teams to request a feature, send feedback, or set up a user session.</p>
     </div>
   );
 }

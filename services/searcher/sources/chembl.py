@@ -1,4 +1,10 @@
-"""ChEMBL compound and target retrieval via ToolUniverse."""
+"""ChEMBL compound retrieval via ToolUniverse.
+
+Compounds only. The lane also searched ChEMBL targets, but a target record carries no
+development facts - no phase, no approval - so it built no development record, and its
+findings were `reference`, which nothing downstream reads for evidence: the requests ran
+and reached nothing. A lane earns a request by what its output feeds.
+"""
 
 from __future__ import annotations
 
@@ -18,17 +24,26 @@ from .literature import active_tracks
 from .planning import request_lineage
 from .tooluniverse_records import (
     TOOLUNIVERSE_INTEGRATION,
-    relevant_excerpt,
     result_records,
     run_tool,
+    structured_excerpt,
     text,
 )
 
 DRUG_TOOL = "ChEMBL_search_drugs"
-TARGET_TOOL = "ChEMBL_search_targets"
 MAX_RESULTS = 10
-DRUG_TYPES = {"drug", "compound"}
-TARGET_TYPES = {"protein", "gene", "antigen", "biomarker"}
+MAX_ENTITIES = 6
+DRUG_TYPES = ("compound", "drug")
+#: ChEMBL's `max_phase` vocabulary. 0.5 is its early phase 1; -1 means the phase is
+#: unknown and null that no clinical phase is recorded. Neither of those is a phase, so
+#: neither becomes one: the record states no phase rather than "Preclinical".
+_PHASES = {
+    0.5: "Early Phase 1",
+    1.0: "Phase 1",
+    2.0: "Phase 2",
+    3.0: "Phase 3",
+    4.0: "Phase 4",
+}
 
 
 class ChEMBLSource:
@@ -38,13 +53,13 @@ class ChEMBLSource:
         worker_limit=4,
         default_enabled=False,
         integration_key=TOOLUNIVERSE_INTEGRATION,
-        operations=(DRUG_TOOL, TARGET_TOOL),
+        operations=(DRUG_TOOL,),
         evidence_domains=("biological",),
-        required_entity_types=tuple(sorted(DRUG_TYPES | TARGET_TYPES)),
+        required_entity_types=DRUG_TYPES,
         attribution=SourceAttribution(
             label="ChEMBL",
             url="https://www.ebi.ac.uk/chembl/",
-            prefix="Compound and target data provided by",
+            prefix="Compound data provided by",
         ),
         evidence_class="molecular",
         jurisdiction="global",
@@ -54,34 +69,27 @@ class ChEMBLSource:
     )
 
     def plan(self, intent: RetrievalIntent) -> list[SearchRequest]:
-        queries = list(intent.queries)
-        intent_ids, input_queries, document_refs = request_lineage(queries)
-        requests: list[SearchRequest] = []
-        entities = list(dict.fromkeys(intent.entities))
-        for entity in entities[:6]:
-            if entity.entity_type in DRUG_TYPES:
-                operation = DRUG_TOOL
-                native_query = f"drug:{entity.name}"
-            elif entity.entity_type in TARGET_TYPES:
-                operation = TARGET_TOOL
-                native_query = f"target:{entity.name}"
-            else:
-                continue
-            requests.append(
-                SearchRequest(
-                    scope_ref=intent.scope_ref,
-                    source=self.spec.key,
-                    query=native_query,
-                    tracks=tuple(active_tracks(intent)),
-                    document_refs=document_refs,
-                    intent_ids=intent_ids,
-                    input_queries=input_queries,
-                    connector=TOOLUNIVERSE_INTEGRATION,
-                    operation=operation,
-                    options=(("entity_name", entity.name), ("limit", str(MAX_RESULTS))),
-                )
+        intent_ids, input_queries, document_refs = request_lineage(list(intent.queries))
+        entities = [
+            entity
+            for entity in dict.fromkeys(intent.entities)
+            if entity.entity_type in DRUG_TYPES
+        ]
+        return [
+            SearchRequest(
+                scope_ref=intent.scope_ref,
+                source=self.spec.key,
+                query=f"drug:{entity.name}",
+                tracks=tuple(active_tracks(intent)),
+                document_refs=document_refs,
+                intent_ids=intent_ids,
+                input_queries=input_queries,
+                connector=TOOLUNIVERSE_INTEGRATION,
+                operation=DRUG_TOOL,
+                options=(("entity_name", entity.name),),
             )
-        return requests
+            for entity in entities[:MAX_ENTITIES]
+        ]
 
     def search(
         self,
@@ -89,28 +97,22 @@ class ChEMBLSource:
         runtime: SearchRuntime,
         *,
         max_tokens: int,
-        max_uses: int,
     ) -> list[Finding]:
-        if request.operation == DRUG_TOOL:
-            return _search_drugs(request, runtime)
-        if request.operation == TARGET_TOOL:
-            return _search_targets(request, runtime)
-        raise RuntimeError(f"Unsupported ChEMBL operation: {request.operation}")
-
-
-def _search_drugs(request: SearchRequest, runtime: SearchRuntime) -> list[Finding]:
-    result = run_tool(
-        runtime,
-        DRUG_TOOL,
-        {"query": request.option("entity_name"), "limit": MAX_RESULTS},
-    )
-    return _drug_findings(result_records(result, "molecules"), request)
+        if request.operation != DRUG_TOOL:
+            raise RuntimeError(f"Unsupported ChEMBL operation: {request.operation}")
+        result = run_tool(
+            runtime,
+            self.spec,
+            DRUG_TOOL,
+            {"query": request.option("entity_name"), "limit": self.spec.max_results},
+        )
+        return _drug_findings(result_records(result, "molecules"), request)
 
 
 def _drug_findings(records: list[dict], request: SearchRequest) -> list[Finding]:
     retrieved_at = datetime.now(timezone.utc)
     findings: list[Finding] = []
-    for record in records[:MAX_RESULTS]:
+    for record in records:
         chembl_id = text(record.get("molecule_chembl_id"))
         if not chembl_id:
             continue
@@ -123,7 +125,7 @@ def _drug_findings(records: list[dict], request: SearchRequest) -> list[Finding]
                 title=text(record.get("pref_name")) or chembl_id,
                 query=request.query,
                 retrieved_at=retrieved_at,
-                excerpt=relevant_excerpt(
+                excerpt=structured_excerpt(
                     record,
                     (
                         ("molecule_type", "Molecule type"),
@@ -134,8 +136,10 @@ def _drug_findings(records: list[dict], request: SearchRequest) -> list[Finding]
                         ("oral", "Oral"),
                         ("parenteral", "Parenteral"),
                     ),
-                    request,
                 ),
+                excerpt_kind="structured_fields",
+                identifiers={"chembl": chembl_id},
+                record_key=f"chembl:{chembl_id}",
                 source="chembl",
                 evidence_role="reference",
                 development_records=[
@@ -156,43 +160,9 @@ def _drug_findings(records: list[dict], request: SearchRequest) -> list[Finding]
     return findings
 
 
-def _search_targets(request: SearchRequest, runtime: SearchRuntime) -> list[Finding]:
-    result = run_tool(
-        runtime,
-        TARGET_TOOL,
-        {
-            "pref_name__contains": request.option("entity_name"),
-            "limit": MAX_RESULTS,
-            "fields": ["target_chembl_id", "pref_name", "organism", "target_type"],
-        },
-    )
-    retrieved_at = datetime.now(timezone.utc)
-    findings: list[Finding] = []
-    for record in result_records(result, "targets")[:MAX_RESULTS]:
-        chembl_id = text(record.get("target_chembl_id"))
-        if not chembl_id:
-            continue
-        findings.append(
-            Finding(
-                url="https://www.ebi.ac.uk/chembl/explore/target/" + quote(chembl_id),
-                title=text(record.get("pref_name")) or chembl_id,
-                query=request.query,
-                retrieved_at=retrieved_at,
-                excerpt=relevant_excerpt(
-                    record,
-                    (("organism", "Organism"), ("target_type", "Target type")),
-                    request,
-                ),
-                source="chembl",
-                evidence_role="reference",
-            )
-        )
-    return findings
-
-
 def _phase_label(value: object) -> str:
     try:
-        phase = int(float(str(value)))
+        phase = float(str(value))
     except (TypeError, ValueError):
         return ""
-    return f"Phase {phase}" if 0 < phase <= 4 else "Preclinical"
+    return _PHASES.get(phase, "")

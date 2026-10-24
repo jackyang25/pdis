@@ -3,6 +3,7 @@
 import type { ReactNode } from "react";
 import { ChartNoAxesColumn } from "lucide-react";
 
+import { Button } from "@/components/ui/button";
 import { Popover, PopoverTrigger } from "@/components/ui/popover";
 import { HelpHeading, HelpPopoverContent } from "./help-content";
 
@@ -38,13 +39,10 @@ export function ResultMetrics({
   return (
     <Popover>
       <PopoverTrigger asChild>
-        <button
-          type="button"
-          className="inline-flex h-8 items-center gap-1.5 rounded-md px-2 text-xs font-medium text-muted-foreground transition-colors hover:bg-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/20 motion-reduce:transition-none"
-        >
-          <ChartNoAxesColumn className="h-3.5 w-3.5" />
+        <Button type="button" variant="quiet" size="toolbar">
+          <ChartNoAxesColumn aria-hidden="true" />
           Metrics
-        </button>
+        </Button>
       </PopoverTrigger>
       <HelpPopoverContent align="end" aria-label="Result metrics" className="w-[min(400px,calc(100vw-24px))]">
         <HelpHeading>{title}</HelpHeading>

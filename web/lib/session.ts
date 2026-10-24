@@ -53,7 +53,7 @@ export type AddResultOutcome =
   | { added: true; id: string }
   | { added: false; reason: "at_limit" | "duplicate"; id: string };
 
-type ToolSession<TResult> = {
+export type ToolSession<TResult> = {
   /** Finished runs, newest first. */
   results: StoredResult<TResult>[];
   selectedId: string | null;
@@ -70,12 +70,22 @@ type ToolSession<TResult> = {
   progress: StageProgress | null;
   error: string | null;
   /**
-   * Record a finished run or an import. Mints identity when the caller has
-   * none, which is the case for a run; an imported file brings its own.
+   * Whether another run can be kept, asked before starting one so a run that would be
+   * refused is not spent first. At the limit it records the store's refusal itself.
+   */
+  canAddResult: () => boolean;
+  /**
+   * Record a finished run. Mints identity when the caller has none, which is the case
+   * for a run.
    */
   addResult: (
     result: TResult,
     identity?: { id?: string; created_at?: string },
+  ) => AddResultOutcome;
+  /** Record an imported file under the identity it brings, refusing it in import's words. */
+  importResult: (
+    result: TResult,
+    identity: { id?: string; created_at?: string },
   ) => AddResultOutcome;
   /**
    * Replace what the selected run holds, in place.
@@ -93,22 +103,37 @@ type ToolSession<TResult> = {
   reset: () => void;
 };
 
+/** A tool's session store, as the shared run handlers in `tool-run.ts` reach it. */
+export type ToolSessionStore<TResult> = { getState: () => ToolSession<TResult> };
+
+const runRemovedListeners = new Set<(id: string) => void>();
+
+/**
+ * Hear of every run any tool stops holding, so state keyed by a run's id - its priority
+ * reading - can let go of it rather than outlive it for the rest of the session.
+ */
+export function onRunRemoved(listener: (id: string) => void): () => void {
+  runRemovedListeners.add(listener);
+  return () => {
+    runRemovedListeners.delete(listener);
+  };
+}
+
+function announceRemoved(ids: string[]) {
+  for (const id of ids) runRemovedListeners.forEach((listener) => listener(id));
+}
+
 function newId(): string {
   return globalThis.crypto?.randomUUID?.() ?? `run-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
 }
 
 function createToolSession<TResult>() {
-  return create<ToolSession<TResult>>((set, get) => ({
-    results: [],
-    selectedId: null,
-    result: null,
-    busy: false,
-    startedAt: null,
-    stage: null,
-    progress: null,
-    error: null,
-
-    addResult: (result, identity) => {
+  return create<ToolSession<TResult>>((set, get) => {
+    function keep(
+      result: TResult,
+      identity: { id?: string; created_at?: string } | undefined,
+      limitMessage: string,
+    ): AddResultOutcome {
       const { results } = get();
       const id = identity?.id ?? newId();
       const existing = results.find((entry) => entry.id === id);
@@ -122,7 +147,7 @@ function createToolSession<TResult>() {
         // Reported here, not left to the caller. `AddResultOutcome` is a return value a
         // page can discard without TypeScript minding, and four of six did — so the one
         // place that can tell the result was dropped is the one that says so.
-        set({ error: RESULT_LIMIT_MESSAGE });
+        set({ error: limitMessage });
         return { added: false, reason: "at_limit", id };
       }
       const entry: StoredResult<TResult> = {
@@ -132,63 +157,88 @@ function createToolSession<TResult>() {
       };
       set({ results: [entry, ...results], selectedId: id, result });
       return { added: true, id };
-    },
+    }
 
-    setResult: (result) => {
-      const { results, selectedId } = get();
-      if (result === null) {
-        set({ selectedId: null, result: null });
-        return;
-      }
-      if (selectedId === null) {
-        get().addResult(result);
-        return;
-      }
-      set({
-        results: results.map((entry) =>
-          entry.id === selectedId ? { ...entry, result } : entry,
-        ),
-        result,
-      });
-    },
+    return {
+      results: [],
+      selectedId: null,
+      result: null,
+      busy: false,
+      startedAt: null,
+      stage: null,
+      progress: null,
+      error: null,
 
-    selectResult: (id) => {
-      const entry = get().results.find((item) => item.id === id);
-      if (entry) set({ selectedId: id, result: entry.result });
-    },
+      canAddResult: () => {
+        if (get().results.length < MAX_RESULTS_PER_TOOL) return true;
+        set({ error: RESULT_LIMIT_MESSAGE });
+        return false;
+      },
 
-    removeResult: (id) => {
-      const remaining = get().results.filter((entry) => entry.id !== id);
-      const stillSelected = remaining.some((entry) => entry.id === get().selectedId);
-      const next = stillSelected
-        ? remaining.find((entry) => entry.id === get().selectedId)
-        : remaining[0];
-      set({
-        results: remaining,
-        selectedId: next?.id ?? null,
-        result: next?.result ?? null,
-      });
-    },
+      addResult: (result, identity) => keep(result, identity, RESULT_LIMIT_MESSAGE),
+      importResult: (result, identity) => keep(result, identity, IMPORT_LIMIT_MESSAGE),
 
-    setBusy: (busy) => set((state) => ({
-      busy,
-      startedAt: busy ? (state.startedAt ?? Date.now()) : null,
-    })),
-    setStage: (stage) => set({ stage }),
-    setProgress: (progress) => set({ progress }),
-    setError: (error) => set({ error }),
-    reset: () =>
-      set({
-        results: [],
-        selectedId: null,
-        result: null,
-        busy: false,
-        startedAt: null,
-        stage: null,
-        progress: null,
-        error: null,
-      }),
-  }));
+      setResult: (result) => {
+        const { results, selectedId } = get();
+        if (result === null) {
+          set({ selectedId: null, result: null });
+          return;
+        }
+        if (selectedId === null) {
+          get().addResult(result);
+          return;
+        }
+        set({
+          results: results.map((entry) =>
+            entry.id === selectedId ? { ...entry, result } : entry,
+          ),
+          result,
+        });
+      },
+
+      selectResult: (id) => {
+        const entry = get().results.find((item) => item.id === id);
+        if (entry) set({ selectedId: id, result: entry.result });
+      },
+
+      removeResult: (id) => {
+        const held = get().results.some((entry) => entry.id === id);
+        const remaining = get().results.filter((entry) => entry.id !== id);
+        const stillSelected = remaining.some((entry) => entry.id === get().selectedId);
+        const next = stillSelected
+          ? remaining.find((entry) => entry.id === get().selectedId)
+          : remaining[0];
+        set({
+          results: remaining,
+          selectedId: next?.id ?? null,
+          result: next?.result ?? null,
+        });
+        if (held) announceRemoved([id]);
+      },
+
+      setBusy: (busy) => set((state) => ({
+        busy,
+        startedAt: busy ? (state.startedAt ?? Date.now()) : null,
+      })),
+      setStage: (stage) => set({ stage }),
+      setProgress: (progress) => set({ progress }),
+      setError: (error) => set({ error }),
+      reset: () => {
+        const held = get().results.map((entry) => entry.id);
+        set({
+          results: [],
+          selectedId: null,
+          result: null,
+          busy: false,
+          startedAt: null,
+          stage: null,
+          progress: null,
+          error: null,
+        });
+        announceRemoved(held);
+      },
+    };
+  });
 }
 
 export type ChunkerResult = { doc_id: string; blocks: ContentBlock[] };

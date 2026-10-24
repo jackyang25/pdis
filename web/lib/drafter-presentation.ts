@@ -4,7 +4,15 @@
  * nothing the tests cannot see.
  */
 
-import type { DraftGroupSummary, DraftResult, DraftSuggestion, DraftVariable } from "./api.ts";
+import type {
+  DraftBasis,
+  DraftGroupSummary,
+  DraftObservation,
+  DraftResult,
+  DraftSuggestion,
+  DraftVariable,
+} from "./api.ts";
+import { formatMeasure, formatMeasurePair } from "./measure-format.ts";
 import { matchesQuery } from "./result-search.ts";
 
 export type DrafterPanelId = "suggested" | "insufficient" | "failed";
@@ -40,10 +48,11 @@ export function panelVariables(result: DraftResult, panel: DrafterPanelId, query
   return result.variables.filter(
     (variable) =>
       panelOf(variable) === panel
+      // Not the description: it is the definition the model reads, not shown on the row, and
+      // a match on text the reader cannot see reads as a broken search.
       && matchesQuery(
         query,
         variable.label,
-        variable.description,
         variable.suggestion?.statement,
         variable.suggestion?.minimum,
         variable.suggestion?.preferred,
@@ -63,6 +72,64 @@ export function suggestionLines(suggestion: Pick<DraftSuggestion, "minimum" | "p
     suggestion.minimum.trim() ? `Minimum ${suggestion.minimum.trim()}` : "",
     suggestion.preferred.trim() ? `Preferred ${suggestion.preferred.trim()}` : "",
   ].filter(Boolean);
+}
+
+/** One passage of a source, quoted once, with every product it was read as speaking for. */
+export type EvidencePassage = {
+  quote: string;
+  products: string[];
+  figure: string;
+};
+
+/** One source and what it said about the variable: one entry however many products it names. */
+export type EvidenceSource = {
+  url: string;
+  title: string;
+  source_label: string;
+  cited: boolean;
+  passages: EvidencePassage[];
+};
+
+/**
+ * A basis's evidence by source, cited first.
+ *
+ * Grouped by URL because one page often names several products: listed per observation,
+ * the same title repeated once per product and the list read as more sources than it held.
+ * Cited sources lead so a reader checks what the suggestion rests on before the rest; the
+ * order within each half is the run's.
+ */
+export function evidenceSources(variable: DraftVariable, basis: DraftBasis): EvidenceSource[] {
+  const cited = new Set(variable.suggestion?.basis_ids ?? []);
+  const byUrl = new Map<string, EvidenceSource>();
+  for (const observation of variable.observations) {
+    if (observation.basis !== basis) continue;
+    const source = byUrl.get(observation.url) ?? {
+      url: observation.url,
+      title: observation.title,
+      source_label: observation.source_label,
+      cited: false,
+      passages: [],
+    };
+    source.cited ||= cited.has(observation.id);
+    byUrl.set(observation.url, source);
+    // A review article naming three products is one sentence read three times. Quoted
+    // three times it filled the panel with the same words; a different figure is a
+    // different reading and keeps its own line.
+    const figure = observationFigure(observation.value);
+    const passage = source.passages.find((item) => item.quote === observation.quote && item.figure === figure);
+    if (!passage) source.passages.push({ quote: observation.quote, products: [observation.product].filter(Boolean), figure });
+    else if (observation.product && !passage.products.includes(observation.product)) passage.products.push(observation.product);
+  }
+  const sources = [...byUrl.values()];
+  return [...sources.filter((source) => source.cited), ...sources.filter((source) => !source.cited)];
+}
+
+/** What one observation states, as written: a value or a range, in its own unit. */
+export function observationFigure(value: DraftObservation["value"]): string {
+  if (!value) return "";
+  if (value.value != null) return formatMeasure(value.value, value.unit);
+  if (value.lower != null && value.upper != null) return formatMeasurePair(value.lower, value.upper, value.unit, "–");
+  return "";
 }
 
 function figure(value: number): string {

@@ -4,6 +4,9 @@ import { projectInspectionReview } from "./inspector-reviews.ts";
 import { packInspectorResult, unpackInspectorResult } from "./result-file.ts";
 import type { InspectionResult, InspectionReview } from "./api.ts";
 
+/** The held run a file is written for; packing never mints identity of its own. */
+const RUN = { id: "run-1", created_at: "2026-01-01T00:00:00.000Z" };
+
 export function reviewFixture(id = "template"): InspectionReview {
   return {
     rubric: { id, revision: "1", updated_on: "2026-09-11", display_name: id, authority: "Authored rubric",
@@ -24,7 +27,7 @@ export function inspectionFixture(): InspectionResult {
     reviews: [reviewFixture(), reviewFixture("ich")], applicability_facts: {},
     rubric_resolutions: ["template", "ich"].map(id => ({ rubric_id: id, display_name: id,
       status: "included", reason_code: "profile", reason: "Included by profile" })),
-    assessment_status: "complete", consistency_status: "complete", document_findings: [],
+    assessment_status: "complete", consistency_status: "complete", consistency_failure_code: null, document_findings: [],
     blocks: [{ id: "doc:1", doc_id: "doc", ordinal: 1, block_type: "paragraph", content: "Plan",
       heading_stack: [], section_label: "Other", structural_meta: {}, style_hint: {},
       image: { media_type: "image/png", data_base64: "YWJj", sha256: "hash", source_media_type: "image/png" } }] };
@@ -42,8 +45,8 @@ test("selected review is a non-mutating projection sharing the retained blocks",
 
 test("multi-rubric portable export retains every review, source snapshot and image once", () => {
   const response = { inspection: inspectionFixture() };
-  const packed = packInspectorResult(response);
-  assert.equal(packed.analysis_version, 3);
+  const packed = packInspectorResult(response, RUN);
+  assert.equal(packed.analysis_version, 4);
   assert.equal(packed.source_documents.length, 1);
   assert.deepEqual(unpackInspectorResult(JSON.parse(JSON.stringify(packed))), response);
 });
@@ -51,17 +54,17 @@ test("multi-rubric portable export retains every review, source snapshot and ima
 test("template library provenance is portable and rejects executable links", () => {
   const run = inspectionFixture();
   run.reviews[0].rubric.reference_url = "https://example.org/template-library";
-  const packed = packInspectorResult({ inspection: run });
+  const packed = packInspectorResult({ inspection: run }, RUN);
   assert.equal(unpackInspectorResult(packed).inspection.reviews[0].rubric.reference_url,
     "https://example.org/template-library");
   run.reviews[0].rubric.reference_url = "javascript:alert(1)";
-  assert.throws(() => packInspectorResult({ inspection: run }), /reference/i);
+  assert.throws(() => packInspectorResult({ inspection: run }, RUN), /reference/i);
 });
 
 test("v2 imports wrap historical sections without inventing a known rubric revision", () => {
   const run = inspectionFixture();
   const { reviews, applicability_facts, rubric_resolutions, blocks, ...base } = run;
-  const packed = packInspectorResult({ inspection: run });
+  const packed = packInspectorResult({ inspection: run }, RUN);
   const historical = { ...packed, analysis_version: 2, analysis: { inspection: { ...base, sections: reviews[0].sections } } };
   const imported = unpackInspectorResult(historical).inspection;
   assert.deepEqual(imported.reviews[0].sections, reviews[0].sections);
@@ -72,7 +75,7 @@ test("v2 imports wrap historical sections without inventing a known rubric revis
 });
 
 test("current files cannot masquerade as multi-rubric runs without review metadata", () => {
-  const packed = packInspectorResult({ inspection: inspectionFixture() });
+  const packed = packInspectorResult({ inspection: inspectionFixture() }, RUN);
   const invalid = structuredClone(packed);
   invalid.analysis.inspection.reviews = [];
   assert.throws(() => unpackInspectorResult(invalid), /review/i);
@@ -83,11 +86,25 @@ test("a requirement cannot displace another unit's saved authority", () => {
   const review = run.reviews[0];
   review.sections[0].units.push({ ...review.sections[0].units[0], id: "template::second" });
   review.rubric.requirements.push({ ...review.rubric.requirements[0] });
-  assert.throws(() => packInspectorResult({ inspection: run }), /requirements/i);
+  assert.throws(() => packInspectorResult({ inspection: run }, RUN), /requirements/i);
 });
 
 test("a rubric cannot be reported as both assessed and needing context", () => {
   const run = inspectionFixture();
   run.rubric_resolutions.push({ ...run.rubric_resolutions[0], status: "needs_context" });
-  assert.throws(() => packInspectorResult({ inspection: run }), /resolution/i);
+  assert.throws(() => packInspectorResult({ inspection: run }, RUN), /resolution/i);
+});
+
+test("a failed consistency check carries its code, and only a failed one does", () => {
+  // The status is the process fact; the code says which failure it was without anyone
+  // parsing the prose beside it.
+  const failed = { ...inspectionFixture(), consistency_status: "failed" as const, consistency_failure_code: "response_truncated" as const };
+  assert.deepEqual(unpackInspectorResult(packInspectorResult({ inspection: failed }, RUN)).inspection, failed);
+  assert.throws(() => packInspectorResult({ inspection: { ...failed, consistency_failure_code: null } }, RUN), /failure code/);
+  assert.throws(() => packInspectorResult({ inspection: { ...inspectionFixture(), consistency_failure_code: "provider_error" } }, RUN), /failure code/);
+});
+
+test("an Inspector file saved before consistency failures carried a code is re-run, not read", () => {
+  const packed = packInspectorResult({ inspection: inspectionFixture() }, RUN);
+  assert.throws(() => unpackInspectorResult({ ...packed, analysis_version: 3 }), /re-run the inspector analysis/);
 });

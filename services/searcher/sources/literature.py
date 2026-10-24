@@ -20,6 +20,11 @@ Facets carry roles, and a role decides how a value is used:
   coincidence a record must satisfy, and two exact phrases required together
   already describe almost nothing. Their meaning is not lost: they stay in
   request lineage, and the semantic stages read the retrieved passage itself.
+
+The anchor is never quoted. PubMed's Automatic Term Mapping is what maps
+"respiratory syncytial virus infection" to its MeSH heading, and a quoted phrase
+turns it off: measured live, the quoted anchor returned 2 records where the
+unquoted one returned 33 for the same subject.
 """
 
 from __future__ import annotations
@@ -35,6 +40,8 @@ _WEB_OPERATOR = re.compile(
 _BARE_URL = re.compile(r"https?://\S+", re.IGNORECASE)
 # PubMed treats these as grammar rather than content.
 _PUBMED_RESERVED = re.compile(r'[()\[\]"]')
+# Europe PMC's Lucene-like syntax treats these as grammar, and a leading hyphen as NOT.
+_LUCENE_RESERVED = re.compile(r'[+!(){}\[\]^"~*?:\\/]|(?:(?<=\s)|^)-')
 # A value spanning these separators is a list of concepts, not one phrase.
 _CONCEPT_SEPARATOR = re.compile(r"[,;/]|\band\b", re.IGNORECASE)
 # Ordered by how specifically each names what a query asks about.
@@ -112,8 +119,14 @@ def subject_phrases(
     intent: RetrievalIntent,
     queries: list[SourceQueryIntent],
 ) -> list[str]:
-    """Return each query's subject once, excluding anchors already applied."""
+    """Return each query's subject once, excluding anchors already applied.
+
+    The anchor itself is excluded too. A free-text intent states no condition, so its
+    anchor falls back to its own topic - which is also its one query's text - and the
+    request asked for the same sentence twice, once as scope and once as subject.
+    """
     anchors = {phrase.casefold() for phrase in scope_phrases(intent)}
+    anchors.add(anchor_phrase(intent).casefold())
     subjects: list[str] = []
     for query in queries:
         phrase = subject_phrase(intent, query)
@@ -133,11 +146,43 @@ def build_pubmed_query(
 
     The shape is ``anchor AND (subject OR subject ...)``. The anchor keeps the
     request on topic exactly once; subjects are alternatives, so adding a query
-    widens coverage instead of further constraining every record.
+    widens coverage instead of further constraining every record. Subjects are
+    quoted so their words stay together; PubMed searches an unindexed quoted phrase
+    as its words and says so, which the adapter records on the outcome.
     """
     del track
-    anchor = _pubmed_term(anchor_phrase(intent))
-    subjects = [_pubmed_term(phrase) for phrase in subject_phrases(intent, queries)]
+    return _boolean_query(
+        _unquoted_term(anchor_phrase(intent), _PUBMED_RESERVED),
+        [_pubmed_term(phrase) for phrase in subject_phrases(intent, queries)],
+    )
+
+
+def build_europepmc_query(
+    intent: RetrievalIntent,
+    track: str,
+    queries: list[SourceQueryIntent],
+) -> str:
+    """Compile the track's intents into one Europe PMC Boolean expression.
+
+    The same ``anchor AND (subject OR subject ...)`` shape as PubMed, because Europe
+    PMC's syntax ANDs every bare word: the plain-text compiler it used before required
+    each query's subject and every qualifier at once, so a second query narrowed the
+    request instead of widening it. Subjects are grouped words rather than quoted
+    phrases, because Europe PMC searches a quoted phrase exactly and, unlike PubMed,
+    has no fallback when the phrase is absent (a stated outcome quoted returned 0
+    records live; the same words grouped returned hundreds).
+    """
+    del track
+    return _boolean_query(
+        _unquoted_term(anchor_phrase(intent), _LUCENE_RESERVED),
+        [
+            _unquoted_term(phrase, _LUCENE_RESERVED)
+            for phrase in subject_phrases(intent, queries)
+        ],
+    )
+
+
+def _boolean_query(anchor: str, subjects: list[str]) -> str:
     subjects = [subject for subject in dict.fromkeys(subjects) if subject]
     parts = [anchor] if anchor else []
     if subjects:
@@ -145,6 +190,14 @@ def build_pubmed_query(
             "(" + " OR ".join(subjects) + ")" if len(subjects) > 1 else subjects[0]
         )
     return " AND ".join(parts)
+
+
+def _unquoted_term(phrase: str, reserved: re.Pattern[str]) -> str:
+    """Render a phrase as grouped words: each word required, none of them quoted."""
+    cleaned = " ".join(reserved.sub(" ", phrase).split())
+    if not cleaned:
+        return ""
+    return f"({cleaned})" if " " in cleaned else cleaned
 
 
 def build_semantic_scholar_query(

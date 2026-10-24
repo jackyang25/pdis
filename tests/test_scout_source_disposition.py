@@ -25,9 +25,10 @@ from services.scout.models import (
 )
 from services.scout.stages.conformity import (
     _SourcePassage,
+    _map_source_passage_batch,
     _validated_source_decisions,
-    primary_failure_code,
 )
+from shared.ai import ResponseRefusedError, ResponseTruncatedError
 
 
 QUOTE = "Protective efficacy was 55% in the overall population."
@@ -78,6 +79,8 @@ def _passage() -> _SourcePassage:
         ),
         finding=source_finding,
         text=QUOTE,
+        record_id="doi:10.1000/example",
+        identity_status="canonical",
     )
 
 
@@ -86,9 +89,10 @@ class SourceDecisionContractTests(unittest.TestCase):
 
     def test_schema_requires_a_non_empty_reason_everywhere_code_does(self) -> None:
         contract = source_measurement_batch({"measure"}, ["sp-one"])
-        source = contract.schema["properties"]["sources"]["items"]["properties"]
+        source = contract.schema["properties"]["sources"]["items"]["anyOf"][0]["properties"]
 
         self.assertEqual(source["reason"].get("minLength"), 1)
+        self.assertEqual(source["reason"].get("pattern"), "\\S")
         self.assertEqual(
             source["evidence_unit_partition"]["properties"]["reason"].get("minLength"),
             1,
@@ -139,6 +143,46 @@ class SourceDecisionRetentionTests(unittest.TestCase):
         self.assertEqual(issues, {passage.id: "invalid_evidence_unit_partition"})
 
 
+class RecordedMappingFailureTests(unittest.TestCase):
+    def test_a_refusal_is_recorded_per_source_and_never_retried(self) -> None:
+        calls: list[int] = []
+
+        class Refuses:
+            def call_structured(self, _system, _message, max_tokens, **_kwargs):
+                calls.append(max_tokens)
+                raise ResponseRefusedError("declined")
+
+        result = _map_source_passage_batch(
+            (), _target(), [_passage()], Refuses(),
+            indication="malaria", intervention_class="vaccine", max_tokens=100,
+        )
+
+        self.assertEqual(len(calls), 1)
+        (disposition,) = result.dispositions
+        self.assertEqual((disposition.status, disposition.failure_code),
+                         ("not_assessed", "response_refused"))
+
+
+class TruncatedMappingTests(unittest.TestCase):
+    def test_a_twice_truncated_batch_is_recorded_per_source_with_its_code(self) -> None:
+        budgets: list[int] = []
+
+        class Truncates:
+            def call_structured(self, _system, _message, max_tokens, **_kwargs):
+                budgets.append(max_tokens)
+                raise ResponseTruncatedError("cut off")
+
+        result = _map_source_passage_batch(
+            (), _target(), [_passage()], Truncates(),
+            indication="malaria", intervention_class="vaccine", max_tokens=100,
+        )
+
+        self.assertEqual(budgets, [100, 200])
+        (disposition,) = result.dispositions
+        self.assertEqual(disposition.status, "not_assessed")
+        self.assertEqual(disposition.failure_code, "response_truncated")
+
+
 class MappingFailureChannelTests(unittest.TestCase):
     """A pipeline failure is not one of the model's three verdicts."""
 
@@ -147,11 +191,11 @@ class MappingFailureChannelTests(unittest.TestCase):
             source_id="sp-one",
             status="not_assessed",
             reason="Source mapping rejected after one retry.",
-            failure_code="invalid_source_decision",
+            failure_code="invalid_model_response",
         )
 
         self.assertEqual(disposition.status, "not_assessed")
-        self.assertEqual(disposition.failure_code, "invalid_source_decision")
+        self.assertEqual(disposition.failure_code, "invalid_model_response")
 
     def test_not_assessed_requires_a_machine_readable_failure_code(self) -> None:
         with self.assertRaises(ValueError):
@@ -161,22 +205,15 @@ class MappingFailureChannelTests(unittest.TestCase):
                 reason="Source mapping rejected after one retry.",
             )
 
-    def test_a_failure_code_names_one_cause_even_when_several_apply(self) -> None:
-        """A machine-readable field holds one value; prose carries the rest."""
-        disposition = SourcePassageDisposition(
-            source_id="sp-one",
-            status="not_assessed",
-            reason=(
-                "Source mapping rejected [invalid_measurement_semantics, "
-                "source_quote_not_found] after one retry."
-            ),
-            failure_code=primary_failure_code(
-                "invalid_measurement_semantics, source_quote_not_found"
-            ),
-        )
-
-        self.assertEqual(disposition.failure_code, "invalid_measurement_semantics")
-        self.assertIn("source_quote_not_found", disposition.reason)
+    def test_a_failure_code_is_one_of_the_shared_codes(self) -> None:
+        """The causes stay in the prose; the code is the vocabulary every stage uses."""
+        with self.assertRaises(ValueError):
+            SourcePassageDisposition(
+                source_id="sp-one",
+                status="not_assessed",
+                reason="Source mapping rejected [source_quote_not_found] after one retry.",
+                failure_code="source_quote_not_found",
+            )
 
     def test_a_model_verdict_cannot_carry_a_failure_code(self) -> None:
         with self.assertRaises(ValueError):
@@ -184,7 +221,7 @@ class MappingFailureChannelTests(unittest.TestCase):
                 source_id="sp-one",
                 status="no_relevant_measurement",
                 reason="The passage reports a different endpoint.",
-                failure_code="invalid_source_decision",
+                failure_code="invalid_model_response",
             )
 
 

@@ -18,7 +18,6 @@ def facet_groups(
     fields: Sequence[str],
     fallbacks: Mapping[str, str],
     anchors: Sequence[str] = (),
-    limit: int = 0,
 ) -> list[tuple[dict[str, str], list[SourceQueryIntent]]]:
     """Group an intent's queries by the native scope each one resolves to.
 
@@ -37,9 +36,8 @@ def facet_groups(
 
     Queries resolving to the same scope share one request and keep every
     contributing intent in its lineage, so specificity never multiplies provider
-    calls. ``limit`` is the source's own request budget: when narrowed scopes
-    exceed it, precision is dropped in arrival order and the scope request is
-    always kept.
+    calls. A source's request budget is applied afterwards, by `planned_variants`,
+    so it also counts the run-scope narrowings each group adds.
     """
     baseline = {field: fallbacks.get(field, "").strip() for field in fields}
     baseline_key = tuple(baseline[field] for field in fields)
@@ -62,8 +60,32 @@ def facet_groups(
         scopes.setdefault(key, scope)
         grouped.setdefault(key, []).append(query)
 
-    groups = [(scopes[key], queries) for key, queries in grouped.items()]
-    return groups[:limit] if limit > 0 else groups
+    return [(scopes[key], queries) for key, queries in grouped.items()]
+
+
+def planned_variants(
+    groups: list[tuple[dict[str, str], list[SourceQueryIntent]]],
+    *,
+    region: str = "",
+    limit: int = 0,
+) -> list[tuple[dict[str, str], list[SourceQueryIntent], str]]:
+    """Expand facet groups by a run-scope region and apply the source's request budget.
+
+    Each group yields its unscoped request and, when a region is stated, a twin narrowed
+    to it - added beside the unscoped one, never instead of it. The budget is counted over
+    the expanded list, so a twin is a request like any other: before, twins were added
+    after the budget had been applied and a source could exceed the bound it declared.
+
+    Order is the priority a budget drops by: the intent-scope request first, then its
+    region twin, then each narrowed scope with its twin. The intent-scope request carries
+    every query, so truncation can only lose precision, never an intent.
+    """
+    variants = [
+        (scope, queries, location)
+        for scope, queries in groups
+        for location in (("", region) if region else ("",))
+    ]
+    return variants[:limit] if limit > 0 else variants
 
 
 def request_lineage(

@@ -8,10 +8,13 @@ import unittest
 from types import SimpleNamespace
 from unittest.mock import patch
 
+from shared.ai import ResponseRefusedError, ResponseTruncatedError
 from shared.anthropic_client import (
     AnthropicQuantitativeClient,
     DEFAULT_QUANTITATIVE_MODEL,
 )
+
+_PNG = "data:image/png;base64,iVBORw0KGgo="
 
 
 class _Messages:
@@ -99,6 +102,106 @@ class AnthropicQuantitativeClientTests(unittest.TestCase):
             {"type": "tool", "name": "scout_document_quantitative_ledger_batch"},
         )
 
+    def _tool_response(self, **extra):
+        return SimpleNamespace(content=[SimpleNamespace(
+            type="tool_use", name="stage", input={"decisions": []},
+        )], **extra)
+
+    def test_a_reply_stopped_at_its_budget_is_a_typed_truncation(self) -> None:
+        client, _ = self._client(self._tool_response(stop_reason="max_tokens"))
+
+        with self.assertRaises(ResponseTruncatedError) as raised:
+            client.call_structured("system", "text", 10, schema_name="stage", schema={})
+
+        self.assertEqual(raised.exception.code, "response_truncated")
+
+    def test_a_refusal_is_typed_and_carries_its_code(self) -> None:
+        client, _ = self._client(self._tool_response(stop_reason="refusal"))
+
+        with self.assertRaises(ResponseRefusedError) as raised:
+            client.call_structured("system", "text", 10, schema_name="stage", schema={})
+
+        self.assertEqual(raised.exception.code, "response_refused")
+
+    def test_effort_is_sent_when_stated_and_the_prefix_is_always_cacheable(self) -> None:
+        client, messages = self._client(self._tool_response(stop_reason="tool_use"))
+
+        client.call_structured("system", "text", 10, schema_name="stage", schema={})
+        self.assertNotIn("output_config", messages.kwargs)
+        self.assertEqual(messages.kwargs["cache_control"], {"type": "ephemeral"})
+
+        client.call_structured("system", "text", 10, schema_name="stage", schema={}, effort="low")
+        self.assertEqual(messages.kwargs["output_config"], {"effort": "low"})
+
+    def test_images_use_the_shared_label_and_trailing_text_follows_them(self) -> None:
+        client, messages = self._client(self._tool_response(stop_reason="tool_use"))
+
+        client.call_structured(
+            "system", "document", 10, schema_name="stage", schema={},
+            images=[{"block_id": "doc/b-0001", "data_url": _PNG}],
+            trailing_text="the item",
+        )
+
+        content = messages.kwargs["messages"][0]["content"]
+        self.assertEqual([part["type"] for part in content], ["text", "text", "image", "text"])
+        # The shared prefix ends at the last image, which carries its own cache breakpoint.
+        self.assertEqual(content[2]["cache_control"], {"type": "ephemeral"})
+        self.assertNotIn("cache_control", content[3])
+        self.assertEqual(content[1]["text"], "Visual for document block [doc/b-0001]:")
+        self.assertEqual(content[2]["source"]["media_type"], "image/png")
+        self.assertEqual(content[3]["text"], "the item")
+
+    def test_an_unreadable_image_is_refused_rather_than_dropped(self) -> None:
+        client, _ = self._client(self._tool_response(stop_reason="tool_use"))
+
+        for data_url in ("not-a-data-url", "data:image/tiff;base64,AAAA", "data:image/png;base64,***"):
+            with self.subTest(data_url=data_url), self.assertRaises(ValueError):
+                client.call_structured(
+                    "system", "document", 10, schema_name="stage", schema={},
+                    images=[{"block_id": "doc/b-0001", "data_url": data_url}],
+                )
+
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class AnthropicStallRetryTests(unittest.TestCase):
+    def test_a_read_timeout_is_not_retried_but_a_server_error_is(self) -> None:
+        import anthropic
+        import httpx
+
+        from shared.anthropic_client import RequestStalledError
+        from shared.transport import StallTransport
+
+        def sdk(handler):
+            attempts = []
+
+            def counted(request):
+                attempts.append(request)
+                return handler(request)
+
+            client = anthropic.Anthropic(
+                api_key="k", base_url="http://test", max_retries=2,
+                http_client=httpx.Client(transport=StallTransport(
+                    RequestStalledError, inner=httpx.MockTransport(counted))),
+            )
+            return client, attempts
+
+        def create(client):
+            return client.messages.create(model="m", max_tokens=10,
+                                          messages=[{"role": "user", "content": "x"}])
+
+        def stall(request):
+            raise httpx.ReadTimeout("no answer", request=request)
+
+        client, attempts = sdk(stall)
+        with self.assertRaises(RequestStalledError):
+            create(client)
+        self.assertEqual(len(attempts), 1)
+
+        client, attempts = sdk(lambda request: httpx.Response(
+            503, headers={"retry-after-ms": "1"}, json={"type": "error", "error": {}}))
+        with self.assertRaises(anthropic.APIStatusError):
+            create(client)
+        self.assertEqual(len(attempts), 3)

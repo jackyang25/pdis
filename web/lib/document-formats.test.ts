@@ -16,9 +16,9 @@ import {
   ATTACHMENT_FORMAT_HINT,
   attachablePaste,
   ATTACHMENT_MEDIA_PREFIXES,
-  DOCUMENT_ACCEPT,
   DOCUMENT_FORMAT_HINT,
   DOCUMENT_SUFFIXES,
+  STRUCTURED_DOCUMENT_FORMATS,
   TEXT_EXTRACTION_SUFFIXES,
   isSupportedDocument,
 } from "./document-formats.ts";
@@ -56,7 +56,7 @@ test("text-extraction capability matches Chunker while default validation stays 
 });
 
 test("derived values stay consistent with the set", () => {
-  assert.equal(DOCUMENT_ACCEPT, DOCUMENT_SUFFIXES.join(","));
+  assert.equal(STRUCTURED_DOCUMENT_FORMATS.accept, DOCUMENT_SUFFIXES.join(","));
   assert.equal(DOCUMENT_FORMAT_HINT, "DOCX, PPTX");
   assert.ok(isSupportedDocument("Plan.DOCX"), "extension matching must ignore case");
   assert.ok(!isSupportedDocument("plan.pdf"), "a rendered format is not a document source");
@@ -83,7 +83,7 @@ test("an attachment accepts every document plus its own media types", () => {
   for (const suffix of DOCUMENT_SUFFIXES) {
     assert.ok(ATTACHMENT_ACCEPT.includes(suffix), `${suffix} is not attachable`);
   }
-  assert.equal(ATTACHMENT_ACCEPT, `${DOCUMENT_ACCEPT},image/*`);
+  assert.equal(ATTACHMENT_ACCEPT, `${STRUCTURED_DOCUMENT_FORMATS.accept},image/*`);
   assert.equal(ATTACHMENT_FORMAT_HINT, "DOCX, PPTX, or image files");
 });
 
@@ -119,7 +119,7 @@ test("no component restates a document extension", () => {
   assert.deepEqual(
     offenders,
     [],
-    "import DOCUMENT_ACCEPT or DOCUMENT_SUFFIXES from lib/document-formats.ts",
+    "import STRUCTURED_DOCUMENT_FORMATS or DOCUMENT_SUFFIXES from lib/document-formats.ts",
   );
 });
 

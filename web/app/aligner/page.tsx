@@ -1,4 +1,5 @@
 "use client";
+import { EmptyState } from "@/components/empty-state";
 import { DocumentExtractionNotice } from "@/components/document-extraction-notice";
 
 import { ResultCardStack } from "@/components/ui/result-card-stack";
@@ -14,9 +15,9 @@ import {
   ResultToolbar,
   ResultToolbarEnd,
 } from "@/components/ui/result-toolbar";
-import { VerdictCounts } from "@/components/ui/verdict-counts";
 import { useTraceFocus } from "@/lib/trace-focus";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { memo, useCallback, useEffect, useMemo, useState } from "react";
+import { useShallow } from "zustand/react/shallow";
 import { AlertTriangle, ArrowRight, Plus, X } from "lucide-react";
 import { RunHistory } from "@/components/run-history";
 import { CollapsibleCard } from "@/components/collapsible-card";
@@ -36,12 +37,9 @@ import {
 import { useSupportedDocumentTypes } from "@/lib/use-configuration-catalog";
 import { ConfigSectionHeading, ConfigurationShell } from "@/components/ui/config-field";
 import { AlignerDocumentTrace } from "@/components/aligner-document-trace";
-import {
-  AlignerSignalHelp,
-  AlignerSignalLabel,
-} from "@/components/aligner-signal-help";
+import { AlignerSignalHelp } from "@/components/aligner-signal-help";
 import { PriorityPanel } from "@/components/ui/priority-panel";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { TabsContent, TabsTrigger } from "@/components/ui/tabs";
 import {
   ALIGNMENT_VERDICTS,
   ALIGNMENT_VERDICT_TONE,
@@ -77,15 +75,14 @@ import {
   runLabel,
   runScope,
   unpackAlignerResult,
-  readResultIdentity,
 } from "@/lib/result-file";
 import { usePriorityReading } from "@/lib/priority-reading";
 import { toolAuthority } from "@/lib/tools";
 import { useAlignerSession } from "@/lib/session";
+import { importTool, runTool } from "@/lib/tool-run";
 import { isContextComplete, useHeaderStore } from "@/lib/store";
 import { displayLabel } from "@/lib/display-label";
-import { Quoted, Reading, InterfaceNote } from "@/components/ui/evidence-text";
-import { SignalChip } from "@/components/ui/signal-chip";
+import { InterfaceNote } from "@/components/ui/evidence-text";
 
 const STEPS = [
   { key: "parse", label: "Parsing documents" },
@@ -102,7 +99,10 @@ const INITIAL_CHOICES: DocumentChoice[] = [
 ];
 
 export default function AlignerPage() {
-  const session = useAlignerSession();
+  const session = useAlignerSession(
+    useShallow(({ result, busy, startedAt, stage, progress, error }) =>
+      ({ result, busy, startedAt, stage, progress, error })),
+  );
   // Context comes from the shared store like every other tool, so a choice made
   // on Inspector or Scout is still there when the user arrives here. Only the
   // per-document types are Aligner's own, because only their count differs.
@@ -116,16 +116,23 @@ export default function AlignerPage() {
   }, [session.result]);
 
   useEffect(() => {
+    let live = true;
     // Surfaced rather than swallowed: without the declared comparisons nothing
     // can resolve, so Run would gate with no way for the user to learn why.
     fetchAlignerEdges()
-      .then(setDeclaredEdges)
-      .catch((error: Error) =>
-        session.setError(
+      .then((edges) => {
+        if (live) setDeclaredEdges(edges);
+      })
+      .catch((error: Error) => {
+        if (!live) return;
+        useAlignerSession.getState().setError(
           `Could not load the comparisons Aligner makes: ${error.message}`,
-        ),
-      );
-  }, [session.setError]);
+        );
+      });
+    return () => {
+      live = false;
+    };
+  }, []);
 
   // A type chosen under one context does not exist under another, so changing
   // either clears the document rows rather than leaving a stale selection.
@@ -147,44 +154,22 @@ export default function AlignerPage() {
   const configured =
     contextReady && chosen.length >= 2 && comparisons.length > 0;
 
-  async function handleRun(files: Record<string, File>) {
+  function handleRun(files: Record<string, File>) {
     if (!configured || !contextReady) return;
-    session.setBusy(true);
-    session.setError(null);
-    session.setStage(null);
-    session.setProgress(null);
-    try {
-      const result = await runAligner(
-        // Read from the slots this page declared, never from every file the panel
-        // is holding: a type the user switched away from may still have one.
-        chosen.map((sourceType) => ({ file: files[sourceType], sourceType })),
-        {
-          org: header.org,
-          intervention_class: header.intervention_class,
-          indication: header.indication,
-        },
-        (stage, progress) => {
-          session.setStage(stage);
-          session.setProgress(progress ?? null);
-        },
-      );
-      session.addResult(result);
-    } catch (error) {
-      session.setError((error as Error).message);
-    } finally {
-      session.setBusy(false);
-    }
+    void runTool(useAlignerSession, (report) => runAligner(
+      // Read from the slots this page declared, never from every file the panel
+      // is holding: a type the user switched away from may still have one.
+      chosen.map((sourceType) => ({ file: files[sourceType], sourceType })),
+      {
+        org: header.org,
+        intervention_class: header.intervention_class,
+        indication: header.indication,
+      },
+      report,
+    ));
   }
 
-  async function handleImport(file: File) {
-    session.setError(null);
-    try {
-      const raw = JSON.parse(await file.text());
-      session.addResult(unpackAlignerResult(raw), readResultIdentity(raw));
-    } catch (error) {
-      session.setError(`Could not import result: ${(error as Error).message}`);
-    }
-  }
+  const showSetupPanel = useCallback(() => setShowSetup(true), []);
 
   return (
     <>
@@ -195,10 +180,11 @@ export default function AlignerPage() {
       <div className="flex flex-col gap-6">
         {(session.busy || !session.result || showSetup) && (
           <RunPanel
+            onCancel={session.result ? () => setShowSetup(false) : undefined}
             busy={session.busy}
             startedAt={session.startedAt}
             documents={slots}
-            onRun={(files) => void handleRun(files)}
+            onRun={handleRun}
             steps={STEPS}
             currentStage={session.stage}
             progress={session.progress}
@@ -223,7 +209,7 @@ export default function AlignerPage() {
                 />
               </ConfigurationShell>
             }
-            onImport={handleImport}
+            onImport={(file) => importTool(useAlignerSession, file, unpackAlignerResult)}
           />
         )}
 
@@ -235,7 +221,7 @@ export default function AlignerPage() {
             // result, and a saved Aligner result is `{ alignment: ... }`; handed the
             // inner object they read `undefined.documents` and the page threw.
             result={session.result}
-            onNewAnalysis={() => setShowSetup(true)}
+            onNewAnalysis={showSetupPanel}
           />
         )}
       </div>
@@ -392,13 +378,11 @@ function runHint(
 }
 
 /**
- * What a run produces today: every document, parsed and citable.
+ * One held alignment: its comparisons and the documents they cite.
  *
- * The matrix, relation filters, and link rows that used to live here were removed
- * with the analysis behind them. `DocumentSourceProvider` stays because it is what
- * makes any future finding resolvable to its source passage.
+ * Memoized so a run's progress ticks, which re-render the page, leave a held result alone.
  */
-function AlignmentView({
+const AlignmentView = memo(function AlignmentView({
   result,
   onNewAnalysis,
 }: {
@@ -414,7 +398,11 @@ function AlignmentView({
     selectedId: selectedRunId,
     selectResult,
     removeResult,
-  } = useAlignerSession();
+  } = useAlignerSession(
+    useShallow(({ results, selectedId, selectResult, removeResult }) =>
+      ({ results, selectedId, selectResult, removeResult })),
+  );
+  const held = results.find((entry) => entry.id === selectedRunId);
   // Same handoff every tool uses: a citation anywhere opens that passage in the trace,
   // so the two views are one navigation rather than two places to look.
   const [resultTab, setResultTab] = useState("comparisons");
@@ -504,9 +492,9 @@ function AlignmentView({
           />
           <FinalResultActions
             onNewAnalysis={onNewAnalysis}
-            download={{
+            download={held && {
               filename: runFilename("aligner"),
-              data: packAlignerResult(result),
+              data: () => packAlignerResult(result, held),
             }}
           />
         </>
@@ -548,11 +536,7 @@ function AlignmentView({
                     filtering={normalizedQuery.length > 0}
                   />
                 ))}
-              {shownFindings === 0 && (
-                <p className="py-6 text-center text-xs text-muted-foreground">
-                  No requirement matches that search.
-                </p>
-              )}
+              {shownFindings === 0 && <EmptyState message="No requirement matches that search" />}
             </ResultCardStack>
           </div>
         </TabsContent>
@@ -567,7 +551,7 @@ function AlignmentView({
     </ResultLayout>
     </DocumentSourceProvider>
   );
-}
+});
 
 /**
  * The five verdicts, always all five.

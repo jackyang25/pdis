@@ -73,3 +73,24 @@ class MeshVerificationTests(unittest.TestCase):
                 self.assertTrue(verify_mesh(source, (bad,)))
             narrower = IndicationDefinition("severe_malaria", "D008288", "M0012910", "Malaria", "narrower", note="Severe cases only.")
             self.assertEqual(verify_mesh(source, (narrower,)), [])
+
+
+class VocabularyFileTests(unittest.TestCase):
+    def test_a_missing_vocabulary_file_is_an_error_not_an_empty_list(self):
+        import shared.vocabulary as vocabulary
+
+        missing = Path(tempfile.mkdtemp()) / "indications.yaml"
+        with patch.object(vocabulary, "INDICATIONS_VOCAB", missing):
+            with self.assertRaises(LookupError) as caught:
+                vocabulary.indications_for("drug")
+        self.assertNotIn(str(missing.parent), str(caught.exception))
+
+    def test_each_file_is_read_once_per_process(self):
+        import shared.vocabulary as vocabulary
+
+        vocabulary.indications_for("drug")
+        vocabulary.attribute_definitions("vaccine")
+        with patch.object(vocabulary.yaml, "safe_load", side_effect=AssertionError("re-read")):
+            vocabulary.indications_for("vaccine")
+            vocabulary.intervention_classes()
+            vocabulary.attribute_definitions("drug")

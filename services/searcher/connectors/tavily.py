@@ -17,10 +17,10 @@ what an excerpt is supposed to be.
 from __future__ import annotations
 
 import json
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any
-from urllib.error import HTTPError, URLError
-from urllib.request import Request, urlopen
+
+from ..transport import fetch_json
 
 #: Tavily's public endpoint. Overridable for a proxy, validated like any other base URL.
 DEFAULT_BASE_URL = "https://api.tavily.com"
@@ -37,7 +37,8 @@ VALID_SEARCH_DEPTHS = frozenset({"basic", "advanced"})
 class TavilyHTTPConnector:
     """Execute one Tavily search and return its parsed JSON."""
 
-    api_key: str
+    # Kept out of repr, so a logged or failing connector never prints its credential.
+    api_key: str = field(repr=False)
     base_url: str = DEFAULT_BASE_URL
     search_depth: str = DEFAULT_SEARCH_DEPTH
     timeout_seconds: float = 30.0
@@ -64,16 +65,17 @@ class TavilyHTTPConnector:
             "query": query,
             "search_depth": self.search_depth,
             "max_results": max_results or self.max_results,
-            # The extracted page text, which is the whole reason for this lane. Without it a
-            # result carries a title and a URL and the excerpt is empty, which is worse than
-            # the paraphrase it replaces.
+            # Not the whole page. Each result's `content` - Tavily's extract of the passage
+            # relevant to the query - is always returned and is what the excerpt reads. A
+            # page's raw text opens with its navigation, and the excerpt is a bounded prefix.
             "include_raw_content": False,
             # No generated summary. A model's answer about the results is exactly what this
             # lane exists to stop carrying, and it costs an extra credit.
             "include_answer": False,
         }
-        request = Request(
+        return fetch_json(
             f"{self.base_url.rstrip('/')}/search",
+            provider="Tavily",
             data=json.dumps(payload).encode("utf-8"),
             headers={
                 "Content-Type": "application/json",
@@ -81,14 +83,8 @@ class TavilyHTTPConnector:
                 "Authorization": f"Bearer {self.api_key}",
             },
             method="POST",
+            timeout=self.timeout_seconds,
+            # The error body's own message is kept (which limit, which plan), with the key
+            # removed should the body ever echo it.
+            secrets=(self.api_key,),
         )
-        try:
-            with urlopen(request, timeout=self.timeout_seconds) as response:
-                return json.loads(response.read().decode("utf-8"))
-        except HTTPError as exc:
-            # The status, never the body: an error body can echo the query and the key.
-            raise RuntimeError(f"Tavily HTTP {exc.code}") from exc
-        except URLError as exc:
-            raise RuntimeError(f"Tavily is unavailable: {exc.reason}") from exc
-        except (UnicodeDecodeError, json.JSONDecodeError) as exc:
-            raise RuntimeError("Tavily returned invalid JSON") from exc

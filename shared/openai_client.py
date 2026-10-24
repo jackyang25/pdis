@@ -13,14 +13,24 @@ from __future__ import annotations
 import json
 import logging
 import os
+import time
 from typing import Any, Iterable, Iterator, Literal
 
+from shared.ai import (
+    Effort,
+    ModelTask,
+    ResponseRefusedError,
+    ResponseTruncatedError,
+    Verbosity,
+    log_model_call,
+)
 from shared.chat import ChatDelta, ChatTurn, ToolCall, Usage
+from shared.transport import MAX_RETRIES, http_client, structured_timeout
 from shared.visuals import labelled_image_parts
 
 logger = logging.getLogger(__name__)
 
-ModelTask = Literal["fast", "reasoning"]
+__all__ = ["ModelTask", "OpenAIClient"]
 
 DEFAULT_FAST_MODEL = "gpt-5.6-luna"
 DEFAULT_REASONING_MODEL = "gpt-6-astra"
@@ -34,6 +44,11 @@ DEFAULT_BASE_URL = "https://ai-kong-gateway.bmgf.io/ai/v2"
 #: message after the turn's outputs. Set by verification against the live endpoint.
 TOOL_IMAGES: Literal["native", "follow_up"] = "native"
 
+TRUNCATED_MESSAGE = (
+    "The model reached the response limit before completing its answer. "
+    "No complete result was returned."
+)
+
 
 class OpenAIClient:
     """OpenAI wrapper: structured calls, streamed tool chat, and web search."""
@@ -45,8 +60,9 @@ class OpenAIClient:
         base_url: str | None = None,
         fast_model: str | None = None,
         reasoning_model: str | None = None,
+        max_retries: int = MAX_RETRIES,
     ):
-        from openai import OpenAI  # type: ignore[reportMissingImports]
+        from openai import APITimeoutError, OpenAI  # type: ignore[reportMissingImports]
 
         # KONG_KEY, when present, routes through Kong's unified endpoint with
         # Kong's own credential. Otherwise fall back to calling OpenAI directly
@@ -60,7 +76,14 @@ class OpenAIClient:
             base_url = base_url or os.environ.get("OPENAI_BASE_URL", "").strip() or None
         if not api_key:
             raise ValueError("KONG_KEY or OPENAI_API_KEY is required")
-        self.client = OpenAI(api_key=api_key, base_url=base_url)
+        # The SDK retries connection errors, 429s and 5xx; a read timeout reaches it as
+        # its own timeout error, which it propagates without retrying (`shared.transport`).
+        self.client = OpenAI(
+            api_key=api_key,
+            base_url=base_url,
+            http_client=http_client(lambda request: APITimeoutError(request=request)),
+            max_retries=max_retries,
+        )
         self.models: dict[ModelTask, str] = {
             "fast": fast_model
             or os.environ.get("OPENAI_MODEL_FAST")
@@ -74,36 +97,7 @@ class OpenAIClient:
 
     def model_for(self, task: ModelTask) -> str:
         """Resolve one closed task class to a server-configured model."""
-        models = getattr(self, "models", None)
-        if models is None:  # supports lightweight __new__ test construction
-            return self.model
-        return models[task]
-
-    def call(
-        self,
-        system_prompt: str,
-        user_message: str,
-        max_tokens: int,
-        *,
-        images: list[dict[str, str]] | None = None,
-        task: ModelTask = "reasoning",
-    ) -> str:
-        user_content = _user_content(user_message, images)
-        try:
-            response = self.client.chat.completions.create(
-                model=self.model_for(task),
-                max_completion_tokens=max_tokens,
-                messages=[
-                    {"role": "system", "content": system_prompt},
-                    {"role": "user", "content": user_content},
-                ],
-            )
-        except Exception as exc:  # noqa: BLE001 - degrade on content refusal, re-raise the rest
-            if _is_content_refusal(exc):
-                logger.warning("Prompt refused by content policy; returning empty text.")
-                return ""
-            raise
-        return _response_text(response)
+        return self.models[task]
 
     def call_structured(
         self,
@@ -114,7 +108,11 @@ class OpenAIClient:
         schema_name: str,
         schema: dict[str, Any],
         images: list[dict[str, str]] | None = None,
+        trailing_text: str = "",
         task: ModelTask = "reasoning",
+        effort: Effort | None = None,
+        verbosity: Verbosity | None = None,
+        cache_key: str | None = None,
     ) -> dict[str, Any] | None:
         """Return one strict JSON-Schema response.
 
@@ -122,15 +120,30 @@ class OpenAIClient:
         define only their stage contract and domain validation.  A normal
         response is guaranteed by OpenAI to match ``schema``; deterministic
         service code still validates provenance and cross-record invariants.
+        A reply cut off at ``max_tokens`` raises ``ResponseTruncatedError``; a
+        refusal or content filter raises ``ResponseRefusedError``. Every call
+        writes one usage line, whatever its outcome.
         """
-        user_content = _user_content(user_message, images)
+        model = self.model_for(task)
+        policy: dict[str, Any] = {}
+        if effort is not None:
+            policy["reasoning_effort"] = effort
+        if verbosity is not None:
+            policy["verbosity"] = verbosity
+        if cache_key:
+            policy["prompt_cache_key"] = cache_key
+        usage_line: dict[str, Any] = {
+            "provider": "openai", "schema_name": schema_name, "task": task, "model": model,
+            "effort": effort, "max_tokens": max_tokens,
+        }
+        started = time.monotonic()
         try:
             response = self.client.chat.completions.create(
-                model=self.model_for(task),
+                model=model,
                 max_completion_tokens=max_tokens,
                 messages=[
                     {"role": "system", "content": system_prompt},
-                    {"role": "user", "content": user_content},
+                    {"role": "user", "content": _user_content(user_message, images, trailing_text)},
                 ],
                 response_format={
                     "type": "json_schema",
@@ -140,38 +153,35 @@ class OpenAIClient:
                         "schema": schema,
                     },
                 },
+                timeout=structured_timeout(max_tokens),
+                **policy,
             )
         except Exception as exc:  # noqa: BLE001
+            log_model_call(**usage_line, error=type(exc).__name__,
+                           elapsed_ms=_elapsed_ms(started))
             if _is_content_refusal(exc):
-                logger.warning("Structured prompt refused by content policy.")
-                return None
+                raise ResponseRefusedError(
+                    "The model provider declined this request under its content policy."
+                ) from exc
             raise
-        choices = getattr(response, "choices", [])
+        choices = getattr(response, "choices", None) or []
+        finish_reason = getattr(choices[0], "finish_reason", None) if choices else None
+        log_model_call(**usage_line, **_completion_usage(getattr(response, "usage", None)),
+                       finish_reason=finish_reason, elapsed_ms=_elapsed_ms(started))
         if not choices:
             logger.warning("OpenAI structured response had no choices")
             return None
-        choice = choices[0]
-        if getattr(choice, "finish_reason", None) == "length":
-            logger.warning(
-                "OpenAI structured response exhausted its token budget. usage=%s",
-                getattr(response, "usage", None),
-            )
-            raise RuntimeError(
-                "The model reached the response limit before completing its answer. "
-                "No complete result was returned."
-            )
-        message = getattr(choice, "message", None)
+        if finish_reason == "length":
+            raise ResponseTruncatedError(TRUNCATED_MESSAGE)
+        if finish_reason == "content_filter":
+            raise ResponseRefusedError("The model provider's content filter stopped this answer.")
+        message = getattr(choices[0], "message", None)
         refusal = getattr(message, "refusal", None) if message is not None else None
         if refusal:
-            logger.warning("OpenAI structured response was refused: %s", refusal)
-            return None
+            raise ResponseRefusedError(f"The model declined to answer: {refusal}")
         content = getattr(message, "content", "") if message is not None else ""
         if not content:
-            logger.warning(
-                "OpenAI structured response had no content. finish_reason=%s usage=%s",
-                getattr(choice, "finish_reason", None),
-                getattr(response, "usage", None),
-            )
+            logger.warning("OpenAI structured response had no content. finish_reason=%s", finish_reason)
             return None
         try:
             parsed = json.loads(content)
@@ -201,7 +211,14 @@ class OpenAIClient:
                 if event.type in ("response.output_text.delta", "response.refusal.delta"):
                     yield ChatDelta(text=event.delta)
                 elif event.type == "error":
-                    raise RuntimeError("OpenAI chat stream failed")
+                    # The provider's own words, so a failed answer can be diagnosed
+                    # from the log rather than from the fact that it failed.
+                    raise RuntimeError(
+                        "OpenAI chat stream failed: "
+                        + " ".join(str(part) for part in (
+                            getattr(event, "code", None), getattr(event, "message", None),
+                        ) if part)
+                    )
             yield ChatDelta(turn=_chat_turn(stream.get_final_response()))
 
     def _chat_request(
@@ -231,7 +248,6 @@ class OpenAIClient:
         query: str,
         *,
         max_tokens: int = 4000,
-        max_uses: int = 5,
         task: ModelTask = "fast",
     ) -> Any:
         """Run an LLM-driven web search via OpenAI's Responses API.
@@ -239,9 +255,6 @@ class OpenAIClient:
         Uses the built-in `web_search` tool. Returns the raw Responses API
         response object; callers extract URLs and cited text from the
         output's annotations.
-
-        `max_uses` is accepted for protocol compatibility. The current OpenAI
-        SDK does not expose a per-tool max_uses setting for this call.
         """
         from openai import BadRequestError  # type: ignore[reportMissingImports]
 
@@ -324,7 +337,15 @@ def _chat_content(part: dict[str, Any]) -> dict[str, Any]:
 
 def _chat_turn(response: Any) -> ChatTurn:
     if response.status != "completed":
-        raise RuntimeError(f"OpenAI chat response did not complete: {response.status}")
+        reason = getattr(getattr(response, "incomplete_details", None), "reason", None)
+        if reason == "max_output_tokens":
+            raise ResponseTruncatedError(TRUNCATED_MESSAGE)
+        if reason == "content_filter":
+            raise ResponseRefusedError("The model provider's content filter stopped this answer.")
+        raise RuntimeError(
+            f"OpenAI chat response did not complete: {response.status}"
+            + (f" ({reason})" if reason else "")
+        )
     output = tuple(item.model_dump(exclude_none=True) for item in response.output)
     calls = tuple(
         ToolCall(id=item["call_id"], name=item["name"], arguments=item["arguments"])
@@ -349,11 +370,33 @@ def _chat_turn(response: Any) -> ChatTurn:
     )
 
 
+def _elapsed_ms(started: float) -> int:
+    return round((time.monotonic() - started) * 1000)
+
+
+def _completion_usage(usage: Any) -> dict[str, int | None]:
+    """The token counts a usage line reports, read off a Chat Completions usage object."""
+    def count(source: Any, name: str) -> int | None:
+        value = getattr(source, name, None) if source is not None else None
+        return value if isinstance(value, int) else None
+
+    prompt = getattr(usage, "prompt_tokens_details", None)
+    completion = getattr(usage, "completion_tokens_details", None)
+    return {
+        "prompt_tokens": count(usage, "prompt_tokens"),
+        "cached_tokens": count(prompt, "cached_tokens"),
+        # Reported by the gateway beside OpenAI's own fields: tokens written to its cache.
+        "cache_write_tokens": count(prompt, "cache_write_tokens"),
+        "completion_tokens": count(usage, "completion_tokens"),
+        "reasoning_tokens": count(completion, "reasoning_tokens"),
+    }
+
+
 def _is_content_refusal(exc: Exception) -> bool:
     """True if this is an OpenAI content-policy refusal (dual-use / biosecurity
-    'invalid_prompt'). These cannot succeed on retry, so callers skip the prompt
-    and degrade gracefully rather than failing the whole run. Any other error
-    (network, auth, rate limit) returns False and is re-raised by the caller.
+    'invalid_prompt'). These cannot succeed on retry: a structured call raises
+    ``ResponseRefusedError`` for it, and a web search skips the query. Any other
+    error (network, auth, rate limit) returns False and is re-raised by the caller.
     """
     if getattr(exc, "code", None) == "invalid_prompt":
         return True
@@ -364,27 +407,20 @@ def _is_content_refusal(exc: Exception) -> bool:
 def _user_content(
     user_message: str,
     images: list[dict[str, str]] | None,
+    trailing_text: str = "",
 ) -> Any:
-    """Build the shared text/multimodal user payload without losing block IDs."""
+    """Build the shared text/multimodal user payload without losing block IDs.
+
+    Order is text, labelled images, then ``trailing_text``: what stays the same
+    across a stage's requests comes first so the provider can reuse its prefix.
+    """
     if not images:
-        return user_message
+        return "\n\n".join(part for part in (user_message, trailing_text) if part)
     return [
         {"type": "text", "text": user_message},
-        *labelled_image_parts((image["block_id"], image["data_url"]) for image in images),
+        *labelled_image_parts(
+            (image["block_id"], image["data_url"], image.get("detail", "high"))  # type: ignore[misc]
+            for image in images
+        ),
+        *([{"type": "text", "text": trailing_text}] if trailing_text else []),
     ]
-
-
-def _response_text(response: Any) -> str:
-    choices = getattr(response, "choices", [])
-    if not choices:
-        logger.warning("OpenAI response had no choices")
-        return ""
-    message = getattr(choices[0], "message", None)
-    content = getattr(message, "content", "") if message is not None else ""
-    if not content:
-        logger.warning(
-            "OpenAI response had no text. finish_reason=%s usage=%s",
-            getattr(choices[0], "finish_reason", None),
-            getattr(response, "usage", None),
-        )
-    return content or ""

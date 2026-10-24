@@ -57,7 +57,7 @@ export function BlockCitation({
         <button
           type="button"
           title={`${displayDocumentName(block.doc_id)} · ${heading}`}
-          className="group/source mx-0.5 rounded-md align-baseline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/20"
+          className="group/source mx-0.5 rounded-md align-baseline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/60"
         >
           <SourceChip format={block.source_format}>{children}</SourceChip>
         </button>
@@ -73,7 +73,7 @@ export function BlockCitation({
         <p className="mt-2 max-h-64 overflow-y-auto whitespace-pre-wrap text-xs leading-relaxed text-foreground">
           {block.content}
         </p>
-        <p className="mt-2 border-t border-border/70 pt-2 text-[10px] text-muted-foreground">
+        <p className="mt-2 border-t border-border/60 pt-2 text-[10px] text-muted-foreground">
           <BlockReferenceId blockId={block.id} />
         </p>
       </PopoverContent>

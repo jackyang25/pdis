@@ -18,7 +18,7 @@ function target(id: string, measure: string, value: number, unit: string, quote:
     semantic_profile: Object.fromEntries(axes.map(axis => [axis, { state: axis === "measure" ? "specified" : "not_specified", value: axis === "measure" ? measure : "", other: "" }])) as QuantitativeTarget["semantic_profile"],
     comparison_contract: Object.fromEntries(axes.map(axis => [axis, { mode: axis === "measure" ? "exact" : "unconstrained", scope: axis === "measure" ? measure : "", reason: "" }])) as QuantitativeTarget["comparison_contract"],
     semantic_provenance: { measure: [span], endpoint: [], intervention: [], population: [], regimen: [], time_horizon: [], statistic: [], conditions: [] },
-    provenance_spans: [span], ai_recommendation: "confirm", ai_review_reason: "Explicit document commitment.", review_status: "approved",
+    provenance_spans: [span], ai_recommendation: "confirm", ai_review_failure_code: "", ai_review_reason: "Explicit document commitment.", review_status: "approved",
   };
 }
 
@@ -27,7 +27,7 @@ function variable(item: QuantitativeTarget): Variable {
     name: item.field_links[0].attribute_ref, description: item.semantic_profile.measure.value,
     block_ids: item.doc_block_ids, document_target: item.quote, document_spans: item.provenance_spans,
     definition_mode: "fixed", target_resolved: true, target_resolution_reason: "Resolved from the cited document statement.",
-    evidence_domain: "clinical", entities: [], quantitative_target_ids: [item.id], quantitative_statement_dispositions: [],
+    evidence_domain: "clinical", supplies_scope: "", entities: [], quantitative_target_ids: [item.id], quantitative_statement_dispositions: [],
     quantitative_target_status: "present", quantitative_target_status_reason: "A scalar proposal was mapped from this statement.",
   };
 }
@@ -35,13 +35,22 @@ function variable(item: QuantitativeTarget): Variable {
 function base(targets: QuantitativeTarget[]): ScoutResponse {
   return {
     phase: "target_review", ...stamp,
-    context_validation: { status: "match", configured_indication: "malaria", document_indication: "malaria", reason: "The seeded document concerns malaria.", doc_block_ids: targets[0].doc_block_ids },
+    context_validation: { status: "match", configured_indication: "malaria", document_indication: "malaria", reason: "The seeded document concerns malaria.", doc_block_ids: targets[0].doc_block_ids, failure_code: "" },
     quantitative_ledger: {
       status: "complete", reason: "Every numeric statement received a mapping decision.", block_ids: targets.flatMap(item => item.doc_block_ids), targets,
-      reviews: targets.map(item => ({ unit_id: `statement-${item.id}`, block_id: item.doc_block_ids[0], quote: item.quote, classification: "target", reason: "Mapped scalar proposal.", attribute_refs: item.field_links.map(link => link.attribute_ref), target_ids: [item.id], review_status: "resolved" })),
+      reviews: targets.map(item => ({ unit_id: `statement-${item.id}`, block_id: item.doc_block_ids[0], quote: item.quote, classification: "target", failure_code: "", issue_codes: [], reason: "Mapped scalar proposal.", attribute_refs: item.field_links.map(link => link.attribute_ref), target_ids: [item.id], review_status: "resolved" })),
     },
     variables: targets.map(variable), matches: [], assessments: [], conformity: [], precedents: [], development_landscape: [], safety_observations: [], search_plan: [],
-    stats: { queries: 0, findings: 0, unique_findings: 0, insights: 0, matches: 0, assessments: 0 },
+    stats: { queries: 0, findings: 0, unique_findings: 0, insights: 0, matches: 0, assessments: 0, announcements_read: 0, announcements_named: 0, announcements_failed: 0, announcements_failed_by_code: {} },
+    // What the reviewer's run searches for; the continuation reads it back from the draft.
+    retrieval_scope: { entries: [
+      { dimension: "condition", value: "malaria", provenance: "header", block_ids: [] },
+      { dimension: "intervention", value: "vaccine", provenance: "header", block_ids: [] },
+      { dimension: "region", value: "", provenance: "unset", block_ids: [] },
+    ] },
+    reconciliations: [],
+    // Every field searched: the reviewer's selection starts empty of exclusions.
+    not_searched_fields: [],
     blocks: targets.map((item, index) => block(item.doc_block_ids[0], item.quote, index)),
   };
 }
@@ -55,7 +64,7 @@ function candidate(id: string, value: number, source: string, recommendation: Me
     evidence_unit: { status: "record_level", group: { state: "not_specified", value: "", other: "" }, cohort: { state: "not_specified", value: "", other: "" }, reason: "One source population; repeated estimates are not independent." },
     semantic_assessment: { source_ownership: { state: "yes", reason: "The mapper attributed this result to the source." }, dimensions: Object.fromEntries(axes.map(axis => [axis, { source: { state: axis === "measure" ? "specified" : "not_specified", value: axis === "measure" ? "Protective efficacy" : "", other: "" }, compatibility: { state: "yes", reason: axis === "measure" ? "The source reports protective efficacy, which is the measure required by the target." : "The mapped target imposes no restriction on this field; a match is not required." } }])) as Measurement["semantic_assessment"]["dimensions"] },
     semantic_status: "comparable", semantic_reason: "The mapper found the required measure compatible.", evidence_mode: "prose",
-    ai_recommendation: recommendation, ai_review_reason: recommendation === "admit" ? "The independent reviewer recommends admitting this estimate." : recommendation === "reject" ? "The independent reviewer questions whether this mapped result is a direct comparator and recommends rejection." : "The independent reviewer left this estimate for manual review.",
+    ai_recommendation: recommendation, ai_review_failure_code: "", ai_review_reason: recommendation === "admit" ? "The independent reviewer recommends admitting this estimate." : recommendation === "reject" ? "The independent reviewer questions whether this mapped result is a direct comparator and recommends rejection." : "The independent reviewer left this estimate for manual review.",
     admission_status: "needs_review", admission_reason: "Prose evidence requires explicit admission.", inclusion_reason: "", exclusion_reasons: ["Prose evidence requires explicit admission."], structural_reasons: [], age_months: null,
   };
 }
@@ -65,7 +74,7 @@ function attachEvidence(result: ScoutResponse, candidates: Measurement[]): Scout
   const score: Conformity = {
     attribute_refs: item.field_links.map(link => link.attribute_ref), target_id: item.id, target_role: item.role, target_value: item.expression.value!, comparator: ">=", unit: item.expression.unit,
     target_label: `${item.semantic_profile.measure.value} >=${item.expression.value}${item.expression.unit}`, target_quote: item.quote,
-    target_meeting_count: 0, target_meeting_rate: 0, verdict: "No admitted comparators", benchmark_count: 0,
+    target_meeting_count: 0, target_meeting_rate: null, verdict: "No admitted comparators", benchmark_count: 0,
     benchmark_minimum: null, benchmark_maximum: null, benchmark_mean: null, benchmark_median: null, benchmark_lower_quartile: null, benchmark_upper_quartile: null, benchmark_standard_deviation: null,
     target_percentile: null, ambition_percentile: null, calibration_status: "insufficient", doc_block_ids: item.doc_block_ids,
     measurements: [], excluded_measurements: candidates, source_dispositions: [],
@@ -75,11 +84,11 @@ function attachEvidence(result: ScoutResponse, candidates: Measurement[]): Scout
   result.matches = candidates.map(measurement => ({
     insight: { id: measurement.insight_id, statement: measurement.source_quote, query: "fictional protective efficacy", query_tracks: ["general"], retrieval_target_ids: [item.id], ...stamp, attribute_ref: score.attribute_refs[0],
       supporting_findings: [{ title: `Fictional study: ${measurement.source_record_id.split("/").at(-1)}`, url: measurement.url, query: "fictional protective efficacy", retrieved_at: "2026-09-16T12:00:00Z", published_at: null, excerpt: measurement.source_quote, source: "pubmed" }],
-    }, relation: "extends", reason: "An external estimate supplies context for the document target.", doc_block_ids: item.doc_block_ids,
+    }, relation: "extends", reason: "An external estimate supplies context for the document target.", doc_block_ids: item.doc_block_ids, failure_code: "",
   }));
   const sourceUrls = [...new Set(candidates.map(item => item.url))];
-  result.search_plan = [{ attribute_ref: score.attribute_refs[0], lane: "general", query: "fictional protective efficacy", connector: "pubmed", operation: "search", tracks: ["general"], doc_block_ids: item.doc_block_ids, target_ids: [item.id], intent_ids: ["seed-intent"], input_queries: ["fictional protective efficacy"], applicability: "applicable", applicability_reason: "External estimates can inform this target.", status: "complete", error: "", finding_count: candidates.length, source_urls: sourceUrls }];
-  result.stats = { queries: 1, findings: candidates.length, unique_findings: sourceUrls.length, insights: candidates.length, matches: candidates.length, assessments: 0 };
+  result.search_plan = [{ attribute_ref: score.attribute_refs[0], lane: "general", query: "fictional protective efficacy", connector: "pubmed", operation: "search", tracks: ["general"], doc_block_ids: item.doc_block_ids, target_ids: [item.id], intent_ids: ["seed-intent"], input_queries: ["fictional protective efficacy"], applicability: "applicable", applicability_reason: "External estimates can inform this target.", status: "complete", error: "", error_code: "", provider_query: "", warnings: [], finding_count: candidates.length, source_urls: sourceUrls }];
+  result.stats = { queries: 1, findings: candidates.length, unique_findings: sourceUrls.length, insights: candidates.length, matches: candidates.length, assessments: 0, announcements_read: 0, announcements_named: 0, announcements_failed: 0, announcements_failed_by_code: {} };
   return result;
 }
 
@@ -112,7 +121,7 @@ export function targetReviewFixture(state: ReviewFixtureState = "pending"): Scou
   const unresolved = block("seed-document/unresolved", "The maximum administration volume is still to be determined.", result.blocks.length);
   result.blocks.push(unresolved); result.quantitative_ledger.block_ids.push(unresolved.id);
   result.variables.push({ ...variable(targets[3]), name: "administration_volume", description: "Administration volume", block_ids: [unresolved.id], document_target: unresolved.content, document_spans: [{ quote: unresolved.content, block_ids: [unresolved.id] }], quantitative_target_ids: [], quantitative_target_status: "uncertain", quantitative_target_status_reason: "No scalar volume was resolved." });
-  result.quantitative_ledger.reviews.push({ unit_id: "unresolved", block_id: unresolved.id, quote: unresolved.content, classification: "uncertain", reason: "No reliable scalar administration-volume target could be resolved.", attribute_refs: ["administration_volume"], target_ids: [], review_status: "needs_review" });
+  result.quantitative_ledger.reviews.push({ unit_id: "unresolved", block_id: unresolved.id, quote: unresolved.content, classification: "uncertain", failure_code: "", issue_codes: [], reason: "No reliable scalar administration-volume target could be resolved.", attribute_refs: ["administration_volume"], target_ids: [], review_status: "needs_review" });
   result.quantitative_ledger.status = "uncertain";
   if (state !== "pending") {
     targets[0].review_status = "approved"; targets[1].review_status = "rejected";
@@ -150,15 +159,15 @@ export function diagnosticTargetReviewFixture(): ScoutResponse {
   dose.expression.comparator = "=";
   dose.expression.display = { kind: "quantity", unit_singular: "dose", unit_plural: "doses" };
   dose.ai_recommendation = "unavailable";
-  dose.ai_review_failure_code = "independent_review_unavailable";
-  dose.ai_review_reason = "The independent review did not complete. No recommendation was returned.";
+  dose.ai_review_failure_code = "response_truncated";
+  dose.ai_review_reason = "Independent target review failed: the model response was truncated.";
   for (const item of [year, dose]) item.review_status = "needs_review";
   const result = base([year, dose]);
   const failed = block("seed-document/failed", "The target shelf life is 24 months.", 2);
   result.blocks.push(failed);
   result.quantitative_ledger.block_ids.push(failed.id);
   result.quantitative_ledger.status = "uncertain";
-  result.quantitative_ledger.reviews.push({ unit_id: "failed", block_id: failed.id, quote: failed.content, classification: "mapping_failed", failure_code: "invalid_target_mapping", reason: "The proposed mapping failed source validation; no usable numeric target was retained.", attribute_refs: [], target_ids: [], review_status: "needs_review" });
+  result.quantitative_ledger.reviews.push({ unit_id: "failed", block_id: failed.id, quote: failed.content, classification: "mapping_failed", failure_code: "invalid_target_mapping", issue_codes: ["invalid_target_provenance"], reason: "The proposed mapping failed source validation; no usable numeric target was retained.", attribute_refs: [], target_ids: [], review_status: "needs_review" });
   return result;
 }
 
@@ -170,8 +179,8 @@ export function diagnosticEvidenceReviewFixture(): ScoutResponse {
     item.semantic_provenance[axis] = item.provenance_spans;
   }
   const measurement = candidate("context", 85, "retained-context", "unavailable");
-  measurement.ai_review_failure_code = "independent_review_unavailable";
-  measurement.ai_review_reason = "The independent review did not complete. Inspect the source and mapping before deciding.";
+  measurement.ai_review_failure_code = "provider_error";
+  measurement.ai_review_reason = "Quantitative evidence review failed: provider error.";
   measurement.source_passage = `${measurement.source_quote} Participants were adults, followed for the first 6 months. This result excludes the separate adolescent cohort.`;
   for (const [axis, value] of [["population", "Adults"], ["time_horizon", "First 6 months"]] as const) {
     measurement.semantic_assessment.dimensions[axis] = { source: { state: "specified", value, other: "" }, compatibility: { state: "yes", reason: `The retained source passage explicitly states ${value.toLowerCase()}.` } };

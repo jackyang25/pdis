@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useChat } from "@ai-sdk/react";
 import { type UIMessage } from "ai";
 import { assistantRequest, conversationTurns, messageText, retainCited, type AskContext, type AskMessage } from "@/lib/assistant-conversation";
@@ -13,6 +13,7 @@ import {
   API_BASE,
   uploadAssistantContext,
   type AssistantContext,
+  type ContentBlock,
 } from "@/lib/api";
 import { PRODUCT_KNOWLEDGE } from "@/lib/product-knowledge";
 import { splitResultContext } from "@/lib/result-file";
@@ -35,9 +36,9 @@ import { SourceChip } from "@/components/ui/source-chip";
 import { SearchOfferCard } from "./search-offer-card";
 import { readSearchOffer, type SearchOffer } from "@/lib/search-offer";
 import { DocumentSourceProvider } from "@/components/document-source-trace";
-import { SURFACE } from "@/lib/surface";
 import { cn } from "@/lib/utils";
 import { Button } from "../ui/button";
+import { AskLauncher, AssistantMark } from "./ask-launcher";
 import { DISPLAY_HEADING } from "@/lib/typography";
 
 /** The searches the agent proposed in this message, in the order it proposed them. */
@@ -65,13 +66,17 @@ export function Ask({
   availableResultCount,
   reviewPhase,
   display = "floating",
+  open,
+  onOpenChange,
 }: {
   result: unknown;
   availableResultCount: number;
   reviewPhase?: string;
   display?: "floating" | "page";
+  /** Held by the shell, which builds the workspace bundle only while the panel is open. */
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
 }) {
-  const [open, setOpen] = useState(false);
   const [input, setInput] = useState("");
   const [copiedId, setCopiedId] = useState<string | null>(null);
   const [attachments, setAttachments] = useState<AssistantContext[]>([]);
@@ -135,7 +140,10 @@ export function Ask({
     stop,
   } = useChat<AskMessage>({ transport });
   const busy = status === "submitted" || status === "streaming";
-  const turns = conversationTurns(messages, contexts.current);
+  // Memoised with the messages, so a keystroke in the composer re-renders no answer: each
+  // turn below is memoised on its own message, context and state.
+  const turns = useMemo(() => conversationTurns(messages, contexts.current), [messages]);
+  const streamingId = status === "streaming" ? messages.at(-1)?.id : undefined;
   const contextChanged = turns.length > 0 && turns.at(-1)?.context !== context;
 
   useEffect(() => {
@@ -198,11 +206,11 @@ export function Ask({
     if (fileInputRef.current) fileInputRef.current.value = "";
   }
 
-  async function copyMessage(id: string, text: string) {
+  const copyMessage = useCallback(async (id: string, text: string) => {
     await navigator.clipboard.writeText(text);
     setCopiedId(id);
     window.setTimeout(() => setCopiedId((current) => (current === id ? null : current)), 1600);
-  }
+  }, []);
 
   function startNewChat() {
     void stop();
@@ -222,21 +230,11 @@ export function Ask({
 
   if (!open && !pageDisplay) {
     return (
-      <Button
-        type="button"
-        onClick={() => setOpen(true)}
-        aria-expanded="false"
-        aria-controls="workspace-assistant"
-        className="group fixed bottom-5 right-5 z-50 h-12 gap-2.5 rounded-full bg-card px-2 pr-4 text-foreground shadow-overlay transition-[transform] duration-base hover:-translate-y-0.5 hover:bg-card sm:bottom-6 sm:right-6 motion-reduce:transition-none"
-      >
-        <AssistantMark compact working={busy} respondsToHover />
-        <span className="text-xs font-semibold">PDIS Assistant</span>
-        {resultCount > 0 ? (
-          <span className={cn("flex h-5 min-w-5 items-center justify-center rounded-full px-1.5 text-[10px] tabular-nums text-foreground", SURFACE.selected)}>
-            {resultCount}
-          </span>
-        ) : null}
-      </Button>
+      <AskLauncher
+        resultCount={resultCount}
+        working={busy}
+        onOpen={() => onOpenChange(true)}
+      />
     );
   }
 
@@ -251,7 +249,7 @@ export function Ask({
     >
       <div className={pageDisplay
         ? "mx-auto flex w-full max-w-4xl items-center justify-between px-5 py-5 sm:px-8"
-        : "flex items-center justify-between border-b border-border px-4 py-3.5"}
+        : "flex items-center justify-between border-b border-border/60 px-4 py-3.5"}
       >
         <div className="flex min-w-0 items-center gap-3">
           <AssistantMark working={busy} />
@@ -292,7 +290,7 @@ export function Ask({
                 type="button"
                 variant="ghost"
                 size="icon"
-                onClick={() => setOpen(false)}
+                onClick={() => onOpenChange(false)}
                 aria-label="Close"
                 className="h-8 w-8 text-muted-foreground"
               >
@@ -331,7 +329,7 @@ export function Ask({
                   key={suggestion}
                   type="button"
                   onClick={() => send(suggestion)}
-                  className="rounded-full bg-card px-4 py-2 text-xs font-medium text-muted-foreground shadow-raised transition-[box-shadow,color] hover:text-foreground hover:shadow-lifted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/20 motion-reduce:transition-none"
+                  className="rounded-full bg-card px-4 py-2 text-xs font-medium text-muted-foreground shadow-raised transition-[box-shadow,color] hover:text-foreground hover:shadow-lifted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/60 motion-reduce:transition-none"
                 >
                   {suggestion}
                 </button>
@@ -340,59 +338,17 @@ export function Ask({
           </div>
         )}
 
-        {turns.map(({ message, context: turnContext }, index) => {
-          const text = messageText(message);
-          // Announced on its own channel, so the answer never carries it.
-          const activity = latestActivity(message);
-          const isStreaming =
-            status === "streaming" &&
-            message.role === "assistant" &&
-            index === messages.length - 1;
-          return (
-            <DocumentSourceProvider key={message.id} blocks={turnContext?.document ?? []}>
-            <div
-              key={message.id}
-              className={
-                message.role === "user"
-                  ? "ml-auto w-fit max-w-[85%] rounded-2xl bg-muted px-4 py-2.5 text-sm"
-                  : "group max-w-full text-sm text-foreground"
-              }
-            >
-              {message.role === "assistant" && turnContext !== context && (
-                <p className="mb-1 text-xs text-muted-foreground">Based on earlier workspace context</p>
-              )}
-              <Markdown text={text} sources={turnContext?.sources ?? { urls: new Set<string>() }} />
-              {/* After the prose that explains it, so the reader meets the reason before the control. */}
-              {message.role === "assistant" && messageOffers(message).map((offer, offerIndex) => (
-                <SearchOfferCard key={offerIndex} offer={offer} />
-              ))}
-              {isStreaming && activity && !text && (
-                <p className="flex items-center gap-1.5 text-xs text-muted-foreground">
-                  <Loader2 className="h-3 w-3 animate-spin motion-reduce:animate-none" aria-hidden="true" />
-                  {activity}
-                </p>
-              )}
-              {isStreaming && !(activity && !text) && (
-                <span className={cn("mt-1 inline-block h-3.5 w-0.5 bg-foreground/50", STREAM_CARET_MOTION)} />
-              )}
-              {message.role === "assistant" && text && !isStreaming && (
-                <button
-                  type="button"
-                  onClick={() => copyMessage(message.id, text)}
-                  className="mt-2 flex min-h-6 items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                >
-                  {copiedId === message.id ? (
-                    <Check className="h-3 w-3" />
-                  ) : (
-                    <Copy className="h-3 w-3" />
-                  )}
-                  {copiedId === message.id ? "Copied" : "Copy"}
-                </button>
-              )}
-            </div>
-            </DocumentSourceProvider>
-          );
-        })}
+        {turns.map(({ message, context: turnContext }) => (
+          <Turn
+            key={message.id}
+            message={message}
+            context={turnContext}
+            earlier={turnContext !== context}
+            streaming={message.role === "assistant" && message.id === streamingId}
+            copied={copiedId === message.id}
+            onCopy={copyMessage}
+          />
+        ))}
 
         {/* The gap between sending and the first byte, when nothing has happened
             yet to name. Deliberately says only that: the previous text here
@@ -409,8 +365,8 @@ export function Ask({
       </div>
 
       <div className={pageDisplay
-        ? "shrink-0 border-t border-border bg-background px-5 py-4 sm:px-8"
-        : "shrink-0 border-t border-border p-3"}
+        ? "shrink-0 border-t border-border/60 bg-background px-5 py-4 sm:px-8"
+        : "shrink-0 border-t border-border/60 p-3"}
       >
         <div className={pageDisplay ? "mx-auto max-w-3xl" : undefined}>
         {contextChanged && (
@@ -433,7 +389,7 @@ export function Ask({
                     type="button"
                     onClick={() => setAttachments((current) => current.filter((item) => item.doc_id !== attachment.doc_id))}
                     aria-label={`Remove ${attachment.filename}`}
-                    className="inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-full hover:bg-foreground/[0.045] hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                    className="inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-full hover:bg-foreground/[0.045] hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/60"
                   >
                     <X className="h-2.5 w-2.5" />
                   </button>
@@ -551,75 +507,80 @@ export function Ask({
   );
 }
 
-/**
- * The mark's three sizes, each with eyes drawn to it.
- *
- * Written per size rather than scaled, because at 32px a rounded fraction of a pixel is the
- * difference between two eyes and two smudges. Each keeps the same proportions: eyes about a
- * ninth of the diameter wide and a quarter tall, a fifth apart, lifted a sixteenth above the
- * middle so they sit where eyes sit on a face rather than dead centre.
- */
-const ASSISTANT_MARK_SIZES = {
-  compact: { mark: "h-8 w-8", eyes: "gap-[6px] -translate-y-[2px]", eye: "h-[8px] w-[3.5px]" },
-  regular: { mark: "h-9 w-9", eyes: "gap-[7px] -translate-y-[2px]", eye: "h-[9px] w-[4px]" },
-  large: { mark: "h-16 w-16", eyes: "gap-[12px] -translate-y-[4px]", eye: "h-[16px] w-[7px]" },
-} as const;
+/** No blocks, so a turn without a context hands its provider the same list every render. */
+const NO_BLOCKS: ContentBlock[] = [];
+/** No citable URLs, kept as one object so a memoised answer is not re-rendered for it. */
+const NO_SOURCES: CitationSources = { urls: new Set<string>() };
 
-function AssistantMark({
-  compact = false,
-  large = false,
-  working = false,
-  respondsToHover = false,
+/**
+ * One message and what belongs to it.
+ *
+ * Memoised, so typing a question or streaming the next answer leaves every earlier answer -
+ * its Markdown parse and its citations - as it was rendered.
+ */
+const Turn = memo(function Turn({
+  message,
+  context,
+  earlier,
+  streaming,
+  copied,
+  onCopy,
 }: {
-  compact?: boolean;
-  large?: boolean;
-  /** A reply is being prepared or written. */
-  working?: boolean;
-  /**
-   * The mark sits inside the control that opens the assistant, so its eyes squint while that
-   * control is hovered or focused. Only there: anywhere else the mark is not something you can
-   * press, and a response to the cursor would promise a click that does nothing.
-   */
-  respondsToHover?: boolean;
+  message: AskMessage;
+  context: AskContext | undefined;
+  /** Answered from a workspace context other than the current one. */
+  earlier: boolean;
+  streaming: boolean;
+  copied: boolean;
+  onCopy: (id: string, text: string) => void;
 }) {
-  const sizes = ASSISTANT_MARK_SIZES[large ? "large" : compact ? "compact" : "regular"];
-  // The assistant's own teal, lit as a sphere: a shine at the top-left and a shade at the
-  // bottom-right. Pure white and pure black for the light, because light and shadow read on
-  // any colour, in either appearance, without a second pair of tokens. It replaces a cyan and
-  // indigo ring that belonged to no palette in the product.
-  //
-  // Eyes rather than an icon, because the sphere is the character: a flat line drawing
-  // printed on a lit surface was two visual languages in one mark, and the headset it carried
-  // said "help desk". Drawn here rather than taken from the Freehand pack for the same reason -
-  // they are part of the sphere, not a picture on it.
-  //
-  // It blinks once as a reply starts, and is otherwise still. Motion as status rather than as
-  // character, so it answers something the reader did; under reduced motion it holds still,
-  // because the message list already says the reply is coming.
+  const text = messageText(message);
+  // Announced on its own channel, so the answer never carries it.
+  const activity = latestActivity(message);
   return (
-    <span
-      aria-hidden="true"
-      className={`flex shrink-0 items-center justify-center rounded-full bg-assistant bg-[radial-gradient(circle_at_30%_25%,rgb(255_255_255/0.22),transparent_50%),radial-gradient(circle_at_70%_85%,rgb(0_0_0/0.25),transparent_60%)] ${sizes.mark}`}
+    <DocumentSourceProvider blocks={context?.document ?? NO_BLOCKS}>
+    <div
+      className={
+        message.role === "user"
+          ? "ml-auto w-fit max-w-[85%] rounded-2xl bg-muted px-4 py-2.5 text-sm"
+          : "group max-w-full text-sm text-foreground"
+      }
     >
-      {/* The blink is on each eye, not their row: the row is lifted with a transform, and an
-          animated transform on the same element would drop it back to the middle mid-blink. */}
-      <span className={cn("flex", sizes.eyes)}>
-        {[0, 1].map((eye) => (
-          <span
-            key={eye}
-            className={cn(
-              "rounded-full bg-assistant-foreground",
-              sizes.eye,
-              // To 60% of their height: a relaxed squint. Much flatter reads as suspicion.
-              respondsToHover && "transition-transform duration-fast ease-enter group-hover:scale-y-[0.6] group-focus-visible:scale-y-[0.6] motion-reduce:transition-none motion-reduce:group-hover:scale-y-100 motion-reduce:group-focus-visible:scale-y-100",
-              working && "animate-blink motion-reduce:animate-none",
-            )}
-          />
-        ))}
-      </span>
-    </span>
+      {message.role === "assistant" && earlier && (
+        <p className="mb-1 text-xs text-muted-foreground">Based on earlier workspace context</p>
+      )}
+      <Markdown text={text} sources={context?.sources ?? NO_SOURCES} />
+      {/* After the prose that explains it, so the reader meets the reason before the control. */}
+      {message.role === "assistant" && messageOffers(message).map((offer, offerIndex) => (
+        <SearchOfferCard key={offerIndex} offer={offer} />
+      ))}
+      {streaming && activity && !text && (
+        <p className="flex items-center gap-1.5 text-xs text-muted-foreground">
+          <Loader2 className="h-3 w-3 animate-spin motion-reduce:animate-none" aria-hidden="true" />
+          {activity}
+        </p>
+      )}
+      {streaming && !(activity && !text) && (
+        <span className={cn("mt-1 inline-block h-3.5 w-0.5 bg-foreground/50", STREAM_CARET_MOTION)} />
+      )}
+      {message.role === "assistant" && text && !streaming && (
+        <button
+          type="button"
+          onClick={() => onCopy(message.id, text)}
+          className="mt-2 flex min-h-6 items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/60"
+        >
+          {copied ? (
+            <Check className="h-3 w-3" />
+          ) : (
+            <Copy className="h-3 w-3" />
+          )}
+          {copied ? "Copied" : "Copy"}
+        </button>
+      )}
+    </div>
+    </DocumentSourceProvider>
   );
-}
+});
 
 function withAttachmentManifest(
   analysis: unknown,
@@ -696,7 +657,7 @@ const markdownElements = (sources: CitationSources): Components => ({
           target="_blank"
           rel="noreferrer"
           title={citation.href}
-          className="group/source mx-0.5 rounded-md align-baseline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/20"
+          className="group/source mx-0.5 rounded-md align-baseline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/60"
         >
           <SourceChip format="web">{children}</SourceChip>
         </a>
@@ -726,7 +687,7 @@ const markdownElements = (sources: CitationSources): Components => ({
     </div>
   ),
   th: ({ children }) => (
-    <th className="border-b border-border bg-foreground/[0.045] px-2.5 py-1.5 text-left font-medium">
+    <th className="border-b border-border/60 bg-foreground/[0.045] px-2.5 py-1.5 text-left font-medium">
       {children}
     </th>
   ),
@@ -744,7 +705,11 @@ const markdownElements = (sources: CitationSources): Components => ({
   hr: () => <hr className="border-border" />,
 });
 
-function Markdown({ text, sources }: { text: string; sources: CitationSources }) {
+/** One plugin list for every answer, so the renderer is never handed a new one. */
+const REMARK_PLUGINS = [remarkGfm];
+
+/** Memoised on its text and sources: an answer that has finished is parsed once. */
+const Markdown = memo(function Markdown({ text, sources }: { text: string; sources: CitationSources }) {
   // Memoised on the sources, not rebuilt per message: a fresh components object
   // would remount every rendered element on each keystroke of a streaming answer.
   const elements = useMemo(() => markdownElements(sources), [sources]);
@@ -752,7 +717,7 @@ function Markdown({ text, sources }: { text: string; sources: CitationSources })
   return (
     <div className="space-y-2 leading-relaxed">
       <ReactMarkdown
-        remarkPlugins={[remarkGfm]}
+        remarkPlugins={REMARK_PLUGINS}
         components={elements}
         // react-markdown blanks any URL whose scheme is not http/https/mailto/tel,
         // to stop `javascript:` arriving in model output. Correct by default and
@@ -767,4 +732,4 @@ function Markdown({ text, sources }: { text: string; sources: CitationSources })
       </ReactMarkdown>
     </div>
   );
-}
+});

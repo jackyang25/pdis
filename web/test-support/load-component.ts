@@ -20,6 +20,8 @@ export function loadComponent(path: string, overrides: Record<string, unknown> =
     cache.set(file, module);
     const localRequire = (name: string): any => {
       if (Object.hasOwn(overrides, name)) return overrides[name];
+      // A stylesheet is the bundler's to load; there is nothing to evaluate in a test.
+      if (name.endsWith(".css")) return {};
       if (!name.startsWith(".") && !name.startsWith("@/")) return nativeRequire(name);
       const base = name.startsWith("@/") ? resolve(root, name.slice(2)) : resolve(dirname(file), name);
       const resolved = [base, `${base}.tsx`, `${base}.ts`].find(existsSync);

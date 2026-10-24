@@ -207,7 +207,7 @@ function NodeInspector({
         <button
           type="button"
           onClick={() => onExpand(null)}
-          className="inline-flex items-center gap-1 rounded-sm text-[10px] font-medium text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/20 motion-reduce:transition-none"
+          className="inline-flex items-center gap-1 rounded-sm text-[10px] font-medium text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/60 motion-reduce:transition-none"
         >
           <RotateCcw className="h-3 w-3" aria-hidden="true" />
           Back to overview
@@ -226,7 +226,7 @@ function NodeInspector({
         <button
           type="button"
           onClick={() => onExpand(expandedNodeId === node.id ? null : node.id)}
-          className="mt-4 inline-flex h-8 items-center gap-1.5 rounded-md border border-border bg-card px-3 text-[11px] font-medium transition-colors hover:bg-foreground/[0.045] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/20 motion-reduce:transition-none"
+          className="mt-4 inline-flex h-8 items-center gap-1.5 rounded-md border border-border bg-card px-3 text-[11px] font-medium transition-colors hover:bg-foreground/[0.045] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/60 motion-reduce:transition-none"
         >
           View technical flow
           <ChevronRight className="h-3 w-3" aria-hidden="true" />
@@ -236,7 +236,7 @@ function NodeInspector({
       <InspectorList title="Consumes" items={node.inputs} />
       <InspectorList title="Produces" items={node.outputs} />
       {node.guarantee ? (
-        <div className="mt-4 border-t border-border/70 pt-4">
+        <div className="mt-4 border-t border-border/60 pt-4">
           <div className={cn("flex items-center gap-1.5", EYEBROW)}>
             <ShieldCheck className="h-3.5 w-3.5" aria-hidden="true" />
             Contract boundary
@@ -251,7 +251,7 @@ function NodeInspector({
 function InspectorList({ title, items }: { title: string; items?: string[] }) {
   if (!items?.length) return null;
   return (
-    <div className="mt-4 border-t border-border/70 pt-4">
+    <div className="mt-4 border-t border-border/60 pt-4">
       <p className={EYEBROW}>{title}</p>
       <ul className="mt-2 space-y-1.5">
         {items.map((item) => (
@@ -319,7 +319,7 @@ export function ArchitectureGraphs({
 
   return (
     <div className="mt-5 overflow-hidden rounded-lg bg-card shadow-raised">
-      <div className="border-b border-border/80 px-4 py-4 sm:px-5">
+      <div className="border-b border-border/60 px-4 py-4 sm:px-5">
         <div className="flex items-start gap-3">
           <PdisIcon name={graphIcon(graph.id)} className="mt-0.5 h-5 w-5 text-foreground" />
           <div className="min-w-0">
@@ -368,7 +368,7 @@ export function ArchitectureGraphs({
               <button
                 type="button"
                 onClick={() => setExpandedNodeId(null)}
-                className="inline-flex h-7 items-center gap-1.5 rounded-md bg-card/95 px-2.5 text-[10px] font-medium text-muted-foreground shadow-floating transition-colors hover:bg-foreground/[0.045] hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/20 motion-reduce:transition-none"
+                className="inline-flex h-7 items-center gap-1.5 rounded-md bg-card/95 px-2.5 text-[10px] font-medium text-muted-foreground shadow-floating transition-colors hover:bg-foreground/[0.045] hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/60 motion-reduce:transition-none"
               >
                 <RotateCcw className="h-3 w-3" aria-hidden="true" />
                 Overview
@@ -427,7 +427,7 @@ export function ArchitectureGraphs({
         ) : null}
       </div>
 
-      <div className={cn("divide-y divide-border", !readingStages && "xl:hidden")}>
+      <div className={cn("divide-y divide-border/60", !readingStages && "xl:hidden")}>
         {graph.nodes.map((node) => {
           const meta = KIND_META[node.kind];
           const Icon = meta.icon;
@@ -465,7 +465,7 @@ export function ArchitectureGraphs({
                 <InspectorList title="Consumes" items={node.inputs} />
                 <InspectorList title="Produces" items={node.outputs} />
                 {node.guarantee ? (
-                  <div className="mt-4 border-t border-border/70 pt-4">
+                  <div className="mt-4 border-t border-border/60 pt-4">
                     <div className={cn("flex items-center gap-1.5", EYEBROW)}>
                       <ShieldCheck className="h-3.5 w-3.5" aria-hidden="true" />
                       Contract boundary
@@ -481,7 +481,7 @@ export function ArchitectureGraphs({
       {/* The picker above already decides which tool a reader is looking at, so
           that tool's vocabulary and instructions belong inside the same
           selection rather than beside it in a second list. */}
-      <div className="border-t border-border/80 px-4 py-5 sm:px-5">
+      <div className="border-t border-border/60 px-4 py-5 sm:px-5">
         <ToolDetail toolId={graph.id} />
       </div>
     </div>

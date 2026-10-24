@@ -9,11 +9,37 @@
 # How each source type is described. `default` is required: a source type the
 # chunker can parse is usable the moment it exists, and naming it below only
 # makes the description specific.
+#
+# `description` says what the document is and reaches both stages. `honours` says
+# what meeting a requirement looks like in a document of this kind, and reaches
+# only the verdict, when this document is the one being measured. A profile
+# honours a target by stating a value; a plan honours a commitment by carrying the
+# work for it - judging a plan by a profile's test once filed a plan that had a
+# whole stability study for a commitment as saying nothing about it.
 document_roles:
-  itpp: Early, candidate-agnostic intervention target profile stating what the Foundation wants.
-  ctpp: Candidate-specific target product profile describing what a grantee is developing.
-  ipdp: Integrated product development plan describing execution and decision pathways.
-  default: Product-development document.
+  itpp:
+    description: Early, candidate-agnostic intervention target profile stating what the Foundation wants.
+    honours: >-
+      A profile honours a requirement by STATING A VALUE that satisfies it.
+      Committing to numbers is its job.
+  ctpp:
+    description: Candidate-specific target product profile describing what a grantee is developing.
+    honours: >-
+      A profile honours a requirement by STATING A VALUE that satisfies it.
+      Committing to numbers is its job.
+  ipdp:
+    description: Integrated product development plan describing execution and decision pathways.
+    honours: >-
+      A plan honours a commitment by CONTAINING THE WORK directed at it: a study,
+      an activity, a milestone, a decision point. Saying how is its job, and
+      restating the number is not. A plan that names the work honours the
+      commitment even though it states no value of its own; a plan that repeats
+      the number and schedules nothing does not.
+  default:
+    description: Product-development document.
+    honours: >-
+      A document honours a requirement by stating a value that satisfies it or by
+      carrying the work directed at it, whichever its kind of document does.
 
 # Which ordered pairs form a comparison, and what each one asks.
 #

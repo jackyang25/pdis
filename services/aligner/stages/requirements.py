@@ -20,8 +20,8 @@ from __future__ import annotations
 
 from typing import Any
 
-from shared.ai import request_structured
-from shared.errors import ModelResponseError
+from shared.ai import Effort, ModelTask, request_validated
+from shared.schemas import non_empty_text
 from shared.spans import LINE_SPAN_JSON_INSTRUCTION
 
 from services.chunker import ContentBlock
@@ -29,10 +29,38 @@ from services.chunker import ContentBlock
 from ..context import citation_properties, format_blocks, image_inputs, read_spans, read_visual_ids
 
 from ..models import (
+    DocumentRole,
     LLMClientProtocol,
     Requirement,
     requirement_id,
 )
+
+#: One request per reference document: how many requirements it states is a fact about
+#: the whole document, the case the one-item-per-request rule exempts.
+DOCUMENTS_PER_REQUEST = 1
+#: The reasoning tier at medium effort: splitting a compound sentence into atomic
+#: requirements, and leaving background out, is the judgement every verdict inherits.
+TASK: ModelTask = "reasoning"
+EFFORT: Effort = "medium"
+#: Reasoning room, before the answer itself.
+BASE_MAX_TOKENS = 8000
+#: The largest budget an extraction is given: the reasoning tier's retry ceiling
+#: (`shared.ai.MAX_RETRY_TOKENS`). A reference document whose requirements need more is
+#: one the request budget would already have refused.
+MAX_MAX_TOKENS = 64000
+
+
+def extraction_budget(document_text: str) -> int:
+    """The output budget for one extraction, scaled to the document it reads.
+
+    The answer restates what the document demands, one short sentence and a line range
+    per requirement, so it grows with the document and never exceeds it: room for the
+    whole document again (about four characters a token), on top of the reasoning
+    allowance. A fixed number was either waste on a one-page profile or a cut-off on a
+    forty-row target table.
+    """
+    return min(BASE_MAX_TOKENS + len(document_text) // 4, MAX_MAX_TOKENS)
+
 
 _SCOPE_BOUNDARY = """Scope boundary:
 - List only what this document requires, commits to, or targets. Background, rationale,
@@ -56,8 +84,6 @@ def build_requirements_prompt() -> str:
     return f"""You are reading one product-development document and listing every requirement it states, so that a second document can be measured against them.
 
 {_SCOPE_BOUNDARY}
-
-Return ONLY valid JSON. No markdown fences, no preamble, no explanation.
 
 For each requirement:
 - `text` is one short sentence (max 30 words) stating the requirement in the document's
@@ -98,12 +124,15 @@ def requirements_schema(blocks: list[ContentBlock]) -> dict[str, Any]:
         "properties": {
             "requirements": {
                 "type": "array",
+                # A reference document states at least one requirement; an empty list
+                # is a failed read, and the parser refuses it.
+                "minItems": 1,
                 "items": {
                     "type": "object",
                     "additionalProperties": False,
                     "required": ["text", "spans", "visual_block_ids"],
                     "properties": {
-                        "text": {"type": "string", "minLength": 1},
+                        "text": non_empty_text(),
                         **citation_properties(blocks),
                     },
                 },
@@ -112,7 +141,7 @@ def requirements_schema(blocks: list[ContentBlock]) -> dict[str, Any]:
     }
 
 
-def build_user_message(role: str, question: str, blocks: list[ContentBlock]) -> str:
+def build_user_message(role: DocumentRole, question: str, blocks: list[ContentBlock]) -> str:
     """What this document is, what the comparison will ask, then the document itself.
 
     The comparison's question is included because it decides what counts as a
@@ -122,7 +151,7 @@ def build_user_message(role: str, question: str, blocks: list[ContentBlock]) -> 
     configuration rather than a branch in this file.
     """
     return "\n\n".join([
-        f"This document: {role}",
+        f"This document: {role.description}",
         f"The comparison that will use these requirements asks: {question}",
         "Document blocks:\n" + format_blocks(blocks),
     ])
@@ -131,11 +160,10 @@ def build_user_message(role: str, question: str, blocks: list[ContentBlock]) -> 
 def extract_requirements(
     *,
     edge_id: str,
-    role: str,
+    role: DocumentRole,
     question: str,
     blocks: list[ContentBlock],
     llm_client: LLMClientProtocol,
-    max_tokens: int,
 ) -> list[Requirement]:
     """Every requirement one reference document states, in document order."""
     if not blocks:
@@ -143,39 +171,25 @@ def extract_requirements(
             f"Aligner cannot read requirements for {edge_id}: the reference document "
             "parsed to no blocks"
         )
-    system_prompt = build_requirements_prompt()
-    user_message = build_user_message(role, question, blocks)
-    schema = requirements_schema(blocks)
-
-    first_error = "model returned no structured requirements"
-    for attempt in range(2):
-        message = user_message
-        if attempt:
-            message += (
-                "\n\nThe prior extraction failed the Aligner contract: "
-                f"{first_error}. For every requirement, select exact [line:N] "
-                "ranges in `spans`, retained visual IDs in `visual_block_ids`, or "
-                "both, and state each requirement in one self-contained sentence."
-            )
-        payload = request_structured(
-            llm_client,
-            system_prompt,
-            message,
-            max_tokens=max_tokens,
-            schema_name="aligner_requirements",
-            schema=schema,
-            images=image_inputs(blocks) or None,
-        )
-        try:
-            if payload is None:
-                raise ValueError("model returned no structured requirements")
-            return _parse_payload(
-                payload, edge_id=edge_id, blocks=blocks
-            )
-        except ValueError as exc:
-            first_error = str(exc)
-    raise ModelResponseError(
-        f"Aligner could not read the requirements for {edge_id}: {first_error}"
+    message = build_user_message(role, question, blocks)
+    return request_validated(
+        llm_client,
+        build_requirements_prompt(),
+        message,
+        schema_name="aligner_requirements",
+        schema=requirements_schema(blocks),
+        max_tokens=extraction_budget(message),
+        task=TASK,
+        effort=EFFORT,
+        images=image_inputs(blocks) or None,
+        parse=lambda payload: _parse_payload(payload, edge_id=edge_id, blocks=blocks),
+        repair=lambda error: (
+            "\n\nThe prior extraction failed the Aligner contract: "
+            f"{error}. For every requirement, select exact [line:N] "
+            "ranges in `spans`, retained visual IDs in `visual_block_ids`, or "
+            "both, and state each requirement in one self-contained sentence."
+        ),
+        failure=f"Aligner could not read the requirements for {edge_id}",
     )
 
 
@@ -191,7 +205,7 @@ def _parse_payload(
     blocks: list[ContentBlock],
 ) -> list[Requirement]:
     if not isinstance(payload, dict):
-        raise ValueError("extraction must be an object")
+        raise ValueError("model returned no structured requirements")
     items = payload.get("requirements")
     if not isinstance(items, list) or not items:
         raise ValueError(
@@ -199,20 +213,17 @@ def _parse_payload(
             "means the extraction failed, not that the document asks for nothing"
         )
 
+    # Every item the model listed is kept. Whether two items are one requirement is the
+    # extraction's judgement about the document; lowercasing and comparing their
+    # wording here would be string normalization deciding identity, and two
+    # requirements that read alike can cite different rows of a table.
     requirements: list[Requirement] = []
-    seen: set[str] = set()
     for index, item in enumerate(items, start=1):
         if not isinstance(item, dict):
             raise ValueError(f"requirement {index} must be an object")
         text = str(item.get("text") or "").strip()
         if not text:
             raise ValueError(f"requirement {index} has no text")
-        # Same wording twice is one requirement cited from two places, and the second
-        # copy would double-count in every total downstream.
-        key = " ".join(text.lower().split())
-        if key in seen:
-            continue
-        seen.add(key)
         spans = read_spans(item.get("spans"), blocks)
         visual_ids = read_visual_ids(item.get("visual_block_ids"), blocks)
         if not spans and not visual_ids:
@@ -222,7 +233,7 @@ def _parse_payload(
             )
         requirements.append(
             Requirement(
-                id=requirement_id(edge_id, len(requirements) + 1),
+                id=requirement_id(edge_id, index),
                 text=text,
                 cited_spans=tuple(spans),
                 visual_block_ids=tuple(visual_ids),

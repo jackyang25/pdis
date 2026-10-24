@@ -4,123 +4,94 @@ from __future__ import annotations
 
 import logging
 import re
-import threading
-import time
-from functools import lru_cache
-import urllib.error
 import urllib.parse
-import urllib.request
 import xml.etree.ElementTree as ET
 from datetime import datetime, timezone
 
-from ..models import Finding
+from ..calls import note_provider_query, note_warning, provider_call
+from ..dates import partial_date
+from ..errors import RetrievalError
+from ..models import Finding, SearchRuntime
+from ..transport import fetch, user_agent
 
 logger = logging.getLogger(__name__)
 
 EUTILS_BASE = "https://eutils.ncbi.nlm.nih.gov/entrez/eutils"
 # Generous: NCBI is usually sub-second, but PMC full-text fetches and extra
 # latency (e.g. a corporate tunnel like Cloudflare WARP) can push a call past a
-# tight limit. 35s recovers those rare slow-but-valid responses; timed-out
-# queries are isolated by the source controller.
+# tight limit. 35s recovers those rare slow-but-valid responses.
 REQUEST_TIMEOUT_SECONDS = 35
 MAX_EXCERPT_CHARS = 6000
-# Full-text PMC fetches per query — each is its own NCBI request, so cap the
-# fan-out. Articles beyond this fall back to their abstract.
+# Full-text PMC fetches per request — each is its own NCBI call, so cap the fan-out.
+# Articles beyond this keep their abstract alone.
 MAX_PMC_FULLTEXT = 5
-
-# NCBI rate limits: ~3 req/s without an API key, ~10 req/s with one. The
-# scout runs many searcher threads in parallel, so spacing must be enforced
-# PROCESS-WIDE, not per-thread. _throttle holds a single lock and spaces the
-# START of every NCBI request across all threads.
-_RATE_LOCK = threading.Lock()
-_NEXT_ALLOWED = 0.0
+#: Registered with NCBI's E-utilities as the calling tool. NCBI asks for `tool` and
+#: `email` on every call; the address is sent only when the deployment configured one.
+NCBI_TOOL = "pdis"
+#: NCBI's quota covers every E-utilities call from one client, whichever lane makes it.
+NCBI_RATE_GROUP = "ncbi"
+# NCBI rate limits: ~3 req/s without an API key, ~10 req/s with one, per call.
 RATE_INTERVAL_NO_KEY = 0.35
 RATE_INTERVAL_WITH_KEY = 0.11
-MAX_RETRIES_ON_429 = 2
-
-
-def _throttle(min_interval: float) -> None:
-    """Block until at least `min_interval` has passed since the last request,
-    globally across all threads."""
-    global _NEXT_ALLOWED
-    with _RATE_LOCK:
-        now = time.monotonic()
-        wait = _NEXT_ALLOWED - now
-        if wait > 0:
-            time.sleep(wait)
-            now = time.monotonic()
-        _NEXT_ALLOWED = now + min_interval
-
-
-# Web-search operators a query written for the web lane may carry (e.g.
-# "site:clinicaltrials.gov ..."). PubMed's term search rejects them (HTTP 400),
-# so strip them before searching. Doc-type-agnostic - PubMed simply doesn't
-# speak this syntax, so every caller (TPP, IPDP, standalone) benefits.
-_WEB_OPERATORS = re.compile(
-    r"\b(?:site|filetype|inurl|intitle|related|cache|url):\S+", re.IGNORECASE
-)
-_BARE_URL = re.compile(r"https?://\S+", re.IGNORECASE)
-
-
-def _sanitize_pubmed_query(query: str) -> str:
-    cleaned = _BARE_URL.sub(" ", _WEB_OPERATORS.sub(" ", query))
-    return " ".join(cleaned.split()).strip()
 
 
 def search_pubmed(
     query: str,
+    runtime: SearchRuntime,
     *,
-    max_results: int = 20,
-    api_key: str | None = None,
+    max_results: int,
     published_since: str = "",
 ) -> list[Finding]:
-    """Search PubMed and enrich open-access PMC records with full text.
+    """Search PubMed and add the Results section of open-access PMC records.
 
     Transport/parse failures propagate to the source controller, which records
     a failed outcome without affecting other adapters.
     """
-    query = _sanitize_pubmed_query(query)
-    if not query:
-        return []  # query was only web operators - nothing to search on PubMed
-    try:
-        pmids = _esearch(
-            query,
-            max_results=max_results,
-            api_key=api_key,
-            published_since=published_since,
-        )
-        if not pmids:
-            return []
-        records = _efetch_pubmed(pmids, api_key=api_key)
-        pmc_texts = _fetch_pmc_texts(records, api_key=api_key)
-    except Exception as exc:  # noqa: BLE001 - lane degrades; reason already logged
-        logger.warning("PubMed unavailable for query %r: %s", query, exc)
-        raise
+    if not query.strip():
+        return []
+    pmids = _esearch(
+        runtime,
+        query,
+        max_results=max_results,
+        published_since=published_since,
+    )
+    if not pmids:
+        return []
+    records = _efetch_pubmed(runtime, pmids)
+    results_sections = _fetch_pmc_results(runtime, records)
 
     retrieved_at = datetime.now(timezone.utc)
     findings: list[Finding] = []
     for record in records:
-        pmid = record.get("pmid", "")
+        pmid = record["pmid"]
         if not pmid:
             continue
-        pmcid = record.get("pmcid", "")
-        abstract = record.get("abstract", "")
-        full_text = pmc_texts.get(pmcid, "") if pmcid else ""
-        # Lead with the abstract: it front-loads the headline findings/numbers
-        # (efficacy %, primary endpoint). Append full text for depth. This avoids
-        # keeping only the intro of a long article, where results are absent.
-        combined = "\n\n".join(part for part in (abstract, full_text) if part)
+        pmcid = record["pmcid"]
+        # The abstract states the headline findings; the Results section, where the
+        # article declares one, carries the numbers behind them.
+        combined = "\n\n".join(
+            part
+            for part in (record["abstract"], results_sections.get(pmcid, ""))
+            if part
+        )
         excerpt = _clean_text(combined) or None
         if excerpt and len(excerpt) > MAX_EXCERPT_CHARS:
             excerpt = excerpt[:MAX_EXCERPT_CHARS].rstrip() + "..."
         findings.append(
             Finding(
                 url=f"https://pubmed.ncbi.nlm.nih.gov/{pmid}/",
-                title=record.get("title") or f"PubMed {pmid}",
+                title=record["title"] or f"PubMed {pmid}",
                 query=query,
                 retrieved_at=retrieved_at,
                 excerpt=excerpt,
-                published_at=_parse_pubdate(record.get("pubdate", "")),
+                published_at=record["published_at"],
+                published_precision=record["published_precision"],
+                identifiers={
+                    "pmid": pmid,
+                    "doi": record["doi"],
+                    "pmcid": pmcid,
+                },
+                record_key=f"pubmed:{pmid}",
                 source="pubmed",
             )
         )
@@ -128,10 +99,10 @@ def search_pubmed(
 
 
 def _esearch(
+    runtime: SearchRuntime,
     query: str,
     *,
     max_results: int,
-    api_key: str | None,
     published_since: str = "",
 ) -> list[str]:
     """Ask for the window, rather than asking for everything and discarding.
@@ -141,6 +112,10 @@ def _esearch(
     that mention the year, while `datetype=pdat` bounds the ones published in it. The
     ranking is `relevance` within the window, so a narrow window returns the most
     relevant recent work instead of the most relevant work of all time, filtered down.
+
+    NCBI reports how it read the term - its query translation, any phrase it could not
+    find and searched without - and those are recorded on the request's outcome, since
+    they are the only explanation of a result set that does not match the query asked.
     """
     parameters = {
         "db": "pubmed",
@@ -158,7 +133,19 @@ def _esearch(
                 "maxdate": "3000",
             }
         )
-    root = _request_xml("esearch.fcgi", parameters, api_key=api_key)
+    root = _request_xml(runtime, "esearch.fcgi", parameters)
+    translation = (root.findtext("QueryTranslation") or "").strip()
+    if translation:
+        note_provider_query(translation)
+    for list_name, code in (("WarningList", "provider_warning"), ("ErrorList", "provider_error")):
+        for listing in root.findall(list_name):
+            for item in listing:
+                if item.tag == "OutputMessage":
+                    detail = _iter_text(item)
+                else:
+                    detail = f"{item.tag}: {_iter_text(item)}"
+                if detail.strip():
+                    note_warning(code, detail)
     return [
         (node.text or "").strip()
         for node in root.findall(".//IdList/Id")
@@ -166,25 +153,24 @@ def _esearch(
     ]
 
 
-def _efetch_pubmed(pmids: list[str], *, api_key: str | None) -> list[dict[str, str]]:
+def _efetch_pubmed(runtime: SearchRuntime, pmids: list[str]) -> list[dict]:
     root = _request_xml(
+        runtime,
         "efetch.fcgi",
         {
             "db": "pubmed",
             "id": ",".join(pmids),
             "retmode": "xml",
         },
-        api_key=api_key,
     )
-    records: list[dict[str, str]] = []
+    records: list[dict] = []
     for article in root.findall(".//PubmedArticle"):
         pmid = _text(article.find(".//MedlineCitation/PMID"))
-        title = _text(article.find(".//ArticleTitle"))
+        title = _iter_text_or_blank(article.find(".//ArticleTitle"))
         abstract = " ".join(
             _iter_text(node) for node in article.findall(".//Abstract/AbstractText")
         ).strip()
         journal = _text(article.find(".//Journal/Title"))
-        pubdate = _pubdate_from_article(article)
         doi = ""
         pmcid = ""
         for id_node in article.findall(".//PubmedData/ArticleIdList/ArticleId"):
@@ -194,15 +180,17 @@ def _efetch_pubmed(pmids: list[str], *, api_key: str | None) -> list[dict[str, s
                 doi = value
             elif id_type == "pmc":
                 pmcid = value
+        published_at, precision = _pubdate_from_article(article)
+        # Identifiers are carried as identifiers. The DOI used to be appended to the title,
+        # and consumers then read it back out with a pattern.
         title_parts = [part for part in [title, journal] if part]
-        if doi:
-            title_parts.append(f"DOI: {doi}")
         records.append(
             {
                 "pmid": pmid,
                 "title": " - ".join(title_parts) if title_parts else f"PubMed {pmid}",
                 "abstract": abstract,
-                "pubdate": pubdate,
+                "published_at": published_at,
+                "published_precision": precision,
                 "doi": doi,
                 "pmcid": pmcid,
             }
@@ -210,118 +198,116 @@ def _efetch_pubmed(pmids: list[str], *, api_key: str | None) -> list[dict[str, s
     return records
 
 
-def _fetch_pmc_texts(
-    records: list[dict[str, str]],
-    *,
-    api_key: str | None,
-) -> dict[str, str]:
+def _fetch_pmc_results(runtime: SearchRuntime, records: list[dict]) -> dict[str, str]:
     pmcids = [record["pmcid"] for record in records if record.get("pmcid")]
-    if not pmcids:
-        return {}
-    pmcids = pmcids[:MAX_PMC_FULLTEXT]
     out: dict[str, str] = {}
-    for pmcid in pmcids:
+    for pmcid in pmcids[:MAX_PMC_FULLTEXT]:
         try:
-            # Cached process-wide by PMCID: the same open-access article recurs
-            # across many queries, so it is fetched from NCBI only once.
-            out[pmcid] = _pmc_fulltext(pmcid, api_key)
-        except Exception:
-            # Transient errors (e.g. 429) are NOT cached, so they retry later.
-            logger.warning("PMC full-text fetch failed for %s", pmcid)
+            text = _pmc_results_section(runtime, pmcid)
+        except RetrievalError as exc:
+            # The record keeps its abstract; the outcome says what it is missing.
+            note_warning("content_unavailable", f"PMC full text for {pmcid}: {exc}")
             continue
+        if text:
+            out[pmcid] = text
     return out
 
 
-@lru_cache(maxsize=2048)
-def _pmc_fulltext(pmcid: str, api_key: str | None) -> str:
-    """Fetch and clean PMC open-access full text for one PMCID. Memoized."""
+def _pmc_results_section(runtime: SearchRuntime, pmcid: str) -> str:
+    """Return the text of the article's declared Results section, or blank.
+
+    Read from JATS `sec-type`, the article's own markup for what a section is, and from
+    nothing else. The earlier excerpt took the first characters of the body, which in a
+    research article is the Introduction: background, not findings. A section titled
+    "Results" without the attribute is not guessed at from its heading; the abstract
+    remains the excerpt there.
+    """
     root = _request_xml(
+        runtime,
         "efetch.fcgi",
         {"db": "pmc", "id": pmcid.removeprefix("PMC"), "retmode": "xml"},
-        api_key=api_key,
     )
-    texts = [
-        _iter_text(node)
-        for node in root.findall(".//body//p")
-        if _iter_text(node).strip()
+    sections = [
+        section
+        for section in root.findall(".//body/sec")
+        if "results" in section.attrib.get("sec-type", "").casefold().split("|")
     ]
-    if not texts:
-        texts = [
-            _iter_text(node)
-            for node in root.findall(".//abstract//p")
-            if _iter_text(node).strip()
-        ]
-    return _clean_text(" ".join(texts))
+    texts = [
+        _iter_text(paragraph)
+        for section in sections
+        for paragraph in section.findall(".//p")
+        if _iter_text(paragraph).strip()
+    ]
+    return _clean_text(" ".join(texts))[:MAX_EXCERPT_CHARS]
 
 
 def _request_xml(
+    runtime: SearchRuntime,
     endpoint: str,
     params: dict[str, str],
-    *,
-    api_key: str | None,
 ) -> ET.Element:
-    if api_key:
-        params["api_key"] = api_key
-    url = f"{EUTILS_BASE}/{endpoint}?{urllib.parse.urlencode(params)}"
-    interval = RATE_INTERVAL_WITH_KEY if api_key else RATE_INTERVAL_NO_KEY
-    request = urllib.request.Request(
-        url,
-        headers={"User-Agent": "pdis-scout/0.1 (mailto:devnull@example.com)"},
+    api_key = runtime.ncbi_api_key or ""
+    query = dict(params, tool=NCBI_TOOL)
+    if runtime.contact_email:
+        query["email"] = runtime.contact_email
+    url_params = dict(query, api_key=api_key) if api_key else query
+    url = f"{EUTILS_BASE}/{endpoint}?{urllib.parse.urlencode(url_params)}"
+
+    def load() -> bytes:
+        return fetch(
+            url,
+            provider="NCBI E-utilities",
+            headers={"User-Agent": user_agent(runtime.contact_email)},
+            timeout=REQUEST_TIMEOUT_SECONDS,
+            # NCBI's rate-limit body echoes the key it was sent.
+            secrets=(api_key,),
+        )
+
+    body = provider_call(
+        runtime,
+        rate_group=NCBI_RATE_GROUP,
+        interval_seconds=RATE_INTERVAL_WITH_KEY if api_key else RATE_INTERVAL_NO_KEY,
+        operation=endpoint,
+        # The key is not part of the question, so it is not part of the memo key.
+        arguments=query,
+        load=load,
     )
-    for attempt in range(MAX_RETRIES_ON_429 + 1):
-        _throttle(interval)
-        try:
-            with urllib.request.urlopen(request, timeout=REQUEST_TIMEOUT_SECONDS) as response:
-                return ET.fromstring(response.read())
-        except urllib.error.HTTPError as exc:
-            if exc.code == 429 and attempt < MAX_RETRIES_ON_429:
-                time.sleep(interval * (2 ** attempt))
-                continue
-            logger.warning("NCBI request failed (%s): %s", exc.code, endpoint)
-            raise
-        except (urllib.error.URLError, TimeoutError):
-            logger.warning("NCBI request failed (network): %s", endpoint)
-            raise
-    raise RuntimeError("unreachable")
+    try:
+        return ET.fromstring(body)
+    except ET.ParseError as exc:
+        raise RetrievalError(
+            "NCBI E-utilities", "invalid_response", f"{endpoint} returned malformed XML"
+        ) from exc
 
 
-def _pubdate_from_article(article: ET.Element) -> str:
+def _pubdate_from_article(article: ET.Element) -> tuple[datetime | None, str]:
+    """The issue date with the precision PubMed states it, else the electronic date.
+
+    The issue date is read first because a window is a lower bound and the issue date is
+    the later of the two, which is how PubMed's own `pdat` reads a record too.
+    """
     pub_date = article.find(".//JournalIssue/PubDate")
     if pub_date is None:
         pub_date = article.find(".//ArticleDate")
     if pub_date is None:
-        return ""
+        return None, ""
     year = _text(pub_date.find("Year"))
-    month = _text(pub_date.find("Month"))
+    if not year:
+        # "2019 Nov-Dec", "1998 Dec-1999 Jan": a span, stated only to its year. The last
+        # year it names is the latest the record can be, so a lower bound cannot drop it.
+        years = re.findall(r"\b(\d{4})\b", _text(pub_date.find("MedlineDate")))
+        return partial_date(int(years[-1])) if years else (None, "")
+    if not year.isdigit():
+        return None, ""
+    month = _parse_month(_text(pub_date.find("Month")))
     day = _text(pub_date.find("Day"))
-    medline = _text(pub_date.find("MedlineDate"))
-    return " ".join(part for part in [year, month, day] if part) or medline
+    if month is None:
+        # No month, or a season: stated to the year.
+        return partial_date(int(year))
+    return partial_date(int(year), month, int(day) if day.isdigit() else None)
 
 
-def _parse_pubdate(raw: str) -> datetime | None:
-    if not raw:
-        return None
-    parts = raw.replace("-", " ").split()
-    if not parts:
-        return None
-    try:
-        year = int(parts[0])
-    except ValueError:
-        return None
-    month = _parse_month(parts[1]) if len(parts) > 1 else 1
-    day = 1
-    if len(parts) > 2:
-        try:
-            day = int(parts[2])
-        except ValueError:
-            day = 1
-    try:
-        return datetime(year, month, day, tzinfo=timezone.utc)
-    except ValueError:
-        return datetime(year, 1, 1, tzinfo=timezone.utc)
-
-
-def _parse_month(raw: str) -> int:
+def _parse_month(raw: str) -> int | None:
     months = {
         "jan": 1,
         "feb": 2,
@@ -338,8 +324,8 @@ def _parse_month(raw: str) -> int:
     }
     if raw.isdigit():
         value = int(raw)
-        return value if 1 <= value <= 12 else 1
-    return months.get(raw[:3].lower(), 1)
+        return value if 1 <= value <= 12 else None
+    return months.get(raw[:3].lower())
 
 
 def _text(node: ET.Element | None) -> str:
@@ -348,6 +334,10 @@ def _text(node: ET.Element | None) -> str:
 
 def _iter_text(node: ET.Element) -> str:
     return "".join(node.itertext()).strip()
+
+
+def _iter_text_or_blank(node: ET.Element | None) -> str:
+    return "" if node is None else _iter_text(node)
 
 
 def _clean_text(text: str) -> str:

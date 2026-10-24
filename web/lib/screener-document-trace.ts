@@ -1,5 +1,5 @@
 import type { GateReview, QuestionAssessment } from "./api.ts";
-import { QUESTION_REQUIREMENT_LABEL } from "./api.ts";
+import { QUESTION_REQUIREMENT_LABEL, QUESTION_STATE_LABEL, QUESTION_STATE_TONE } from "./api.ts";
 import type { DocumentAnnotation } from "./document-trace.ts";
 
 /**
@@ -56,7 +56,7 @@ export function buildScreenerDocumentAnnotations(
       .map((question) => ({
         id: question.id,
         kind: question.state as ScreenerDocumentTraceKind,
-        layerLabel: question.state === "answered" ? "Answered" : "Partly answered",
+        layerLabel: QUESTION_STATE_LABEL[question.state],
         // The discipline leads, because that is what a reader scanning the gutter
         // recognises; the id qualifies it for anyone matching against the bank.
         title: `${discipline.label} · ${question.id}`,
@@ -71,10 +71,10 @@ export function buildScreenerDocumentAnnotations(
         // The same tones the coverage strip uses, so one colour does not mean two
         // things across two views of one result — and the same tones every other tool's
         // trace uses, so it does not mean two things across two tools either.
-        emphasis:
-          question.state === "answered"
-            ? { tone: "success" as const, badge: "Answered" }
-            : { tone: "warning" as const, badge: "Partly answered" },
+        emphasis: {
+          tone: QUESTION_STATE_TONE[question.state],
+          badge: QUESTION_STATE_LABEL[question.state],
+        },
         sourceRef: {
           questionId: question.id,
           discipline: discipline.label,

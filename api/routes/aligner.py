@@ -16,12 +16,12 @@ from fastapi import APIRouter, File, Form, HTTPException, UploadFile
 from fastapi.responses import StreamingResponse
 
 from services.aligner import (
+    AlignmentDocument,
     DocumentInput,
     load_config,
     resolve_edges,
     run_pipeline,
 )
-from services.aligner.models import AlignmentDocument
 from services.chunker import find_config as find_chunker_config
 
 from api.deps import MissingCredentialError, get_openai_client
@@ -32,11 +32,9 @@ from api.schemas import (
     AlignmentResultOut,
 )
 from api.streaming import run_with_progress
-from api.uploads import document_upload_parts
+from api.uploads import document_upload_parts, read_uploads, require_distinct_doc_ids
 
 router = APIRouter()
-
-DEFAULT_MAX_TOKENS = 16000
 
 
 @router.get("/edges", response_model=AlignerEdgesResponse)
@@ -82,11 +80,7 @@ async def run_aligner(
         doc_id, suffix = document_upload_parts(upload.filename, tool="Aligner")
         uploads.append((upload, source_type, doc_id, suffix))
 
-    doc_ids = [doc_id for _, _, doc_id, _ in uploads]
-    if len(set(doc_ids)) != len(doc_ids):
-        raise HTTPException(
-            status_code=400, detail="Each document must have a distinct filename."
-        )
+    require_distinct_doc_ids([doc_id for _, _, doc_id, _ in uploads])
     try:
         for _, source_type, _, _ in uploads:
             find_chunker_config(org, source_type, intervention_class)
@@ -107,8 +101,11 @@ async def run_aligner(
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
-    contents = [(await upload.read(), source_type, doc_id, suffix)
-                for upload, source_type, doc_id, suffix in uploads]
+    payloads = await read_uploads([(upload, doc_id) for upload, _, doc_id, _ in uploads])
+    contents = [
+        (payload, source_type, doc_id, suffix)
+        for payload, (_, source_type, doc_id, suffix) in zip(payloads, uploads)
+    ]
 
     # Construct provider clients before the stream opens: a missing credential
     # must fail the request, not arrive as an event on a 200 response.
@@ -139,7 +136,6 @@ async def run_aligner(
                 indication=indication,
                 config=config,
                 llm_client=llm_client,
-                max_tokens=DEFAULT_MAX_TOKENS,
                 progress_callback=progress,
             )
             return AlignerRunResponse(

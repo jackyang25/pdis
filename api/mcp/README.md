@@ -141,8 +141,8 @@ networking, employee permissions and OAuth registration are configured.
 ### Capacity and cost
 
 `MAX_CONCURRENT_RUNS` is shared across HTTP and MCP in the single API worker. Web
-runs retain their queue behavior; MCP searches fail fast with `server_busy` when
-capacity is full. MCP bodies are limited to 64 KiB. This is concurrency admission,
+runs wait in a bounded queue and stop when their client disconnects; MCP searches
+fail fast with `server_busy` when capacity is full. MCP bodies are limited to 64 KiB. This is concurrency admission,
 not a per-employee spending quota: configure gateway rate limits and provider budgets
 according to company policy before enabling employee access.
 

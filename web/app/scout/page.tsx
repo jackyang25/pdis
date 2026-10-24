@@ -1,11 +1,14 @@
 "use client";
+import { formatMeasure, formatMeasurePair } from "@/lib/measure-format";
 import { DocumentExtractionNotice } from "@/components/document-extraction-notice";
 import { CaveatNotice, ResultNotices, WarningNotice } from "@/components/ui/warning-notice";
 import { usePublishReviewContext, type ReviewSelection } from "@/lib/assistant-review-context";
 
 import { useTraceFocus } from "@/lib/trace-focus";
 import {
+  memo,
   useCallback,
+  useDeferredValue,
   useEffect,
   useId,
   useMemo,
@@ -19,6 +22,7 @@ import {
   CalendarRange,
   ChevronDown,
   CircleHelp,
+  Search,
 } from "lucide-react";
 import { PageHeader } from "@/components/page-header";
 import { ErrorMessage } from "@/components/ui/error-message";
@@ -31,6 +35,7 @@ import {
   SourceTypeField,
 } from "@/components/configuration-fields";
 import {
+  ConfigChip,
   ConfigDateInput,
   ConfigField,
   ConfigHelp,
@@ -45,11 +50,11 @@ import {
   ResultToolbarEnd,
 } from "@/components/ui/result-toolbar";
 import { ResultSearch } from "@/components/ui/result-search";
+import { matchesQuery, normalizeQuery } from "@/lib/result-search";
 import { EXPANDABLE_ROW } from "@/lib/expandable-row";
 import { EmptyState } from "@/components/empty-state";
 import { SignalChip } from "@/components/ui/signal-chip";
 import { VerdictPill } from "@/components/ui/verdict-pill";
-import { CollapsibleCard } from "@/components/collapsible-card";
 import { FinalResultActions, NewAnalysisButton } from "@/components/final-result-actions";
 import {
   continueScout,
@@ -58,13 +63,13 @@ import {
   type DevelopmentProgram,
   type FunnelStats,
   type EvidenceAssessment,
+  type EvidenceStrength,
   type Finding,
   type Header,
   type Match,
   type Measurement,
   type QuantitativeStatementDisposition,
   type Variable,
-  type NumericExpression,
   type QuantitativeTarget,
   type ScoutResponse,
   type SearchTrace,
@@ -88,24 +93,19 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import {
-  IMPORT_LIMIT_MESSAGE,
-  MAX_RESULTS_PER_TOOL,
-  RESULT_LIMIT_MESSAGE,
-  useScoutSession,
-} from "@/lib/session";
+import { useScoutSession } from "@/lib/session";
+import { importTool, runTool, trackTool } from "@/lib/tool-run";
+import { useShallow } from "zustand/react/shallow";
 import { usePriorityReading } from "@/lib/priority-reading";
 import { toolAuthority } from "@/lib/tools";
-import { useScoutReviewSession } from "@/lib/scout-review-session";
+import { scoutReviewStatus } from "@/lib/scout-review-session";
 import {
-  isScoutResultFinal,
   packScoutResult,
   runLabel,
   runScope,
   pendingQuantitativeReviewCount,
   runFilename,
   unpackScoutResult,
-  readResultIdentity,
 } from "@/lib/result-file";
 import {
   CALIBRATION_BASIS_LABEL,
@@ -114,17 +114,20 @@ import {
   OUTCOME_LABEL,
   PRECEDENT_LABEL,
   RELATIONSHIP_LABEL,
-  SEMANTIC_STATUS_LABEL,
   TARGET_ROLE_LABEL,
   displayAttributeLabel,
   displayRecordTypeLabel,
-  queryTrackLabel,
   sourceDisplayLabel,
+  statementReviewReason,
+  outcomeIsSeparate,
+  reviewRecommendationReason,
+  verdictNote,
+  verdictReason,
   GROUNDING_TONE,
   RELATIONSHIP_TONE,
   OUTCOME_TONE,
 } from "@/lib/scout-labels";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { TabsContent, TabsTrigger } from "@/components/ui/tabs";
 import { ScoutDocumentTrace } from "@/components/scout-document-trace";
 import { ScoutFieldSummary } from "@/components/scout-field-summary";
 import { ScoutSignalHelp } from "@/components/scout-signal-help";
@@ -147,26 +150,34 @@ import { RELATION_ORDER, sortMatchesForReading } from "@/lib/scout-match-order";
 import {
   calibrationView,
   citation,
+  distinctSourceCount,
   documentTargetRows,
   conformityTargetLabel,
-  formatMeasure,
-  formatMeasurePair,
+  retrievalScopeParts,
   formatNumericExpression,
   insightRegistry,
   needsFindingFallback,
-  relationGroups,
   runHeadline,
+  unassessedChecks,
+  unreconciledSets,
   type Citation,
   type InsightRegistry,
   type RunHeadline,
+  type ScopePart,
   type TargetRow,
 } from "@/lib/scout-result-view";
 import {
   SCOUT_PRIORITY_FOCUS,
   scoutPriorityFindings,
 } from "@/lib/scout-priorities";
+import {
+  fieldSelectionSummary,
+  searchableFields,
+  withEveryFieldSearched,
+  withFieldSearched,
+} from "@/lib/scout-field-selection";
 import { PriorityPanel } from "@/components/ui/priority-panel";
-import { DISPLAY_HEADING, EYEBROW } from "@/lib/typography";
+import { DISPLAY_HEADING, EYEBROW, ROW_TITLE } from "@/lib/typography";
 import { cn } from "@/lib/utils";
 import {
   ARRIVAL_HIGHLIGHT,
@@ -175,7 +186,7 @@ import {
   SURFACE_ENTRY_MOTION,
 } from "@/lib/motion";
 import { SURFACE } from "@/lib/surface";
-import { TONE_TEXT, type Tone } from "@/lib/tone";
+import type { Tone } from "@/lib/tone";
 import { ToneDot } from "@/components/ui/tone-dot";
 import {
   applyEvidenceReviewRecommendations,
@@ -203,6 +214,8 @@ import {
 import { DisclosureSummary } from "@/components/ui/disclosure-summary";
 import { TRIGGER_AT_LINE_START } from "@/components/ui/provenance";
 import { TEXT_TOGGLE } from "@/lib/typography";
+import { countLabel } from "@/lib/count-label";
+import { formatPublishedMonth, formatWindowDate } from "@/lib/published-date";
 
 const ScoutEvidenceMap = dynamic(
   () =>
@@ -235,6 +248,7 @@ const SCOUT_STEPS = [
   { key: "target_review", label: "Prefilling numeric target review" },
   { key: "queries", label: "Extracting queries" },
   { key: "search", label: "Searching evidence sources" },
+  { key: "announcements", label: "Reading announcements" },
   { key: "insights", label: "Extracting insights" },
   { key: "classify", label: "Detecting drift" },
   { key: "evidence", label: "Assessing evidence grounding" },
@@ -249,8 +263,9 @@ const SOURCE_LIST_LIMIT = 5;
  * Grounding, strongest first, with the fields nobody could ground last.
  *
  * `EvidenceStrength` is a closed vocabulary but an unordered one, and a distribution read
- * left to right wants an order. Strongest first so the row opens with what held up; "no
- * target stated" ends it because it is the one bucket that is not a verdict on evidence.
+ * left to right wants an order. Strongest first so the row opens with what held up; "not
+ * searched" and "no target stated" end it because neither is a verdict on evidence: one is
+ * the reviewer's choice, the other the document's silence.
  */
 const GROUNDING_ORDER = [
   "well_grounded",
@@ -258,8 +273,11 @@ const GROUNDING_ORDER = [
   "thin",
   "unsupported",
   "unknown",
+  "no_evidence",
+  "not_assessed",
+  "not_searched",
   "not_stated",
-] as const;
+] as const satisfies readonly (EvidenceStrength | "not_stated")[];
 
 function formatAttributeRefs(
   attributeRefs: string[],
@@ -281,16 +299,11 @@ function formatFieldLinks(
 function precedentView(signal: PrecedentSignal) {
   return {
     coverage: PRECEDENT_LABEL[signal.precedent],
-    outcome: OUTCOME_LABEL[signal.outcome],
+    // One classification decides both axes, so a failure is named once, by coverage. So is
+    // an absence of evidence, which empties both.
+    outcome: outcomeIsSeparate(signal) ? OUTCOME_LABEL[signal.outcome] : null,
     tone: OUTCOME_TONE[signal.outcome],
   };
-}
-
-function formatDate(iso: string | null): string | null {
-  if (!iso) return null;
-  const d = new Date(iso);
-  if (isNaN(d.getTime())) return null;
-  return d.toLocaleDateString("en-US", { year: "numeric", month: "short" });
 }
 
 function formatOrdinal(value: number): string {
@@ -376,6 +389,7 @@ const RELATION_ORDERED_KEYS: Match["relation"][] = [
   "extends",
   "confirms",
   "unrelated",
+  "not_assessed",
 ];
 
 function relationCounts(matches: Match[]): RelationCounts {
@@ -384,12 +398,8 @@ function relationCounts(matches: Match[]): RelationCounts {
       acc[m.relation] += 1;
       return acc;
     },
-    { contradicts: 0, extends: 0, confirms: 0, unrelated: 0 } as RelationCounts,
+    { contradicts: 0, extends: 0, confirms: 0, unrelated: 0, not_assessed: 0 } satisfies RelationCounts,
   );
-}
-
-function countLabel(count: number, singular: string): string {
-  return `${count} ${count === 1 ? singular : `${singular}s`}`;
 }
 
 /** Compact source rows with readable titles and trailing metadata; long lists collapse. Used everywhere a
@@ -400,21 +410,23 @@ function SourceList({ findings }: { findings: Finding[] }) {
   const shown = showAll ? findings : findings.slice(0, SOURCE_LIST_LIMIT);
   return (
     <ul className="mt-3 divide-y divide-border/60">
-      {shown.map((f) => {
-        const date = formatDate(f.published_at);
+      {shown.map((f, index) => {
+        const date = formatPublishedMonth(f.published_at, f.published_precision);
         const sourceLabels = (
           f.source_lanes?.length ? f.source_lanes : [f.source]
         ).map((lane) => sourceDisplayLabel(lane, f.source_labels));
         const sourceLabel = Array.from(new Set(sourceLabels)).join(" + ");
         const meta = [sourceLabel, date].filter(Boolean).join(" · ");
         return (
-          <li key={f.url} className="grid min-w-0 gap-x-4 gap-y-1 py-2.5 text-xs first:pt-0 sm:grid-cols-[minmax(0,1fr)_minmax(0,11rem)]">
+          // The contract refuses a repeated URL within one list; the index keeps a key
+          // unique even so, because a duplicate key silently drops a row.
+          <li key={`${index}:${f.url}`} className="grid min-w-0 gap-x-4 gap-y-1 py-2.5 text-xs first:pt-0 sm:grid-cols-[minmax(0,1fr)_minmax(0,11rem)]">
             <a
               href={f.url}
               target="_blank"
               rel="noreferrer"
               title={f.title || f.url}
-              className="min-w-0 break-words leading-relaxed text-foreground underline decoration-border underline-offset-2 hover:decoration-current focus-visible:outline-offset-2"
+              className="min-w-0 break-words leading-relaxed text-foreground underline decoration-border underline-offset-2 hover:decoration-current rounded-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/60"
             >
               {f.title || f.url}
             </a>
@@ -461,31 +473,13 @@ export default function ScoutPage() {
 }
 
 function ScoutView({ header, ready }: { header: Header; ready: boolean }) {
-  const {
-    result,
-    busy,
-    stage,
-    progress,
-    error,
-    results,
-    selectedId,
-    selectResult,
-    removeResult,
-    addResult,
-    setResult,
-    setBusy,
-    startedAt,
-    setStage,
-    setProgress,
-    setError,
-  } = useScoutSession();
-  const {
-    status: reviewStatus,
-    initialize: initializeReview,
-    recordDecision,
-    finalize: finalizeReview,
-    reset: resetReview,
-  } = useScoutReviewSession();
+  const { result, selectedId, busy, stage, progress, error, startedAt, setResult, setError } = useScoutSession(
+    useShallow(({ result, selectedId, busy, stage, progress, error, startedAt, setResult, setError }) =>
+      ({ result, selectedId, busy, stage, progress, error, startedAt, setResult, setError })),
+  );
+  // Read from the run on screen, never held beside it, so switching runs cannot leave
+  // one run's checkpoint standing over another.
+  const reviewStatus = result ? scoutReviewStatus(result) : null;
 
   const [showRunPanel, setShowRunPanel] = useState(!result);
   // Scout-only: the retrieval window, declared before the run and carried
@@ -495,6 +489,7 @@ function ScoutView({ header, ready }: { header: Header; ready: boolean }) {
   useEffect(() => {
     if (result) setShowRunPanel(false);
   }, [result]);
+  const showSetup = useCallback(() => setShowRunPanel(true), []);
 
   // Covers arriving with a hash already set, or the back button. The click itself is handled
   // on the link, because clicking a citation whose hash is already current fires no
@@ -506,61 +501,8 @@ function ScoutView({ header, ready }: { header: Header; ready: boolean }) {
     return () => window.removeEventListener("hashchange", openFromHash);
   }, []);
 
-  useEffect(() => {
-    if (result && result.phase !== "target_review" && reviewStatus === "idle") {
-      initializeReview(!isScoutResultFinal(result));
-    }
-  }, [initializeReview, result, reviewStatus]);
-
-  async function handleRun(file: File) {
-    if (results.length >= MAX_RESULTS_PER_TOOL) {
-      setError(RESULT_LIMIT_MESSAGE);
-      return;
-    }
-    setBusy(true);
-    setError(null);
-    setStage(null);
-    setProgress(null);
-    try {
-      const res = await runScout([file], header, { publishedSince }, (s, p) => {
-        setStage(s);
-        setProgress(p ?? null);
-      });
-      addResult(res);
-      if (res.phase === "target_review") resetReview();
-      else initializeReview(!isScoutResultFinal(res));
-    } catch (err) {
-      setError((err as Error).message);
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  // Normalize a portable result once at the import boundary, then render only
-  // the current runtime contract. Import never triggers retrieval.
-  async function handleImport(file: File) {
-    setError(null);
-    if (results.length >= MAX_RESULTS_PER_TOOL) {
-      setError(IMPORT_LIMIT_MESSAGE);
-      return;
-    }
-    try {
-      const raw = JSON.parse(await file.text());
-      const parsed = unpackScoutResult(raw);
-      if (
-        !parsed ||
-        !Array.isArray(parsed.variables) ||
-        !Array.isArray(parsed.matches)
-      ) {
-        throw new Error("not a scout result file");
-      }
-      setStage(null);
-      setProgress(null);
-      addResult(parsed, readResultIdentity(raw));
-      initializeReview(!isScoutResultFinal(parsed));
-    } catch (err) {
-      setError(`Could not import result: ${(err as Error).message}`);
-    }
+  function handleRun(file: File) {
+    void runTool(useScoutSession, (report) => runScout([file], header, { publishedSince }, report));
   }
 
   function handleTargetDecision(
@@ -615,28 +557,24 @@ function ScoutView({ header, ready }: { header: Header; ready: boolean }) {
     });
   }
 
+  function handleFieldSearchChange(notSearchedFields: string[]) {
+    if (!result || result.phase !== "target_review") return;
+    setResult({ ...result, not_searched_fields: notSearchedFields });
+  }
+
   async function handleContinueAnalysis() {
     if (!result || result.phase !== "target_review") return;
     if (pendingQuantitativeReviewCount(result) > 0) {
       setError("Resolve every numeric target review item before continuing.");
       return;
     }
-    setBusy(true);
-    setError(null);
-    setStage(null);
-    setProgress(null);
-    try {
-      const completed = await continueScout(result, (s, p) => {
-        setStage(s);
-        setProgress(p ?? null);
-      });
-      setResult(completed);
-      initializeReview(completed.phase === "evidence_review");
-    } catch (err) {
-      setError((err as Error).message);
-    } finally {
-      setBusy(false);
+    const blocked = fieldSelectionSummary(result).blocked;
+    if (blocked) {
+      setError(blocked);
+      return;
     }
+    const completed = await trackTool(useScoutSession, (report) => continueScout(result, report));
+    if (completed) setResult(completed);
   }
 
   function handleQuantitativeReview(
@@ -655,14 +593,12 @@ function ScoutView({ header, ready }: { header: Header; ready: boolean }) {
       selectedCandidateId,
     );
     if (reviewedScore === previousScore) return;
-    const nextResult = {
+    setResult({
       ...result,
       conformity: result.conformity.map((score) =>
         score.target_id === targetId ? reviewedScore : score,
       ),
-    };
-    setResult(nextResult);
-    recordDecision(pendingQuantitativeReviewCount(nextResult) > 0);
+    });
   }
 
   function handleAcceptEvidenceRecommendations() {
@@ -670,9 +606,7 @@ function ScoutView({ header, ready }: { header: Header; ready: boolean }) {
     const conformity = applyEvidenceReviewRecommendations(result.conformity);
     if (conformity.every((score, index) => score === result.conformity[index]))
       return;
-    const nextResult = { ...result, conformity };
-    setResult(nextResult);
-    recordDecision(pendingQuantitativeReviewCount(nextResult) > 0);
+    setResult({ ...result, conformity });
   }
 
   function handleFinalizeReview() {
@@ -684,13 +618,16 @@ function ScoutView({ header, ready }: { header: Header; ready: boolean }) {
     }
     setError(null);
     setResult({ ...result, phase: "final" });
-    finalizeReview();
   }
 
   return (
     <div className="flex flex-col gap-6">
-      {(busy || !result || showRunPanel) && (
+      {/* Not while a continuation runs - the only run that starts from a target-review
+          draft. That work belongs to the checkpoint on screen, which shows its own progress,
+          and mounting setup above it pushed the checkpoint down. */}
+      {((busy && result?.phase !== "target_review") || !result || showRunPanel) && (
         <RunPanel
+            onCancel={result ? () => setShowRunPanel(false) : undefined}
           configuration={
             <ScoutConfiguration
               publishedSince={publishedSince}
@@ -705,13 +642,16 @@ function ScoutView({ header, ready }: { header: Header; ready: boolean }) {
           progress={progress}
           runDisabled={!ready}
           hint={ready ? undefined : "Complete the configuration to run."}
-          onImport={handleImport}
+          // A portable result is checked once at the import boundary; import never
+          // triggers retrieval.
+          onImport={(file) => importTool(useScoutSession, file, unpackScoutResult)}
         />
       )}
       {error && <ErrorMessage>{error}</ErrorMessage>}
-      {result && <RetrievalWindowNotice result={result} />}
       {result && result.phase === "target_review" && (
         <DocumentTargetReviewCheckpoint
+          // Keyed by run, so a selection made in one run's review is not carried into another's.
+          key={selectedId}
           result={result}
           busy={busy}
           stage={stage}
@@ -719,14 +659,15 @@ function ScoutView({ header, ready }: { header: Header; ready: boolean }) {
           onTargetDecision={handleTargetDecision}
           onStatementDecision={handleStatementDecision}
           onAcceptRecommendations={handleAcceptTargetRecommendations}
+          onFieldSearchChange={handleFieldSearchChange}
           onContinue={handleContinueAnalysis}
           onNewAnalysis={() => setShowRunPanel(true)}
         />
       )}
       {result &&
-        result.phase === "evidence_review" &&
-        ["reviewing", "ready"].includes(reviewStatus) && (
+        result.phase === "evidence_review" && (
           <QuantitativeReviewCheckpoint
+            key={selectedId}
             result={result}
             onNewAnalysis={() => setShowRunPanel(true)}
             onReview={handleQuantitativeReview}
@@ -735,10 +676,11 @@ function ScoutView({ header, ready }: { header: Header; ready: boolean }) {
             onFinalize={handleFinalizeReview}
           />
         )}
-      {result && result.phase === "final" && reviewStatus === "final" && (
+      {result && result.phase === "final" && (
         <FieldGrid
+          key={selectedId}
           result={result}
-          onNewAnalysis={() => setShowRunPanel(true)}
+          onNewAnalysis={showSetup}
         />
       )}
     </div>
@@ -753,6 +695,7 @@ function DocumentTargetReviewCheckpoint({
   onTargetDecision,
   onStatementDecision,
   onAcceptRecommendations,
+  onFieldSearchChange,
   onContinue,
   onNewAnalysis,
 }: {
@@ -766,6 +709,8 @@ function DocumentTargetReviewCheckpoint({
   ) => void;
   onStatementDecision: (unitId: string) => void;
   onAcceptRecommendations: () => void;
+  /** The draft's new `not_searched_fields`: the one record of the reviewer's field choice. */
+  onFieldSearchChange: (notSearchedFields: string[]) => void;
   onContinue: () => void;
   onNewAnalysis: () => void;
 }) {
@@ -835,6 +780,8 @@ function DocumentTargetReviewCheckpoint({
       item.ai_recommendation === "confirm" ||
       item.ai_recommendation === "exclude",
   ).length;
+  const fieldSelection = fieldSelectionSummary(result);
+  const blockedId = useId();
 
   function nextPendingKey(currentKey: string): string | null {
     const remaining = [
@@ -871,9 +818,18 @@ function DocumentTargetReviewCheckpoint({
       >
         <ReviewCheckpointHeader
           eyebrow="Review checkpoint · Before evidence search"
-          notices={<><ContextValidationNotice result={result} /><DocumentExtractionNotice blocks={result.blocks ?? []} hasDocumentsTab={false} /></>}
+          since={formatWindowDate(result.published_since)}
+          scope={retrievalScopeParts(result.retrieval_scope)}
+          fields={
+            <FieldSearchSelection
+              result={result}
+              disabled={busy}
+              onChange={onFieldSearchChange}
+            />
+          }
+          notices={<><ContextValidationNotice result={result} /><ReconciliationNotice result={result} /><DocumentExtractionNotice blocks={result.blocks ?? []} hasDocumentsTab={false} /></>}
           title="Review numeric targets"
-          description="Scout has extracted numeric targets from your document. Confirm that each number and its qualifiers represent an intended requirement before Scout searches for evidence."
+          description="Confirm that each number and its qualifiers is an intended requirement. Scout searches for evidence on what you confirm."
           help={
             <>
               Check each numeric target against its cited document passages.
@@ -889,14 +845,33 @@ function DocumentTargetReviewCheckpoint({
           progressLabel="Numeric target review progress"
           actions={
             <>
+              {/* Not while the continuation runs: it writes back to the run on screen. */}
+              {!busy && <ScoutRunHistory />}
               <NewAnalysisButton disabled={busy} onClick={onNewAnalysis} />
             </>
           }
         />
 
         <ReviewOverview
-          description="Select an item to check its source and record your decision. AI recommendations are suggestions until you accept them."
-          advance={<Button size="sm" disabled={busy || completed !== total} onClick={onContinue}>{busy ? "Searching and assessing evidence…" : "Search for evidence"}</Button>}
+          description="Select an item to check its source. AI recommendations are suggestions until you accept them."
+          advance={
+            <>
+              {/* Said beside the button it disables, so the reason is where the reader looks. */}
+              {fieldSelection.blocked && !busy && (
+                <span id={blockedId} className="text-[11px] text-muted-foreground">
+                  {fieldSelection.blocked}
+                </span>
+              )}
+              <Button
+                size="sm"
+                disabled={busy || completed !== total || Boolean(fieldSelection.blocked)}
+                aria-describedby={fieldSelection.blocked && !busy ? blockedId : undefined}
+                onClick={onContinue}
+              >
+                {busy ? "Searching and assessing evidence…" : "Search for evidence"}
+              </Button>
+            </>
+          }
           counts={
             <>
                 <>
@@ -915,7 +890,7 @@ function DocumentTargetReviewCheckpoint({
           actions={
             recommendedTargetCount > 0 ? (
               <Button variant="outline" size="sm" disabled={busy} onClick={onAcceptRecommendations}>
-                Accept {recommendedTargetCount} AI recommendation{recommendedTargetCount === 1 ? "" : "s"}
+                Accept {countLabel(recommendedTargetCount, "AI recommendation")}
               </Button>
             ) : undefined
           }
@@ -933,7 +908,7 @@ function DocumentTargetReviewCheckpoint({
                 status={presentation.label}
                 tone={presentation.tone}
                 detail={
-                  item.ai_review_reason ||
+                  reviewRecommendationReason(item) ||
                   "No reviewer explanation was returned; manual review is required."
                 }
               />
@@ -958,7 +933,7 @@ function DocumentTargetReviewCheckpoint({
                 }
                 status={pending ? "Needs review" : "Excluded"}
                 tone={pending ? "warning" : "neutral"}
-                detail={statementReviewReason(item.reason)}
+                detail={statementReviewReason(item)}
               />
             );
           })}
@@ -1049,7 +1024,7 @@ function DocumentTargetReviewCheckpoint({
             </Quoted>
             <InterfaceNote className="mt-4 flex max-w-4xl items-start gap-2">
               <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
-              <span>{statementReviewReason(statement.reason)}</span>
+              <span>{statementReviewReason(statement)}</span>
             </InterfaceNote>
           </div>
         ) : (
@@ -1070,7 +1045,7 @@ function DocumentTargetReviewCheckpoint({
             unavailable={target.ai_recommendation === "unavailable"}
             label={aiRecommendationPresentation(target.ai_recommendation).label}
             tone={aiRecommendationPresentation(target.ai_recommendation).tone}
-          >{target.ai_review_reason || "No explanation was returned; review this proposal manually."}</ReviewRecommendation>
+          >{reviewRecommendationReason(target) || "No explanation was returned; review this proposal manually."}</ReviewRecommendation>
         </div>}
 
         <ReviewDecisionFooter>
@@ -1145,6 +1120,9 @@ function ReviewCheckpointHeader({
   progressLabel,
   actions,
   notices,
+  since,
+  scope = [],
+  fields,
 }: {
   eyebrow: string;
   title: string;
@@ -1155,7 +1133,14 @@ function ReviewCheckpointHeader({
   progressLabel: string;
   actions?: ReactNode;
   notices?: ReactNode;
+  /** The run's publication window, declared before retrieval, so the reviewer sees it here. */
+  since?: string | null;
+  /** What retrieval will search for, resolved before review for the same reason. */
+  scope?: ScopePart[];
+  /** Which fields the continuation searches, beside the scope it searches them in. */
+  fields?: ReactNode;
 }) {
+  const scopeBlocks = scope.flatMap((part) => part.blockIds);
   return (
     <header className="border-b border-border/60 px-5 py-5 sm:px-6">
       {/* Reserve the actions' width instead of letting the description squeeze them
@@ -1170,9 +1155,21 @@ function ReviewCheckpointHeader({
             {title}
           </h2>
           <SectionDescription>{description}</SectionDescription>
-          <p className="mt-2 text-xs leading-relaxed text-muted-foreground">
-            Review targets → Search evidence → Review evidence if needed → Final result
-          </p>
+          {since && (
+            <p className="mt-2 flex items-center gap-1.5 text-xs text-muted-foreground">
+              <CalendarRange aria-hidden="true" className="h-3.5 w-3.5 shrink-0" />
+              Evidence published since {since}; sources that state no date are included.
+            </p>
+          )}
+          {scope.length > 0 && (
+            // A div, not a p: the source trigger opens a panel, which a paragraph cannot hold.
+            <div className="mt-2 flex flex-wrap items-center gap-x-1.5 gap-y-1 text-xs text-muted-foreground">
+              <Search aria-hidden="true" className="h-3.5 w-3.5 shrink-0" />
+              <span>Search scope: {scope.map((part) => part.text).join(" · ")}</span>
+              {scopeBlocks.length > 0 && <DocumentSourceTrace blockIds={scopeBlocks} />}
+            </div>
+          )}
+          {fields}
         </div>
         {actions && (
           <ReviewActions className="flex-col items-stretch sm:flex-row sm:flex-nowrap sm:justify-end">
@@ -1200,6 +1197,83 @@ function ReviewCheckpointHeader({
       </div>
       {notices && <ResultNotices className="mt-4">{notices}</ResultNotices>}
     </header>
+  );
+}
+
+/**
+ * Which fields the continuation searches: every searchable field, until the reviewer says
+ * otherwise.
+ *
+ * Closed on arrival, behind its count, because the default needs nothing from anyone: one
+ * quiet line under the search scope, which is what it qualifies. Opened, it lists the fields
+ * that state a target as the same chips Searcher's sources use. The draft's
+ * `not_searched_fields` is the only record of the choice; nothing here holds a copy.
+ */
+function FieldSearchSelection({
+  result,
+  disabled,
+  onChange,
+}: {
+  result: ScoutResponse;
+  disabled: boolean;
+  onChange: (notSearchedFields: string[]) => void;
+}) {
+  const fields = searchableFields(result);
+  if (fields.length === 0) return null;
+  const summary = fieldSelectionSummary(result);
+  const excluded = new Set(result.not_searched_fields ?? []);
+  return (
+    <details className="mt-2 text-xs text-muted-foreground">
+      <DisclosureSummary className="w-fit rounded-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/60">
+        Fields to search{" "}
+        <span className="text-[11px] tabular-nums">
+          {summary.searched} of {summary.total}
+        </span>
+      </DisclosureSummary>
+      <fieldset className={cn("mt-2 min-w-0 pl-5", DISCLOSURE_MOTION)}>
+        <legend className="sr-only">Fields to search</legend>
+        <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-1">
+          <p role="status">
+            {summary.sentence} A field left out stays in the result as not searched.
+          </p>
+          {/* Two quick actions, because the common edits are "only these few" and "back to
+              every field", and each would otherwise take one click per field. */}
+          <div className="flex items-center gap-1">
+            <Button
+              variant="quiet"
+              size="toolbar"
+              disabled={disabled || summary.searched === summary.total}
+              onClick={() => onChange(withEveryFieldSearched(result, true))}
+            >
+              Select all
+            </Button>
+            <Button
+              variant="quiet"
+              size="toolbar"
+              disabled={disabled || summary.searched === 0}
+              onClick={() => onChange(withEveryFieldSearched(result, false))}
+            >
+              Clear all
+            </Button>
+          </div>
+        </div>
+        <div className="mt-2 flex flex-wrap gap-2">
+          {fields.map((variable) => {
+            const searched = !excluded.has(variable.name);
+            return (
+              <ConfigChip
+                key={variable.name}
+                selected={searched}
+                disabled={disabled}
+                onClick={() => onChange(withFieldSearched(result, variable.name, !searched))}
+              >
+                {displayAttributeLabel(variable.name)}
+              </ConfigChip>
+            );
+          })}
+        </div>
+      </fieldset>
+    </details>
   );
 }
 
@@ -1275,7 +1349,7 @@ function ReviewListRow({
       type="button"
       onClick={onSelect}
       className={cn(
-        "grid w-full gap-2 px-4 py-3 text-left transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring motion-reduce:transition-none sm:grid-cols-[minmax(0,1fr)_minmax(9rem,auto)] sm:items-center",
+        "grid w-full gap-2 px-4 py-3 text-left transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring/60 motion-reduce:transition-none sm:grid-cols-[minmax(0,1fr)_minmax(9rem,auto)] sm:items-center",
         SURFACE.hover,
         selected ? SURFACE.selected : "bg-card",
       )}
@@ -1363,20 +1437,6 @@ function SectionDescription({
   );
 }
 
-function statementReviewReason(reason: string): string {
-  if (reason.includes("Source-verifiable targets were retained")) {
-    const issue = reason.match(/\[([^\]]+)\]/)?.[1]?.replaceAll("_", " ");
-    return `Validated targets from this passage were kept. A separate proposed mapping could not be verified and remains outside retrieval and statistics.${issue ? ` Structural issue: ${issue}.` : ""}`;
-  }
-  if (reason.includes("Target mapping rejected")) {
-    const issue = reason.match(/\[([^\]]+)\]/)?.[1]?.replaceAll("_", " ");
-    return `Scout could not create a complete, source-verifiable target from this statement. It remains outside retrieval and statistics.${issue ? ` Structural issue: ${issue}.` : ""}`;
-  }
-  if (reason.includes("model did not return one unique review")) {
-    return "Scout could not resolve this statement into one reliable review decision. It remains outside retrieval and statistics.";
-  }
-  return reason;
-}
 
 function targetReviewPresentation(target: QuantitativeTarget): {
   label: string;
@@ -1641,9 +1701,11 @@ function QuantitativeReviewCheckpoint({
       >
         <ReviewCheckpointHeader
           eyebrow="Review checkpoint · Before final result"
-          notices={<><ContextValidationNotice result={result} /><DocumentExtractionNotice blocks={result.blocks ?? []} hasDocumentsTab={false} /></>}
+          since={formatWindowDate(result.published_since)}
+          scope={retrievalScopeParts(result.retrieval_scope)}
+          notices={<><ContextValidationNotice result={result} /><ReconciliationNotice result={result} /><DocumentExtractionNotice blocks={result.blocks ?? []} hasDocumentsTab={false} /></>}
           title="Review quantitative evidence"
-          description="Scout has searched for evidence. Decide which evidence measurements are comparable to the document’s numeric targets and can enter the statistics, then finalize the result."
+          description="Decide which measurements are comparable to the document’s targets and can enter the statistics."
           help={
             <>
               Check each evidence measurement against the numeric target’s required
@@ -1658,13 +1720,14 @@ function QuantitativeReviewCheckpoint({
           progressLabel="Quantitative evidence review progress"
           actions={
             <>
+              <ScoutRunHistory />
               <NewAnalysisButton onClick={onNewAnalysis} />
             </>
           }
         />
 
         <ReviewOverview
-          description="Select an item to compare its source with the target and record your decision. AI recommendations are suggestions until you accept them."
+          description="Select an item to compare its source with the target. AI recommendations are suggestions until you accept them."
           advance={<Button size="sm" disabled={!readyToFinalize} onClick={onFinalize}>Finalize result</Button>}
           counts={
             <>
@@ -1684,7 +1747,7 @@ function QuantitativeReviewCheckpoint({
           actions={
             actionableRecommendations > 0 ? (
               <Button variant="outline" size="sm" onClick={onAcceptRecommendations}>
-                Accept {actionableRecommendations} AI recommendation{actionableRecommendations === 1 ? "" : "s"}
+                Accept {countLabel(actionableRecommendations, "AI recommendation")}
               </Button>
             ) : undefined
           }
@@ -1778,7 +1841,7 @@ function QuantitativeReviewCheckpoint({
                     href={measurement.url}
                     target="_blank"
                     rel="noreferrer"
-                    className="mt-3 block break-words text-xs font-medium text-muted-foreground underline underline-offset-2 hover:text-foreground focus-visible:outline-offset-2"
+                    className="mt-3 block break-words text-xs font-medium text-muted-foreground underline underline-offset-2 hover:text-foreground rounded-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/60"
                   >
                     {(activeItem && sourceFindingFor(activeItem)?.title) ||
                       measurement.source_record_id ||
@@ -1820,7 +1883,7 @@ function QuantitativeReviewCheckpoint({
                     : "warning"
               }
             >
-              {measurement.ai_review_reason ||
+              {reviewRecommendationReason(measurement) ||
                 "No complete independent recommendation was returned."}
             </ReviewRecommendation>
           )}
@@ -1862,7 +1925,7 @@ function ReviewHelp({ children }: { children: ReactNode }) {
         <button
           type="button"
           aria-label="Explain this review step"
-          className="rounded-full text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring motion-reduce:transition-none"
+          className="rounded-full text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/60 motion-reduce:transition-none"
         >
           <CircleHelp className="h-3.5 w-3.5" />
         </button>
@@ -1878,12 +1941,15 @@ function ContextValidationNotice({ result }: { result: ScoutResponse }) {
   const validation = result.context_validation;
   if (!validation || validation.status === "match") return null;
 
-  const message =
-    validation.status === "not_checked"
-      ? "This imported result predates document-context validation. Re-run it before relying on evidence scoped to the selected disease or condition."
-      : validation.status === "mismatch"
-        ? `The document appears to concern ${validation.document_indication || "a different disease or condition"}, not ${validation.configured_indication}.`
-        : `Scout could not confidently verify that the document concerns ${validation.configured_indication}.`;
+  // `not_assessed` is not the model's `uncertain`: the check obtained no answer at all, so
+  // its reason is the pipeline's diagnostic rather than a reading, and is not set in a
+  // model's voice.
+  const unassessed = validation.status === "not_assessed";
+  const message = unassessed
+    ? `Scout could not check whether the document concerns ${validation.configured_indication}; the run continued without that check.`
+    : validation.status === "mismatch"
+      ? `The document appears to concern ${validation.document_indication || "a different disease or condition"}, not ${validation.configured_indication}.`
+      : `Scout could not confidently verify that the document concerns ${validation.configured_indication}.`;
 
   return (
     <WarningNotice label="Review document context">
@@ -1895,92 +1961,64 @@ function ContextValidationNotice({ result }: { result: ScoutResponse }) {
         <p className="mt-0.5 leading-relaxed text-muted-foreground">
           {message}
         </p>
-        <Reading size="prominent" className="mt-1">
-          {validation.reason}
-        </Reading>
-        {validation.status !== "not_checked" && (
-          <p className="mt-1.5 leading-relaxed text-muted-foreground">
-            Check the selected disease or condition against the original document
-            before relying on the evidence. If the selection or document is wrong,
-            start a new analysis with the correct inputs.
-          </p>
+        {!unassessed && (
+          <Reading size="prominent" className="mt-1">
+            {validation.reason}
+          </Reading>
         )}
+        <p className="mt-1.5 leading-relaxed text-muted-foreground">
+          Check the selected disease or condition against the original document
+          before relying on the evidence. If the selection or document is wrong,
+          start a new analysis with the correct inputs.
+        </p>
       </div>
     </WarningNotice>
   );
 }
 
 /**
- * The retrieval window this result was scoped to.
+ * Checks a stage could not complete, summed across the result.
  *
- * Shown because the window removes evidence rather than hiding it: every count,
- * benchmark, and precedent below describes the cohort it admitted, so the same
- * document produces different numbers under different windows. The other
- * configuration values select which config a run uses and do not move the
- * numbers, which is why they are not echoed here.
- *
- * Neutral rather than a warning - a scoped run is a valid run - and absent when
- * no window was set, so an unscoped result gains no chrome. `published_since` is
- * optional because results saved before the window existed do not carry it.
+ * Each one is kept and marked "not assessed" where it appears, which is right for a reader
+ * who arrives at that row and invisible to one reading the run as a whole: a field list in
+ * which some relations were never obtained looks exactly like one in which none were
+ * found. So the sum is a warning, beside the other facts that change what the run says.
  */
-function RetrievalWindowNotice({ result }: { result: ScoutResponse }) {
-  const since = formatWindowDate(result.published_since);
-  if (!since) return null;
-
+function UnassessedChecksNotice({ result }: { result: ScoutResponse }) {
+  const checks = unassessedChecks(result);
+  if (checks.total === 0) return null;
   return (
-    <div
-      role="status"
-      className={cn("flex items-start gap-2.5 rounded-lg border border-border px-3.5 py-3 text-xs text-foreground", SURFACE.recessed)}
-    >
-      <CalendarRange className="mt-0.5 h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+    <WarningNotice label="Checks not completed">
       <div className="min-w-0">
         <p className="font-medium">
-          Scoped to evidence published since {since}
+          {checks.total === 1
+            ? "1 check could not be completed"
+            : `${checks.total} checks could not be completed`}
         </p>
         <p className="mt-0.5 leading-relaxed text-muted-foreground">
-          Every count, benchmark, and precedent below describes only that
-          window. Sources that publish no date, such as web pages, are included.
+          {checks.parts.join(", ")}. Each is marked Not assessed where it appears, and
+          nothing was concluded about it. Run the analysis again to retry them.
         </p>
       </div>
-    </div>
+    </WarningNotice>
   );
 }
 
 /**
- * Day precision, unlike `formatDate` - a window boundary is a specific day, and
- * rendering it to the month would misstate which evidence was admitted. Parsed as
- * local midnight so a UTC-negative timezone does not display the day before.
+ * Sets whose duplicate check did not complete, so a duplicate in them may count twice.
+ *
+ * A caveat rather than a warning: the run went on with the set unmerged, every item in it
+ * is real and traceable, and only how far its counts can be taken changes.
  */
-function formatWindowDate(iso: string | undefined): string | null {
-  if (!iso) return null;
-  const d = new Date(`${iso}T00:00:00`);
-  if (isNaN(d.getTime())) return null;
-  return d.toLocaleDateString("en-US", {
-    year: "numeric",
-    month: "long",
-    day: "numeric",
-  });
-}
-
-/** True count of distinct sources cited anywhere in the result. */
-function distinctSourceCount(result: ScoutResponse): number {
-  const urls = new Set<string>();
-  for (const m of result.matches ?? [])
-    for (const f of m.insight.supporting_findings ?? [])
-      if (f.url) urls.add(f.url);
-  for (const a of result.assessments ?? [])
-    for (const f of a.supporting_findings ?? []) if (f.url) urls.add(f.url);
-  for (const p of result.precedents ?? [])
-    for (const f of p.supporting_findings ?? []) if (f.url) urls.add(f.url);
-  for (const c of result.conformity ?? [])
-    for (const meas of c.measurements ?? []) if (meas.url) urls.add(meas.url);
-  for (const program of result.development_landscape ?? [])
-    for (const finding of program.supporting_findings ?? [])
-      if (finding.url) urls.add(finding.url);
-  for (const observation of result.safety_observations ?? [])
-    for (const finding of observation.supporting_findings ?? [])
-      if (finding.url) urls.add(finding.url);
-  return urls.size;
+function ReconciliationNotice({ result }: { result: Pick<ScoutResponse, "reconciliations"> }) {
+  const sets = unreconciledSets(result.reconciliations);
+  if (sets.length === 0) return null;
+  return (
+    <CaveatNotice label="Duplicates not merged">
+      Scout could not check {new Intl.ListFormat("en", { type: "conjunction" }).format(sets)} for
+      duplicates, so the same item there may be counted more than once.
+    </CaveatNotice>
+  );
 }
 
 function resultFindings(result: ScoutResponse): Finding[] {
@@ -2003,46 +2041,32 @@ function resultFindings(result: ScoutResponse): Finding[] {
   ];
 }
 
-function FieldGrid({
-  result,
-  onNewAnalysis,
-}: {
-  result: ScoutResponse;
-  onNewAnalysis: () => void;
-}) {
-  const { results, selectedId, selectResult, removeResult } = useScoutSession();
-  const priorityFindings = useMemo(() => scoutPriorityFindings(result), [result]);
-  const priorityReading = usePriorityReading(selectedId, {
-    authority: toolAuthority("scout"),
-    focus: SCOUT_PRIORITY_FOCUS,
-    findings: priorityFindings,
-    org: result.org ?? "",
-    interventionClass: result.intervention_class ?? "",
-    indication: result.indication ?? "",
-  });
-  const matches = result.matches ?? [];
-  const variables = result.variables ?? [];
-  const developmentLandscape = result.development_landscape ?? [];
-  const safetyObservations = result.safety_observations ?? [];
-  const [query, setQuery] = useState("");
-  const [relationFilter, setRelationFilter] = useState<
-    "all" | Match["relation"]
-  >("all");
-  const [resultTab, setResultTab] = useState("fields");
-  const revealTrace = useCallback(() => setResultTab("trace"), []);
-  const {
-    focus: traceFocus,
-    open: openBlockInTrace,
-    consume: consumeTraceFocus,
-  } = useTraceFocus(revealTrace);
-  if (variables.length === 0) {
-    return (
-      <EmptyState message="No variables were returned for this intervention." />
-    );
-  }
+/**
+ * The run picker, wherever a Scout run is shown: a review checkpoint as well as a result.
+ *
+ * Only the final result drew it, so selecting a run paused at a checkpoint left no way
+ * back to the others.
+ */
+function ScoutRunHistory() {
+  const { results, selectedId, selectResult, removeResult } = useScoutSession(
+    useShallow(({ results, selectedId, selectResult, removeResult }) =>
+      ({ results, selectedId, selectResult, removeResult })),
+  );
+  return (
+    <RunHistory
+      runs={results}
+      selectedId={selectedId}
+      onSelect={selectResult}
+      onRemove={removeResult}
+      label={(value) => runLabel(value, "scout")}
+    />
+  );
+}
 
+/** Every field joined to its matches, assessment, comparisons and precedent, in reading order. */
+function fieldGridRows(result: ScoutResponse) {
   const matchesByVariable = new Map<string, Match[]>();
-  for (const match of matches) {
+  for (const match of result.matches ?? []) {
     const ref = match.insight.attribute_ref;
     if (!ref) continue;
     if (!matchesByVariable.has(ref)) matchesByVariable.set(ref, []);
@@ -2065,7 +2089,7 @@ function FieldGrid({
     precedentByVariable.set(signal.attribute_ref, signal);
   }
 
-  const rows = variables
+  const rows = (result.variables ?? [])
     .map((variable) => {
       const variableMatches = matchesByVariable.get(variable.name) ?? [];
       const sortedMatches = sortMatchesForReading(variableMatches);
@@ -2080,13 +2104,14 @@ function FieldGrid({
     })
     .sort(
       (a, b) =>
+        // Fields left out at review last: they hold nothing to read, only that choice.
+        Number(isNotSearched(a.assessment)) - Number(isNotSearched(b.assessment)) ||
         RELATION_ORDER[a.leadingRelation] - RELATION_ORDER[b.leadingRelation] ||
         displayAttributeLabel(a.variable.name).localeCompare(
           displayAttributeLabel(b.variable.name),
         ),
     );
 
-  const headline = runHeadline(rows);
   // The measurable target behind each conformity. `Conformity` carries a pre-joined
   // `target_label` - six semantic slots flattened into one dot-separated run-on - while
   // `QuantitativeTarget.semantic_profile` holds those slots named and separate. The
@@ -2095,20 +2120,66 @@ function FieldGrid({
   const targetsById = new Map(
     result.quantitative_ledger.targets.map((target) => [target.id, target]),
   );
+  return { rows, headline: runHeadline(rows), targetsById };
+}
 
-  const normalizedQuery = query.trim().toLowerCase();
-  const visibleRows = rows.filter((row) => {
-    const matchesSearch =
-      !normalizedQuery ||
-      displayAttributeLabel(row.variable.name)
-        .toLowerCase()
-        .includes(normalizedQuery) ||
-      row.variable.description.toLowerCase().includes(normalizedQuery);
-    const matchesRelation =
-      relationFilter === "all" ||
-      row.matches.some((match) => match.relation === relationFilter);
-    return matchesSearch && matchesRelation;
+/** Whether the reviewer left this field out of evidence search at target review. */
+function isNotSearched(assessment: EvidenceAssessment | null): boolean {
+  return assessment?.strength === "not_searched";
+}
+
+/** Memoized so a run's progress ticks, which re-render the page, leave a held result alone. */
+const FieldGrid = memo(function FieldGrid({
+  result,
+  onNewAnalysis,
+}: {
+  result: ScoutResponse;
+  onNewAnalysis: () => void;
+}) {
+  const { results, selectedId } = useScoutSession(
+    useShallow(({ results, selectedId }) => ({ results, selectedId })),
+  );
+  const held = results.find((entry) => entry.id === selectedId);
+  const priorityFindings = useMemo(() => scoutPriorityFindings(result), [result]);
+  const priorityReading = usePriorityReading(selectedId, {
+    authority: toolAuthority("scout"),
+    focus: SCOUT_PRIORITY_FOCUS,
+    findings: priorityFindings,
+    org: result.org ?? "",
+    interventionClass: result.intervention_class ?? "",
+    indication: result.indication ?? "",
   });
+  const variables = result.variables ?? [];
+  const developmentLandscape = result.development_landscape ?? [];
+  const safetyObservations = result.safety_observations ?? [];
+  const [query, setQuery] = useState("");
+  const [relationFilter, setRelationFilter] = useState<
+    "all" | Match["relation"]
+  >("all");
+  const [resultTab, setResultTab] = useState("fields");
+  const revealTrace = useCallback(() => setResultTab("trace"), []);
+  const {
+    focus: traceFocus,
+    open: openBlockInTrace,
+    consume: consumeTraceFocus,
+  } = useTraceFocus(revealTrace);
+  // Joined, sorted and indexed once per result rather than on every keystroke: the
+  // search below only filters what this built.
+  const { rows, headline, targetsById } = useMemo(() => fieldGridRows(result), [result]);
+  // Deferred, so typing stays responsive while the field rows re-render behind it.
+  const normalizedQuery = normalizeQuery(useDeferredValue(query));
+  const visibleRows = useMemo(
+    () => rows.filter((row) =>
+      matchesQuery(normalizedQuery, displayAttributeLabel(row.variable.name), row.variable.description)
+      && (relationFilter === "all" || row.matches.some((match) => match.relation === relationFilter))),
+    [rows, normalizedQuery, relationFilter],
+  );
+  if (variables.length === 0) {
+    return (
+      <EmptyState message="No variables were returned for this intervention." />
+    );
+  }
+
   const unresolvedFields = variables.filter(
     (variable) => !variable.target_resolved,
   );
@@ -2140,7 +2211,7 @@ function FieldGrid({
                     report it through Feedback with the downloaded JSON.
                   </p>
                   <details className="mt-1.5">
-                    <DisclosureSummary className="w-fit rounded-sm font-medium text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/20">
+                    <DisclosureSummary className="w-fit rounded-sm font-medium text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/60">
                       Review unresolved fields
                     </DisclosureSummary>
                     <ul className="mt-1.5 space-y-1 pl-4">
@@ -2159,6 +2230,7 @@ function FieldGrid({
               </WarningNotice>
             )}
             <ContextValidationNotice result={result} />
+            <UnassessedChecksNotice result={result} />
             {result.quantitative_ledger.status === "uncertain" && (
               <CaveatNotice label="Unresolved numeric statements">
                 Some numeric statements remained unresolved after one retry. They were
@@ -2166,6 +2238,7 @@ function FieldGrid({
                 document claims still proceeded through evidence retrieval.
               </CaveatNotice>
             )}
+            <ReconciliationNotice result={result} />
             <DocumentExtractionNotice blocks={result.blocks ?? []} />
           </>}
           title={runLabel(result, "scout")}
@@ -2180,7 +2253,9 @@ function FieldGrid({
           // The two counts have different scopes, and a reader auditing one against the
           // other comes up short: 156 sources are cited only by development and safety
           // records, which have findings but no insights.
-          metricsNote="Grounding sums to the number of fields examined. Precedent and quantitative comparisons are separate assessments. Insights are counted within fields; sources cover the whole run, including records with no insight."
+          // "Every field", not "the fields examined": the distribution also holds the fields
+          // that stated no target and those left out at review, and neither was examined.
+          metricsNote="Grounding sums to every field, including any not stated or not searched; precedent and quantitative comparisons are counted separately. Insights are counted within fields, sources across the whole run."
           tabValue={resultTab}
           onTabChange={setResultTab}
           tabs={
@@ -2209,18 +2284,12 @@ function FieldGrid({
           }
           actions={
             <>
-              <RunHistory
-                runs={results}
-                selectedId={selectedId}
-                onSelect={selectResult}
-                onRemove={removeResult}
-                label={(value) => runLabel(value, "scout")}
-              />
+              <ScoutRunHistory />
               <FinalResultActions
                 onNewAnalysis={onNewAnalysis}
-                download={{
+                download={held && {
                   filename: runFilename("scout"),
-                  data: packScoutResult(result),
+                  data: () => packScoutResult(result, held),
                 }}
               />
             </>
@@ -2293,9 +2362,7 @@ function FieldGrid({
               />
             ))}
             {visibleRows.length === 0 && (
-              <p className="px-6 py-10 text-center text-sm text-muted-foreground">
-                No fields match this view.
-              </p>
+              <EmptyState className="m-5 sm:m-6" message="No fields match this view" />
             )}
           </TabsContent>
           {developmentLandscape.length > 0 && (
@@ -2325,7 +2392,8 @@ function FieldGrid({
       </div>
     </DocumentSourceProvider>
   );
-}
+});
+
 
 const PROJECTION_RELATIONSHIP_FILTERS: Array<{
   value: ProjectionRelationshipFilter;
@@ -2337,6 +2405,7 @@ const PROJECTION_RELATIONSHIP_FILTERS: Array<{
   { value: "adjacent", label: "Adjacent" },
   { value: "unrelated", label: "Unrelated" },
   { value: "unknown", label: "Unknown" },
+  { value: "not_assessed", label: "Not assessed" },
 ];
 
 function ProjectionToolbar({
@@ -2348,7 +2417,6 @@ function ProjectionToolbar({
   placeholder,
   visibleCount,
   totalCount,
-  recordLabel,
 }: {
   query: string;
   onQueryChange: (value: string) => void;
@@ -2358,7 +2426,6 @@ function ProjectionToolbar({
   placeholder: string;
   visibleCount: number;
   totalCount: number;
-  recordLabel: string;
 }) {
   return (
     <ResultToolbar>
@@ -2445,23 +2512,33 @@ function ContextualProjectionNote({
 }
 
 /**
- * How many announcements were read, and how many named a program.
+ * How many announcements were read, how many named a program, and how many readings failed.
  *
  * Stated because the landscape cannot say it. An announcement naming no program leaves no
  * row, so a weak reading and a quiet week produce the same empty view. The pair separates
  * them: "18 announcements read, 4 named a program" is a different fact from "4 read, 4
  * named", and only one of them means the retrieval found little.
+ *
+ * A failed reading is named apart, because it says nothing about the announcement: a
+ * program it would have named may be missing. Hidden at zero - nothing failed to report.
  */
 function AnnouncementReading({ stats }: { stats?: FunnelStats }) {
   const read = stats?.announcements_read ?? 0;
   if (read === 0) return null;
   const named = stats?.announcements_named ?? 0;
+  const failed = stats?.announcements_failed ?? 0;
   return (
     <InterfaceNote className="mx-5 mb-4 sm:mx-6">
       <Computed>{read.toLocaleString()}</Computed> announcement
       {read === 1 ? "" : "s"} read,{" "}
-      <Computed>{named.toLocaleString()}</Computed> named a program. An
-      announcement naming none has no row here.
+      <Computed>{named.toLocaleString()}</Computed> named a program
+      {failed > 0 && (
+        <>
+          , <Computed>{failed.toLocaleString()}</Computed> could not be read
+        </>
+      )}
+      . An announcement naming none has no row here
+      {failed > 0 && ", and one that could not be read may hide a program"}.
     </InterfaceNote>
   );
 }
@@ -2476,23 +2553,15 @@ function DevelopmentLandscape({
   const [query, setQuery] = useState("");
   const [relationship, setRelationship] =
     useState<ProjectionRelationshipFilter>("all");
-  const normalizedQuery = query.trim().toLowerCase();
-  const relationshipMatches = filterProjectionsByRelationship(
-    programs,
-    relationship,
-  );
-  const visible = relationshipMatches.filter(
-    (program) =>
-      !normalizedQuery ||
-      [
-        program.name,
-        ...program.sponsors,
-        ...program.phases,
-        ...program.statuses,
-      ]
-        .join(" ")
-        .toLowerCase()
-        .includes(normalizedQuery),
+  const normalizedQuery = normalizeQuery(query);
+  const visible = filterProjectionsByRelationship(programs, relationship).filter(
+    (program) => matchesQuery(
+      normalizedQuery,
+      program.name,
+      ...program.sponsors,
+      ...program.phases,
+      ...program.statuses,
+    ),
   );
   return (
     <section>
@@ -2505,7 +2574,6 @@ function DevelopmentLandscape({
         placeholder="Find a development record…"
         visibleCount={visible.length}
         totalCount={programs.length}
-        recordLabel="structured records"
       />
       {/* Grouped, not flat. Of 502 records on a real run, 13 were `direct` - and emitted
           in retrieval order those 13 sat anywhere in the list. A count per group is what
@@ -2516,7 +2584,7 @@ function DevelopmentLandscape({
           key={group.relationship}
           className="group/rel border-b border-border/60 last:border-b-0"
         >
-          <summary className="flex cursor-pointer select-none items-center gap-2 px-5 py-2.5 outline-none transition-colors hover:bg-foreground/[0.045] focus-visible:bg-foreground/[0.045] focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring/20 sm:px-6 [&::-webkit-details-marker]:hidden motion-reduce:transition-none">
+          <summary className="flex cursor-pointer select-none items-center gap-2 px-5 py-2.5 outline-none transition-colors hover:bg-foreground/[0.045] focus-visible:bg-foreground/[0.045] focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring/60 sm:px-6 [&::-webkit-details-marker]:hidden motion-reduce:transition-none">
             <ChevronDown className="h-3.5 w-3.5 shrink-0 text-muted-foreground transition-transform group-open/rel:rotate-180 motion-reduce:transition-none" />
             <span className="text-xs font-medium text-foreground">
               {relationshipLabel(group.relationship)}
@@ -2587,17 +2655,17 @@ function DevelopmentLandscape({
                     relationship={program.target_relationship}
                     kind="development record"
                   />
-                  {program.target_relationship_reason && (
+                  {verdictReason(program.target_relationship, program.target_relationship_reason) && (
                     <Reading size="prominent" className="mt-0 max-w-[85ch]">
                       {program.target_relationship_reason}
                     </Reading>
                   )}
+                  {/* One line, as on a safety observation: a third disclosure level under the
+                      group and the record held a list most readers take in at a glance. */}
                   {program.attribute_refs.length > 0 && (
-                    <DisclosureRow label="Retrieved for" count={program.attribute_refs.length}>
-                      <ul className="space-y-1 text-xs leading-relaxed text-muted-foreground">
-                        {program.attribute_refs.map((ref, index) => <li key={`${ref}-${index}`}>{displayAttributeLabel(ref)}</li>)}
-                      </ul>
-                    </DisclosureRow>
+                    <p className="text-[11px] text-muted-foreground">
+                      Retrieved for {program.attribute_refs.map(displayAttributeLabel).join(" · ")}
+                    </p>
                   )}
                   <SourceList findings={program.supporting_findings} />
                 </div>
@@ -2607,9 +2675,7 @@ function DevelopmentLandscape({
         </details>
       ))}
       {visible.length === 0 && (
-        <p className="px-6 py-10 text-center text-sm text-muted-foreground">
-          No development records match this view.
-        </p>
+        <EmptyState className="m-5 sm:m-6" message="No development records match this view" />
       )}
       <AnnouncementReading stats={stats} />
     </section>
@@ -2643,7 +2709,6 @@ function SafetyObservations({
         placeholder="Find a product or safety record…"
         visibleCount={visibleCount}
         totalCount={observations.length}
-        recordLabel="observations"
       />
       {sections.map((section) => {
         const headingId = `safety-${section.key}-heading`;
@@ -2718,9 +2783,9 @@ function SafetyObservations({
                         {observation.qualification}
                       </Reading>
                     )}
-                    {observation.target_relationship_reason && (
+                    {verdictReason(observation.target_relationship, observation.target_relationship_reason) && (
                       <Reading className="mt-3 max-w-4xl">
-                        Relationship: {observation.target_relationship_reason}
+                        {observation.target_relationship_reason}
                       </Reading>
                     )}
                     {observation.attribute_refs.length > 0 && (
@@ -2740,9 +2805,7 @@ function SafetyObservations({
         );
       })}
       {sections.length === 0 && (
-        <p className="px-6 py-10 text-center text-sm text-muted-foreground">
-          No safety observations match this view.
-        </p>
+        <EmptyState className="m-5 sm:m-6" message="No safety observations match this view" />
       )}
     </section>
   );
@@ -2900,6 +2963,8 @@ function FieldRow({
     documentTarget.trim() || assessment?.doc_target?.trim(),
   );
   const targetNotStated = targetResolved && !hasDocumentTarget;
+  // Left out at review: the document's target is shown, and nothing a search would produce.
+  const notSearched = isNotSearched(assessment);
   // Built once per field: every signal cites into this instead of re-rendering insights.
   const registry = insightRegistry(matches);
   // `document_spans` reconstructs `document_target` exactly, already split one entry per
@@ -2912,19 +2977,27 @@ function FieldRow({
       <summary className={cn(EXPANDABLE_ROW, "justify-between")}>
         <div className="min-w-0 flex-1">
           <div className="flex flex-wrap items-center gap-x-2">
-            <h3 className="text-sm font-semibold text-foreground">
+            <h3 className={ROW_TITLE}>
               {displayAttributeLabel(name)}
             </h3>
           </div>
           {/* The field's own definition, which is project copy rather than anyone's reading
               of this document, so it takes the same shape as the sentence under a section
               heading. Preview two lines in the index; opening the row reveals it all. */}
-          <SectionDescription className="line-clamp-2 max-w-[85ch] group-open/expand:line-clamp-none">
+          {/* Only once the row is open. In the index it was two lines of definition under
+              every field - written for the model that reads the document, so "Claims
+              about…" and "Includes Minimum and Preferred…" - between the reader and the
+              signals they were scanning for. */}
+          <SectionDescription className="hidden max-w-[85ch] group-open/expand:block">
             {description}
           </SectionDescription>
           {targetNotStated ? (
             <p className="mt-2 text-xs text-muted-foreground">
               Not stated in document · no evidence analysis was run
+            </p>
+          ) : notSearched ? (
+            <p className="mt-2 text-xs text-muted-foreground">
+              Not searched · excluded at review
             </p>
           ) : (
             <ScoutFieldSummary
@@ -2987,24 +3060,28 @@ function FieldRow({
 
               `definition_mode` is gone from here too: it is `fixed` on every field of every
               run seen so far, and a dynamic definition now shows itself in the searches. */}
-          <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-1">
-            <p className="text-[11px] text-muted-foreground">
-              {dimensionLabel(evidenceDomain)} evidence
-              {definitionMode === "dynamic" &&
-                " · definition read from the document"}
-            </p>
-            <FieldSearches
-              result={{ search_plan: searchPlan }}
-              attributeRef={name}
-            />
-          </div>
+          {notSearched ? (
+            <InterfaceNote className="mt-1">{verdictNote("not_searched")}</InterfaceNote>
+          ) : (
+            <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-1">
+              <p className="text-[11px] text-muted-foreground">
+                {dimensionLabel(evidenceDomain)} evidence
+                {definitionMode === "dynamic" &&
+                  " · definition read from the document"}
+              </p>
+              <FieldSearches
+                result={{ search_plan: searchPlan }}
+                attributeRef={name}
+              />
+            </div>
+          )}
         </div>
         {/* One section for the numeric targets whether there are any or not. The slot used
             to change shape with its content - a caps heading with rows when targets
             existed, a bold sentence when they did not - so one fact appeared at two
             altitudes. The dispositions nest here rather than sitting beside Grounding and
             Precedent: they explain this section, they are not a fourth assessment. */}
-        {!targetNotStated &&
+        {!targetNotStated && !notSearched &&
           (conformities.length > 0 || quantitativeTargetStatusReason) && (
             <section className="border-t border-border/60 pt-4">
               <div className="flex flex-wrap items-baseline justify-between gap-x-4">
@@ -3064,7 +3141,13 @@ function FieldRow({
                             {DISPOSITION_LABEL[item.disposition]}
                           </p>
                           <Quoted collapsible size="prominent">{item.quote}</Quoted>
-                          {item.reason && <Reading>{item.reason}</Reading>}
+                          {/* A recorded failure is explained in the tool's voice; its
+                              reason is the pipeline's, not a model's reading. */}
+                          {item.failure_code ? (
+                            <InterfaceNote className="mt-1">
+                              {statementReviewReason({ ...item, classification: item.disposition })}
+                            </InterfaceNote>
+                          ) : item.reason && <Reading>{item.reason}</Reading>}
                           <div className={TRIGGER_AT_LINE_START}>
                             <DocumentSourceTrace blockIds={item.block_ids} />
                           </div>
@@ -3080,9 +3163,9 @@ function FieldRow({
             says. These are judgments *of* it, and six sections separated by one identical
             hairline read as six peers. One heavier rule marks the boundary between the
             claim and the assessment of it; hairlines separate the assessments inside. */}
-        {!targetNotStated &&
+        {!targetNotStated && !notSearched &&
           (assessment || precedent || matches.length > 0) && (
-            <div className="border-t border-border pt-4">
+            <div className="border-t border-border/60 pt-4">
               {assessment && evidenceTone && (
                 <SignalVerdict
                   label="Grounding"
@@ -3092,7 +3175,8 @@ function FieldRow({
                       text: GROUNDING_LABEL[assessment.strength],
                     },
                   ]}
-                  reason={assessment.reason}
+                  reason={verdictReason(assessment.strength, assessment.reason)}
+                  note={verdictNote(assessment.strength)}
                   citations={[
                     {
                       cited: citation(
@@ -3109,9 +3193,12 @@ function FieldRow({
                   label="Precedent"
                   chips={[
                     { tone: "neutral", text: precedentMeta.coverage },
-                    { tone: precedentMeta.tone, text: precedentMeta.outcome },
+                    ...(precedentMeta.outcome
+                      ? [{ tone: precedentMeta.tone, text: precedentMeta.outcome }]
+                      : []),
                   ]}
-                  reason={precedent.reason}
+                  reason={verdictReason(precedent.precedent, precedent.reason)}
+                  note={verdictNote(precedent.precedent)}
                   citations={
                     precedent.coverage_insight_ids?.length ||
                     precedent.outcome_insight_ids?.length
@@ -3273,7 +3360,7 @@ function ConformityBlock({
        cohort - so seven targets on one field ran to roughly seventy lines. The header line
        is what a reader scans; the rest is why. */
     <details className="group/target py-3 first:pt-0 last:pb-0">
-      <summary className="flex cursor-pointer select-none flex-wrap items-baseline gap-x-3 gap-y-2 outline-none focus-visible:ring-2 focus-visible:ring-ring/20 [&::-webkit-details-marker]:hidden">
+      <summary className="flex cursor-pointer select-none flex-wrap items-baseline gap-x-3 gap-y-2 outline-none focus-visible:ring-2 focus-visible:ring-ring/60 [&::-webkit-details-marker]:hidden">
         <ChevronDown className="h-3.5 w-3.5 shrink-0 self-center text-muted-foreground transition-transform group-open/target:rotate-180 motion-reduce:transition-none" />
         {/* The reading, which flexes and wraps inside its own box. Left in the outer row it
             competed with the triggers for width, so a long outcome pushed them off. */}
@@ -3467,20 +3554,6 @@ function StatCell({
 }
 
 /**
- * One openable group inside a field, in the shape all of them use.
- *
- * Four sections held groups and each drew its own row: the relation buckets had a chevron, a
- * tone dot, a label and a count; the numbers-not-used-as-targets row had a chevron, a label
- * and a count at different spacing; and the two verdicts had no row at all, just a count in
- * loose text. Three ways of saying "this many, here they are", so a reader could not tell
- * that the count beside Grounding and the count beside Conflicts were the same kind of
- * thing.
- *
- * The dot is optional because it carries a relation's tone, and only relations have one.
- * `note` is for the exceptional case a count cannot state on its own.
- */
-
-/**
  * A signal's verdict, its reason, and a pointer to the insights behind it.
  *
  * The pointer is the whole change. `supporting_insight_ids` was already a list of
@@ -3494,12 +3567,15 @@ function SignalVerdict({
   label,
   chips,
   reason,
+  note = "",
   citations,
   fallback,
 }: {
   label: string;
   chips: { tone: Tone; text: string }[];
   reason: string;
+  /** The interface's own sentence where code recorded the state and no model wrote a reason. */
+  note?: string;
   citations: { label?: string; cited: Citation }[];
   /** Drawn only when nothing the ids named could be found; see `needsFindingFallback`. */
   fallback: Finding[];
@@ -3527,6 +3603,7 @@ function SignalVerdict({
           {reason}
         </Reading>
       )}
+      {note && <InterfaceNote className="mt-1.5">{note}</InterfaceNote>}
       {/* The same row as a relation bucket, so a verdict's evidence opens the way every
           other group in this field opens. A citation naming an insight the field does not
           hold is the one thing a count cannot say on its own, so that alone gets a note. */}
@@ -3591,7 +3668,7 @@ function CitedInsightIndex({ cited }: { cited: Citation }) {
           <a
             href={`#${insightAnchor(match) ?? ""}`}
             onClick={() => revealInsight(insightAnchor(match) ?? "")}
-            className="grid grid-cols-[6rem_minmax(0,1fr)] items-baseline gap-x-2 rounded text-xs leading-relaxed text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/20 motion-reduce:transition-none"
+            className="grid grid-cols-[6rem_minmax(0,1fr)] items-baseline gap-x-2 rounded text-xs leading-relaxed text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/60 motion-reduce:transition-none"
           >
             <span className="inline-flex items-center gap-1.5 text-[11px] font-medium text-foreground">
               <ToneDot tone={RELATIONSHIP_TONE[match.relation]} />
@@ -3676,7 +3753,7 @@ function InsightGroups({ registry }: { registry: InsightRegistry }) {
                       own right it read as the next item in a list rather than as a note on
                       the line above. No left rule either: that shape means "quoted
                       verbatim", and the other seven places it appears are a quote. */}
-                  {match.reason && <Reading continued>{match.reason}</Reading>}
+                  {match.reason && verdictReason(match.relation, match.reason) && <Reading continued>{match.reason}</Reading>}
                   {/* Both directions of provenance, both behind a click and neither
                       expanded by default. Rendering every source inline put 1,121 finding
                       rows on one run in front of the statements they support. */}

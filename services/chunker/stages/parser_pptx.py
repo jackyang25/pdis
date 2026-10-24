@@ -6,13 +6,21 @@ import logging
 import os
 from collections.abc import Iterable
 from typing import Any
+from zipfile import BadZipFile
 
 from pptx import Presentation
+from pptx.exc import PackageNotFoundError
 from pptx.enum.shapes import MSO_SHAPE_TYPE
+from pptx.oxml.ns import qn
 
 from ..models import ContentBlock, ImageAsset
 from . import rasterizer
-from .image_assets import image_asset_byte_size, image_asset_from_bytes
+from .image_assets import (
+    bounded_image_assets,
+    image_asset_byte_size,
+    image_asset_from_bytes,
+    image_assets_from_bytes,
+)
 from .rasterizer import (
     RendererUnavailableError,
     RenderError,
@@ -26,6 +34,8 @@ PPTX_MEDIA_TYPE = (
     "application/vnd.openxmlformats-officedocument.presentationml.presentation"
 )
 IMAGE_PLACEHOLDER = "[image]"
+UNSUPPORTED_VISUAL_PLACEHOLDER = "[unsupported visual object]"
+DIAGRAM_URI = "http://schemas.openxmlformats.org/drawingml/2006/diagram"
 
 
 def parse_pptx(file_path: str, doc_id: str) -> list[ContentBlock]:
@@ -36,7 +46,11 @@ def parse_pptx(file_path: str, doc_id: str) -> list[ContentBlock]:
     retained instead; text and table extraction never depends on rendering.
     """
     _validate_file_path(file_path)
-    presentation = Presentation(file_path)
+    try:
+        presentation = Presentation(file_path)
+    except (PackageNotFoundError, BadZipFile, KeyError) as exc:
+        # The package's own message names the temporary path the upload was written to.
+        raise ValueError(f"{doc_id}: the file is not a readable PPTX presentation.") from exc
     expected_slides = set(range(1, len(presentation.slides) + 1))
     render_warning: str | None = None
     try:
@@ -88,6 +102,7 @@ def parse_pptx(file_path: str, doc_id: str) -> list[ContentBlock]:
     blocks: list[ContentBlock] = []
 
     for slide_number, slide in enumerate(presentation.slides, start=1):
+        slide_start = len(blocks)
         title_shape = slide.shapes.title
         title = _shape_text(title_shape) if title_shape is not None else ""
         heading_stack = [title] if title else []
@@ -101,7 +116,7 @@ def parse_pptx(file_path: str, doc_id: str) -> list[ContentBlock]:
 
         if title:
             title_record = next(
-                (record for record in shape_records if record[0] is title_shape),
+                (record for record in shape_records if _is_shape(record[0], title_shape)),
                 None,
             )
             blocks.append(
@@ -120,7 +135,7 @@ def parse_pptx(file_path: str, doc_id: str) -> list[ContentBlock]:
             )
 
         for shape, shape_path, position in shape_records:
-            if shape is title_shape:
+            if _is_shape(shape, title_shape):
                 continue
             common_meta = {
                 "slide": slide_number,
@@ -184,7 +199,18 @@ def parse_pptx(file_path: str, doc_id: str) -> list[ContentBlock]:
                 )
             )
 
-    if render_warning is not None and not blocks:
+        # A hidden slide is still part of the document; say so rather than leave a
+        # reader to assume it was presented.
+        if slide._element.get("show") in {"0", "false"}:
+            for block in blocks[slide_start:]:
+                block.structural_meta["slide_hidden"] = True
+
+    if not slide_assets:
+        _bound_embedded_pictures(blocks)
+
+    if render_warning is not None and all(
+        block.content == UNSUPPORTED_VISUAL_PLACEHOLDER for block in blocks
+    ):
         raise ValueError(
             f"{doc_id}: {render_warning}; degraded presentation parse has no retained content."
         )
@@ -205,6 +231,11 @@ def parse_pptx(file_path: str, doc_id: str) -> list[ContentBlock]:
     return blocks
 
 
+def _is_shape(shape: Any, other: Any) -> bool:
+    """python-pptx builds a new proxy per access, so compare the XML element."""
+    return other is not None and shape._element is other._element
+
+
 def _validate_file_path(file_path: str) -> None:
     if not isinstance(file_path, str) or not file_path:
         raise ValueError("file_path must be a non-empty string")
@@ -220,7 +251,14 @@ def _ordered_shapes(
     slide_width: int,
     slide_height: int,
     prefix: str = "",
+    transform: tuple[float, float, float, float] = (1.0, 0.0, 1.0, 0.0),
 ) -> Iterable[tuple[Any, str, dict[str, float]]]:
+    """Yield leaf shapes in reading order with their slide-relative position.
+
+    A group's children are positioned in the group's own child coordinate space
+    (`a:chOff`/`a:chExt`), which the group's `a:off`/`a:ext` map onto its parent, so
+    positions are carried through every enclosing group to the slide.
+    """
     indexed = list(enumerate(shapes))
     indexed.sort(
         key=lambda item: (
@@ -237,21 +275,59 @@ def _ordered_shapes(
                 slide_width=slide_width,
                 slide_height=slide_height,
                 prefix=path,
+                transform=_group_transform(shape, transform),
             )
             continue
-        yield shape, path, _normalized_position(shape, slide_width, slide_height)
+        yield shape, path, _normalized_position(
+            shape, slide_width, slide_height, transform
+        )
+
+
+def _group_transform(
+    group: Any, outer: tuple[float, float, float, float]
+) -> tuple[float, float, float, float]:
+    """Compose the group's child-to-parent mapping with its parent's mapping."""
+    xfrm = group._element.grpSpPr.find(qn("a:xfrm"))
+    if xfrm is None:
+        return outer
+
+    def pair(tag: str, first: str, second: str) -> tuple[int, int] | None:
+        element = xfrm.find(qn(tag))
+        if element is None:
+            return None
+        return int(element.get(first, 0)), int(element.get(second, 0))
+
+    offset, extent = pair("a:off", "x", "y"), pair("a:ext", "cx", "cy")
+    child_offset, child_extent = pair("a:chOff", "x", "y"), pair("a:chExt", "cx", "cy")
+    if None in (offset, extent, child_offset, child_extent):
+        return outer
+    scale_x, offset_x, scale_y, offset_y = outer
+    group_scale_x = extent[0] / child_extent[0] if child_extent[0] else 1.0
+    group_scale_y = extent[1] / child_extent[1] if child_extent[1] else 1.0
+    return (
+        scale_x * group_scale_x,
+        offset_x + scale_x * (offset[0] - child_offset[0] * group_scale_x),
+        scale_y * group_scale_y,
+        offset_y + scale_y * (offset[1] - child_offset[1] * group_scale_y),
+    )
 
 
 def _normalized_position(
-    shape: Any, slide_width: int, slide_height: int
+    shape: Any,
+    slide_width: int,
+    slide_height: int,
+    transform: tuple[float, float, float, float] = (1.0, 0.0, 1.0, 0.0),
 ) -> dict[str, float]:
     width = max(int(slide_width), 1)
     height = max(int(slide_height), 1)
+    scale_x, offset_x, scale_y, offset_y = transform
+    left = offset_x + scale_x * int(getattr(shape, "left", 0) or 0)
+    top = offset_y + scale_y * int(getattr(shape, "top", 0) or 0)
     return {
-        "x": round(int(getattr(shape, "left", 0) or 0) / width, 4),
-        "y": round(int(getattr(shape, "top", 0) or 0) / height, 4),
-        "width": round(int(getattr(shape, "width", 0) or 0) / width, 4),
-        "height": round(int(getattr(shape, "height", 0) or 0) / height, 4),
+        "x": round(left / width, 4),
+        "y": round(top / height, 4),
+        "width": round(scale_x * int(getattr(shape, "width", 0) or 0) / width, 4),
+        "height": round(scale_y * int(getattr(shape, "height", 0) or 0) / height, 4),
     }
 
 
@@ -389,15 +465,45 @@ def _embedded_picture_blocks(
     slide_number: int,
     heading_stack: list[str],
 ) -> list[ContentBlock]:
-    blocks: list[ContentBlock] = []
-    for shape, shape_path, position in shape_records:
+    """Retain a slide's own pictures and flag the visuals only a render could show.
+
+    Without a full-slide render a chart, SmartArt diagram or embedded object has no
+    image at all, so it gets the same unsupported-visual block DOCX gives one rather
+    than vanishing.
+    """
+    warnings: dict[int, ContentBlock] = {}
+    pictures: list[tuple[int, str, dict[str, float], bytes, str]] = []
+    for order, (shape, shape_path, position) in enumerate(shape_records):
+        visual_kind = _unsupported_visual_kind(shape)
+        if visual_kind is not None:
+            warnings[order] = _make_block(
+                doc_id=doc_id,
+                block_type="image",
+                content=UNSUPPORTED_VISUAL_PLACEHOLDER,
+                heading_stack=heading_stack,
+                structural_meta={
+                    "slide": slide_number,
+                    "shape_path": shape_path,
+                    **position,
+                    "extraction_warnings": ["unsupported_document_visual"],
+                    "unsupported_visual_kind": visual_kind,
+                },
+                style_hint={"source": "pptx_unsupported_visual"},
+            )
+            continue
         try:
             picture = shape.image
             data = picture.blob
             source_media_type = picture.content_type
         except (AttributeError, ValueError, KeyError):
             continue
-        asset = image_asset_from_bytes(data, source_media_type)
+        pictures.append((order, shape_path, position, data, source_media_type))
+
+    placed = dict(warnings)
+    assets = image_assets_from_bytes(
+        [(data, media_type) for *_, data, media_type in pictures]
+    )
+    for (order, shape_path, position, _, _), asset in zip(pictures, assets):
         if asset is None:
             logger.warning(
                 "Could not retain PPTX picture on slide %s at shape %s",
@@ -405,21 +511,50 @@ def _embedded_picture_blocks(
                 shape_path,
             )
             continue
-        blocks.append(
-            _image_block(
-                doc_id=doc_id,
-                image=asset,
-                heading_stack=heading_stack,
-                structural_meta={
-                    "slide": slide_number,
-                    "shape_path": shape_path,
-                    "visual_scope": "embedded_picture",
-                    **position,
-                },
-                source="pptx_picture",
-            )
+        placed[order] = _image_block(
+            doc_id=doc_id,
+            image=asset,
+            heading_stack=heading_stack,
+            structural_meta={
+                "slide": slide_number,
+                "shape_path": shape_path,
+                "visual_scope": "embedded_picture",
+                **position,
+            },
+            source="pptx_picture",
         )
-    return blocks
+    return [placed[order] for order in sorted(placed)]
+
+
+def _bound_embedded_pictures(blocks: list[ContentBlock]) -> None:
+    """Hold retained embedded pictures to the per-document encoded-byte bound."""
+    pictures = [
+        block for block in blocks
+        if block.block_type == "image" and block.image is not None
+    ]
+    for block, asset in zip(
+        pictures, bounded_image_assets([block.image for block in pictures])
+    ):
+        if asset is None:
+            block.image = None
+            block.content = "[image unavailable]"
+            warnings = block.structural_meta.setdefault("extraction_warnings", [])
+            if "document_image_unavailable" not in warnings:
+                warnings.append("document_image_unavailable")
+
+
+def _unsupported_visual_kind(shape: Any) -> str | None:
+    if bool(getattr(shape, "has_chart", False)):
+        return "chart"
+    if getattr(shape, "shape_type", None) in {
+        MSO_SHAPE_TYPE.EMBEDDED_OLE_OBJECT,
+        MSO_SHAPE_TYPE.LINKED_OLE_OBJECT,
+    }:
+        return "embedded_object"
+    graphic_data = shape._element.find(".//" + qn("a:graphicData"))
+    if graphic_data is not None and graphic_data.get("uri") == DIAGRAM_URI:
+        return "diagram"
+    return None
 
 
 def _image_block(

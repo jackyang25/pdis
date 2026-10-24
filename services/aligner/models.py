@@ -22,13 +22,13 @@ against a single authority. Aligner's authority is the other document.
 
 from __future__ import annotations
 
-from dataclasses import asdict, dataclass, field
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Literal, Protocol, Sequence
 
 import yaml
 
-from shared.openai_client import ModelTask
+from shared.ai import Effort, ModelTask, Verbosity
 from shared.spans import DocumentSpan
 
 if TYPE_CHECKING:
@@ -51,7 +51,11 @@ class LLMClientProtocol(Protocol):
         schema_name: str,
         schema: dict[str, Any],
         images: list[dict[str, str]] | None = None,
+        trailing_text: str = "",
         task: ModelTask = "reasoning",
+        effort: Effort | None = None,
+        verbosity: Verbosity | None = None,
+        cache_key: str | None = None,
     ) -> dict[str, Any] | None:
         ...
 
@@ -122,6 +126,21 @@ class EdgeSpec:
     """
 
 
+@dataclass(frozen=True)
+class DocumentRole:
+    """How the config describes one document type to the model.
+
+    `description` says what the document is, and reaches both stages. `honours` says
+    what meeting a requirement looks like in a document of this kind, and reaches only
+    the verdict: a profile honours a target by stating a value, a plan by carrying the
+    work for it. It is configuration because it is a fact about the document type, and
+    a prompt that named profiles and plans would have to be edited for a fourth type.
+    """
+
+    description: str
+    honours: str
+
+
 @dataclass
 class AlignmentConfig:
     """What Aligner knows: how to describe documents, and which pairs compare.
@@ -131,7 +150,7 @@ class AlignmentConfig:
     a change to a function signature.
     """
 
-    document_roles: dict[str, str]
+    document_roles: dict[str, DocumentRole]
     edges: list[EdgeSpec]
 
 
@@ -303,7 +322,7 @@ def load_config(path: str | None = None) -> AlignmentConfig:
     )
 
 
-def describe_document(config: AlignmentConfig, source_type: str) -> str:
+def document_role(config: AlignmentConfig, source_type: str) -> DocumentRole:
     """How this config describes a source type, falling back to `default`.
 
     The one place that resolution happens, so no caller reimplements the fallback
@@ -399,27 +418,34 @@ def describe_edges(config: AlignmentConfig) -> str:
     )
 
 
-def alignment_result_to_dict(result: AlignmentResult) -> dict[str, Any]:
-    return asdict(result)
-
-
-def _document_roles(value: Any) -> dict[str, str]:
+def _document_roles(value: Any) -> dict[str, DocumentRole]:
     if not isinstance(value, dict) or not value:
         raise ValueError("Aligner document_roles must be a non-empty mapping")
-    if not all(
-        isinstance(key, str) and isinstance(text, str) and text.strip()
-        for key, text in value.items()
-    ):
-        raise ValueError("Aligner document_roles must map strings to non-empty strings")
-    if "default" not in value:
+    roles: dict[str, DocumentRole] = {}
+    for key, entry in value.items():
+        if not isinstance(key, str) or not isinstance(entry, dict) or set(entry) != {
+            "description", "honours",
+        }:
+            raise ValueError(
+                f"Aligner document_roles.{key} must be a mapping of exactly "
+                "`description` and `honours`"
+            )
+        texts = [entry["description"], entry["honours"]]
+        if not all(isinstance(text, str) and text.strip() for text in texts):
+            raise ValueError(
+                f"Aligner document_roles.{key} must give non-empty strings for "
+                "`description` and `honours`"
+            )
+        roles[key] = DocumentRole(description=texts[0].strip(), honours=texts[1].strip())
+    if "default" not in roles:
         raise ValueError(
             "Aligner document_roles must define `default`, so a source type the "
             "chunker supports can be aligned before anyone describes it here"
         )
-    return {key: text.strip() for key, text in value.items()}
+    return roles
 
 
-def _edges(value: Any, document_roles: dict[str, str]) -> list[EdgeSpec]:
+def _edges(value: Any, document_roles: dict[str, DocumentRole]) -> list[EdgeSpec]:
     if not isinstance(value, list) or not value:
         raise ValueError("Aligner edges must be a non-empty list")
     named = set(document_roles) - {"default"}

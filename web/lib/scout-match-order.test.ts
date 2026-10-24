@@ -37,6 +37,7 @@ function match(
   return {
     relation,
     reason: "because",
+    failure_code: relation === "not_assessed" ? "provider_error" : "",
     insight: {
       statement,
       query: "q",
@@ -152,7 +153,7 @@ test("nothing is filtered, added, or mutated", () => {
 test("relation order puts the most consequential relation first", () => {
   assert.deepEqual(
     Object.entries(RELATION_ORDER).sort((a, b) => a[1] - b[1]).map(([k]) => k),
-    ["contradicts", "extends", "confirms", "unrelated"],
+    ["contradicts", "extends", "confirms", "unrelated", "not_assessed"],
   );
 });
 

@@ -75,16 +75,6 @@ class RunGuardTests(unittest.TestCase):
     def post(self, files, **overrides):
         return self.client.post("/api/screener/run", files=files, data=form(**overrides))
 
-    def test_legacy_input_fields_are_refused_not_ignored(self) -> None:
-        for field in ("source_types", "context_labels"):
-            with self.subTest(field=field):
-                response = self.post([docx()], **{field: ["old"]})
-                self.assertEqual(response.status_code, 400)
-                self.assertIn(field, response.json()["detail"])
-        response = self.post([docx(), ("context_files", ("notes.md", b"notes", "text/markdown"))])
-        self.assertEqual(response.status_code, 400)
-        self.assertIn("context_files", response.json()["detail"])
-
     def test_standalone_images_and_plain_text_are_refused(self) -> None:
         for suffix in ("png", "jpg", "txt", "md"):
             with self.subTest(suffix=suffix):

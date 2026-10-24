@@ -5,6 +5,9 @@ import type { DraftResult, DraftVariable } from "./api.ts";
 import { RESULT_CONTRACTS } from "./result-contracts.ts";
 import { packDrafterResult, runLabel, runScope, unpackDrafterResult } from "./result-file.ts";
 
+/** The held run a file is written for; packing never mints identity of its own. */
+const RUN = { id: "run-1", created_at: "2026-01-01T00:00:00.000Z" };
+
 function suggested(name: string, overrides: Partial<DraftVariable> = {}): DraftVariable {
   return {
     name, label: name.split(".")[1], description: "", evidence_domain: "clinical",
@@ -12,7 +15,7 @@ function suggested(name: string, overrides: Partial<DraftVariable> = {}): DraftV
     observations: [{
       id: `${name}:o1`, basis: "comparable_product", url: "https://example.org", title: "Trial A",
       source_label: "PubMed", product: "RTS,S", measure: "efficacy", quote: "56%",
-      value: { value: 56, lower: null, upper: null, unit: "%" }, numeric_eligible: true,
+      value: { value: 56, lower: null, upper: null, unit: "%", text: "stated" }, numeric_eligible: true,
     }],
     statistics: [],
     suggestion: {
@@ -20,6 +23,7 @@ function suggested(name: string, overrides: Partial<DraftVariable> = {}): DraftV
       leans_on: "comparable_products", basis_ids: [`${name}:o1`],
     },
     unread_findings: 0,
+    unverified_quotes: 0,
     ...overrides,
   };
 }
@@ -42,7 +46,7 @@ test("the saved-file contract refuses a suggestion with a basis it does not hold
 
 test("the saved-file contract holds kinds, bases and failures to the server's rules", () => {
   const unknownFailure = suggested("vaccine.efficacy", { status: "failed", suggestion: null,
-    failure: { code: "something_else" as never, message: "x" } });
+    failure: { code: "something_else" as never, message: "x", cause: null } });
   assert.throws(() => RESULT_CONTRACTS.drafter(draft(unknownFailure)), /failure/);
   const mismatched = suggested("vaccine.efficacy");
   mismatched.suggestion = { ...mismatched.suggestion!, leans_on: "guidance" };
@@ -54,11 +58,47 @@ test("the saved-file contract holds kinds, bases and failures to the server's ru
 
 test("a draft round-trips through a result file as soon as the run finishes", () => {
   const result = draft();
-  const file = packDrafterResult(result);
+  const file = packDrafterResult(result, RUN);
   assert.equal(file.result_type, "drafter");
   // Drafter reads no document, so nothing travels beside the analysis.
   assert.deepEqual(file.source_documents, []);
   assert.deepEqual(unpackDrafterResult(JSON.parse(JSON.stringify(file))), result);
   assert.equal(runLabel(result, "drafter"), "Malaria");
   assert.equal(runScope(result, "drafter"), "Vaccine · iTPP");
+});
+
+test("a failed call says why by code, and a variable left without evidence names no call", () => {
+  // `cause` is the machine-readable half of a failure. Only the two failures a model or
+  // provider call raises carry one; `evidence_unavailable` is concluded from counts.
+  const failed = (code: NonNullable<DraftVariable["failure"]>["code"], cause: NonNullable<DraftVariable["failure"]>["cause"]) =>
+    suggested("vaccine.efficacy", { status: "failed", suggestion: null, failure: { code, message: "It failed.", cause } });
+  RESULT_CONTRACTS.drafter(draft(failed("suggestion_failed", "response_truncated")));
+  RESULT_CONTRACTS.drafter(draft(failed("evidence_unavailable", null)));
+  assert.throws(() => RESULT_CONTRACTS.drafter(draft(failed("search_planning_failed", null))), /known cause/);
+  assert.throws(() => RESULT_CONTRACTS.drafter(draft(failed("evidence_unavailable", "provider_error"))), /no call's cause/);
+});
+
+test("the counts of what a reading set aside are counts", () => {
+  RESULT_CONTRACTS.drafter(draft(suggested("vaccine.efficacy", { unverified_quotes: 2 })));
+  assert.throws(() => RESULT_CONTRACTS.drafter(draft(suggested("vaccine.efficacy", { unverified_quotes: -1 }))), /unverified_quotes is a count/);
+  assert.throws(() => RESULT_CONTRACTS.drafter(draft(suggested("vaccine.efficacy", { unread_findings: 1.5 }))), /unread_findings is a count/);
+});
+
+test("a draft saved before its numbers were checked against their quotes is re-run, not read", () => {
+  const file = packDrafterResult(draft(), RUN);
+  assert.equal(file.analysis_version, 3);
+  assert.throws(() => unpackDrafterResult({ ...file, analysis_version: 2 }), /re-run the drafter analysis/);
+});
+
+test("a saved number names the words that state it, and a figure the observations it came from", () => {
+  const saved = draft();
+  const variable = saved.variables[0];
+  const broken = structuredClone(saved);
+  broken.variables[0].observations = variable.observations.map((observation) =>
+    observation.value ? { ...observation, value: { ...observation.value, text: " " } } : observation);
+  assert.throws(() => packDrafterResult(broken, RUN), /name the words that state it/);
+  const orphan = structuredClone(saved);
+  orphan.variables[0].statistics = [{ unit: "%", observation_ids: ["missing", "also-missing"], count: 2,
+    minimum: 1, maximum: 2, median: 1.5, lower_quartile: 1, upper_quartile: 2 }];
+  assert.throws(() => packDrafterResult(orphan, RUN), /observations it was computed from/);
 });

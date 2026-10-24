@@ -11,6 +11,8 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, Field, model_validator
 
+from shared.ai import FailureCode
+
 
 class DocumentType(BaseModel):
     key: str  # "{org}_{source_type}_{intervention}"
@@ -194,6 +196,20 @@ class FindingOut(BaseModel):
         description="Structured safety signals (labels, reported events, recalls) parsed from this finding.",
     )
     queries: list[str] = Field(default_factory=list, description="Every request that returned this record.")
+    identifiers: dict[str, str] = Field(
+        default_factory=dict,
+        description="Identifiers the provider stated for this record, by scheme (doi, pmid, nct, setid, ...).",
+    )
+    record_key: str = Field(
+        "", description="The record's identity, `<source>:<provider id>`; `url:<url>` where a source states none."
+    )
+    published_precision: str = Field(
+        "", description="How much of `published_at` the source stated: `day`, `month` or `year`; empty when undated."
+    )
+    excerpt_kind: str = Field(
+        "passage",
+        description="`passage` is the source's own words; `structured_fields` are its fields labelled by PDIS; `generated` was written by a model about the source.",
+    )
     source_lanes: list[str] = Field(default_factory=list, description="Every source that returned this record.")
     source_labels: dict[str, str] = Field(default_factory=dict, description="Display name for each source key.")
     source_attributions: dict[str, SourceAttributionOut] = Field(
@@ -205,6 +221,11 @@ class FindingOut(BaseModel):
     title_source_lane: str = Field("", description="Which source the title came from.")
     excerpt_source_lane: str = Field("", description="Which source the excerpt came from.")
     published_source_lane: str = Field("", description="Which source the publication date came from.")
+
+
+class OutcomeWarningOut(BaseModel):
+    code: str = Field(description="`provider_warning`, `provider_error` or `content_unavailable`.")
+    detail: str = Field(description="What the provider reported, in its words.")
 
 
 class SearchLaneOut(BaseModel):
@@ -222,6 +243,13 @@ class SearchLaneOut(BaseModel):
         "", description="Why this request produced nothing: the provider's error, or why it was skipped."
     )
     returned: int = Field(0, description="Records this request returned, before cross-source deduplication.")
+    error_code: str = Field("", description="Machine-readable failure kind when `status` is `failed`.")
+    provider_query: str = Field(
+        "", description="The query the provider reports it ran, where it reports one (PubMed's query translation)."
+    )
+    warnings: list[OutcomeWarningOut] = Field(
+        default_factory=list, description="What the provider reported beside its records."
+    )
 
 
 class SearcherRunResponse(BaseModel):
@@ -283,19 +311,30 @@ class InsightOut(BaseModel):
 
 class MatchOut(BaseModel):
     insight: InsightOut
-    relation: Literal["contradicts", "extends", "confirms", "unrelated"]
+    # The first four are the model's relation. `not_assessed` is this pipeline
+    # reporting that no relation was obtained, and carries `failure_code`.
+    relation: Literal["contradicts", "extends", "confirms", "unrelated", "not_assessed"]
     reason: str
     doc_block_ids: list[str] = Field(default_factory=list)
+    failure_code: FailureCode | Literal[""] = ""
 
 
 class EvidenceAssessmentOut(BaseModel):
     attribute_ref: str
-    strength: Literal["well_grounded", "partial", "thin", "unsupported", "unknown"]
+    # The first five are the model's. `no_evidence` is recorded without a model call
+    # when no insight reached the field, and `not_searched` when the reviewer left the
+    # field out of search, both with an empty reason; `not_assessed` is a stage failure
+    # and carries `failure_code`.
+    strength: Literal[
+        "well_grounded", "partial", "thin", "unsupported", "unknown", "no_evidence",
+        "not_searched", "not_assessed",
+    ]
     reason: str
     doc_target: str = ""
     doc_block_ids: list[str] = Field(default_factory=list)
     supporting_insight_ids: list[str] = Field(default_factory=list)
     supporting_findings: list[FindingOut]
+    failure_code: FailureCode | Literal[""] = ""
 
 
 class FunnelStatsOut(BaseModel):
@@ -305,6 +344,10 @@ class FunnelStatsOut(BaseModel):
     insights: int
     matches: int
     assessments: int
+    announcements_read: int = 0
+    announcements_named: int = 0
+    announcements_failed: int = 0
+    announcements_failed_by_code: dict[FailureCode, int] = Field(default_factory=dict)
 
 
 class SearchTraceOut(BaseModel):
@@ -323,6 +366,11 @@ class SearchTraceOut(BaseModel):
     applicability_reason: str = ""
     status: Literal["complete", "failed", "skipped"] = "complete"
     error: str = ""
+    # Searcher's machine-readable failure kind beside `error`; empty unless it failed.
+    error_code: str = ""
+    # The query the provider reports it ran, where it reports one.
+    provider_query: str = ""
+    warnings: list[OutcomeWarningOut] = Field(default_factory=list)
     finding_count: int = 0
     source_urls: list[str] = Field(default_factory=list)
     # A subset of source_urls: retrieved, then held out because the source dated
@@ -468,16 +516,27 @@ class QuantitativeTargetOut(BaseModel):
     semantic_provenance: dict[str, list[DocumentSpanOut]]
     provenance_spans: list[DocumentSpanOut] = Field(min_length=1)
     ai_recommendation: Literal["confirm", "exclude", "flag", "unavailable"] = "flag"
-    ai_review_failure_code: str = ""
+    ai_review_failure_code: FailureCode | Literal[""] = ""
     ai_review_reason: str = ""
     review_status: Literal["needs_review", "approved", "rejected"] = "approved"
+
+
+QuantitativeReviewFailureCode = Literal["invalid_model_response", "invalid_target_mapping"]
+TargetMappingIssueCode = Literal[
+    "invalid_target_list", "invalid_target_object", "missing_field_links", "invalid_field_links",
+    "invalid_target_expression", "target_expression_must_be_bound", "invalid_target_role",
+    "invalid_target_semantic_profile", "invalid_target_comparison_contract",
+    "invalid_target_quote", "invalid_semantic_provenance", "missing_target_provenance",
+    "invalid_target_provenance", "duplicate_atomic_target", "missing_target_mapping",
+]
 
 
 class QuantitativeStatementDispositionOut(BaseModel):
     quote: str
     block_ids: list[str] = Field(min_length=1)
     disposition: Literal["context_only", "non_scalar", "range_or_set", "uncertain", "mapping_failed"]
-    failure_code: str = ""
+    failure_code: QuantitativeReviewFailureCode | Literal[""] = ""
+    issue_codes: list[TargetMappingIssueCode] = Field(default_factory=list)
     reason: str
     attribute_refs: list[str] = Field(default_factory=list)
 
@@ -494,7 +553,8 @@ class QuantitativeLedgerReviewOut(BaseModel):
     attribute_refs: list[str] = Field(default_factory=list)
     target_ids: list[str] = Field(default_factory=list)
     review_status: Literal["resolved", "needs_review", "accepted_exclusion"] = "resolved"
-    failure_code: str = ""
+    failure_code: QuantitativeReviewFailureCode | Literal[""] = ""
+    issue_codes: list[TargetMappingIssueCode] = Field(default_factory=list)
 
 
 class QuantitativeLedgerOut(BaseModel):
@@ -515,6 +575,7 @@ class VariableOut(BaseModel):
     target_resolved: bool = False
     target_resolution_reason: str = ""
     evidence_domain: str = "general"
+    supplies_scope: str = ""
     entities: list[EvidenceEntityOut] = Field(default_factory=list)
     quantitative_target_ids: list[str] = Field(default_factory=list)
     quantitative_statement_dispositions: list[QuantitativeStatementDispositionOut] = Field(
@@ -567,7 +628,7 @@ class MeasurementOut(BaseModel):
     source_quote: str = ""
     source_passage: str = ""
     source_record_id: str = ""
-    source_identity_status: Literal["canonical", "title_fallback", "url_fallback"] = "url_fallback"
+    source_identity_status: Literal["canonical", "url_fallback"] = "url_fallback"
     evidence_unit_id: str = ""
     evidence_unit: EvidenceUnitIdentityOut
     semantic_assessment: MeasurementSemanticAssessmentOut
@@ -575,7 +636,7 @@ class MeasurementOut(BaseModel):
     semantic_reason: str = ""
     evidence_mode: Literal["prose", "structured_fact"] = "prose"
     ai_recommendation: Literal["admit", "reject", "flag", "unavailable"] = "flag"
-    ai_review_failure_code: str = ""
+    ai_review_failure_code: FailureCode | Literal[""] = ""
     ai_review_reason: str = ""
     admission_status: Literal[
         "needs_review", "approved", "rejected", "not_eligible", "auto_admitted"
@@ -600,7 +661,7 @@ class SourcePassageDispositionOut(BaseModel):
     reason: str
     url: str = ""
     insight_id: str = ""
-    failure_code: str = ""
+    failure_code: FailureCode | Literal[""] = ""
 
 
 class ConformityOut(BaseModel):
@@ -613,7 +674,7 @@ class ConformityOut(BaseModel):
     target_label: str = ""
     target_quote: str = ""
     target_meeting_count: int
-    target_meeting_rate: float
+    target_meeting_rate: float | None
     verdict: str
     benchmark_count: int = 0
     benchmark_minimum: float | None = None
@@ -634,14 +695,23 @@ class ConformityOut(BaseModel):
 
 class PrecedentOut(BaseModel):
     attribute_ref: str
-    precedent: Literal["direct", "adjacent", "none", "unknown"]
-    outcome: Literal["favorable", "mixed", "unfavorable", "unknown"] = "unknown"
+    # A failed classification sets both axes to `not_assessed` with `failure_code`; a
+    # field no insight reached has both `no_evidence`, and one the reviewer left out of
+    # search has both `not_searched`, each with no model call and no reason.
+    precedent: Literal[
+        "direct", "adjacent", "none", "unknown", "no_evidence", "not_searched", "not_assessed"
+    ]
+    outcome: Literal[
+        "favorable", "mixed", "unfavorable", "unknown", "no_evidence", "not_searched",
+        "not_assessed",
+    ] = "unknown"
     reason: str = ""
     doc_block_ids: list[str] = Field(default_factory=list)
     coverage_insight_ids: list[str] = Field(default_factory=list)
     outcome_insight_ids: list[str] = Field(default_factory=list)
     supporting_insight_ids: list[str] = Field(default_factory=list)
     supporting_findings: list[FindingOut] = Field(default_factory=list)
+    failure_code: FailureCode | Literal[""] = ""
 
 
 class DevelopmentProgramOut(BaseModel):
@@ -651,9 +721,10 @@ class DevelopmentProgramOut(BaseModel):
         "experimental", "comparator", "control", "co_intervention", "unknown"
     ]
     target_relationship: Literal[
-        "direct", "analogous", "adjacent", "unrelated", "unknown"
+        "direct", "analogous", "adjacent", "unrelated", "unknown", "not_assessed"
     ]
     target_relationship_reason: str = ""
+    target_relationship_failure_code: FailureCode | Literal[""] = ""
     sponsors: list[str] = Field(default_factory=list)
     phases: list[str] = Field(default_factory=list)
     statuses: list[str] = Field(default_factory=list)
@@ -676,9 +747,10 @@ class SafetyObservationOut(BaseModel):
         "experimental", "comparator", "control", "co_intervention", "unknown"
     ]
     target_relationship: Literal[
-        "direct", "analogous", "adjacent", "unrelated", "unknown"
+        "direct", "analogous", "adjacent", "unrelated", "unknown", "not_assessed"
     ]
     target_relationship_reason: str = ""
+    target_relationship_failure_code: FailureCode | Literal[""] = ""
     attribute_refs: list[str] = Field(default_factory=list)
     supporting_findings: list[FindingOut] = Field(default_factory=list)
 
@@ -693,11 +765,38 @@ class IndicatorReadingOut(BaseModel):
 
 
 class DocumentContextValidationOut(BaseModel):
-    status: Literal["match", "mismatch", "uncertain"]
+    # `not_assessed` means the check obtained no answer; the run proceeded.
+    status: Literal["match", "mismatch", "uncertain", "not_assessed"]
     configured_indication: str
     document_indication: str = ""
     reason: str = ""
     doc_block_ids: list[str] = Field(default_factory=list)
+    failure_code: FailureCode | Literal[""] = ""
+
+
+class ScopeEntryOut(BaseModel):
+    dimension: Literal["condition", "intervention", "region"]
+    value: str = ""
+    provenance: Literal["header", "document", "config_default", "unset"] = "unset"
+    block_ids: list[str] = Field(default_factory=list)
+
+
+class RetrievalScopeOut(BaseModel):
+    """What a run searches for, each value with where it came from."""
+
+    entries: list[ScopeEntryOut]
+
+
+class IdentityReconciliationOut(BaseModel):
+    """What one identity layer decided about one set, or that it could not decide."""
+
+    layer: Literal["document_units", "quantitative_targets", "insights", "projections"]
+    scope: str = ""
+    status: Literal["reconciled", "not_reconciled"]
+    items: int
+    merged: int = 0
+    failure_code: FailureCode | Literal[""] = ""
+    reason: str = ""
 
 
 class ScoutRunResponse(BaseModel):
@@ -710,6 +809,13 @@ class ScoutRunResponse(BaseModel):
     # the result because every statistic below describes the cohort it admitted.
     published_since: str = ""
     context_validation: DocumentContextValidationOut
+    # Resolved before target review and carried on the draft.
+    retrieval_scope: RetrievalScopeOut
+    # One record per identity call the run made, in the order they ran.
+    reconciliations: list[IdentityReconciliationOut] = Field(default_factory=list)
+    # Searchable fields the reviewer left out of evidence search at target review. The
+    # draft carries the choice to `/continue`; each named field holds `not_searched`.
+    not_searched_fields: list[str] = Field(default_factory=list)
     quantitative_ledger: QuantitativeLedgerOut
     variables: list[VariableOut]
     search_plan: list[SearchTraceOut] = Field(default_factory=list)
@@ -828,28 +934,6 @@ class RubricResolutionOut(BaseModel):
     reason: str
 
 
-class LegacyInspectionResultOut(BaseModel):
-    doc_id: str
-    # Every rubric section in rubric order, each holding every unit the rubric
-    # asks about, so the denominator is identical for every document.
-    sections: list[SectionAssessmentOut]
-    # Conflicts spanning sections, which no single unit can own.
-    document_findings: list[AssessmentOut] = []
-    consistency_status: Literal[
-        "complete", "partial", "failed", "not_applicable", "unknown"
-    ] = "unknown"
-    # Whether the run completed. A process fact, kept out of the assessment so
-    # "not checked" cannot read as "nothing found".
-    assessment_status: Literal["complete", "unknown"] = "unknown"
-    org: str | None = None
-    source_type: str | None = None
-    intervention_class: str | None = None
-    indication: str | None = None
-    # The parsed source document. Read by the Ask assistant and by the Inspector
-    # UI's document view, which renders findings against their source blocks.
-    blocks: list[ContentBlockOut] = []
-
-
 class InspectionResultOut(BaseModel):
     doc_id: str
     reviews: list[InspectionReviewOut]
@@ -859,6 +943,8 @@ class InspectionResultOut(BaseModel):
     consistency_status: Literal[
         "complete", "partial", "failed", "not_applicable", "unknown"
     ]
+    # Why the consistency pass failed; set exactly when its status is `failed`.
+    consistency_failure_code: FailureCode | None
     assessment_status: Literal["complete"]
     org: str
     source_type: str
@@ -1048,6 +1134,8 @@ class DraftObservedValueOut(BaseModel):
     lower: float | None
     upper: float | None
     unit: str
+    #: The words of the observation's quote that state the number.
+    text: str
 
 
 class DraftObservationOut(BaseModel):
@@ -1065,6 +1153,8 @@ class DraftObservationOut(BaseModel):
 
 class DraftGroupSummaryOut(BaseModel):
     unit: str
+    #: The observations the figures were computed from, in order.
+    observation_ids: list[str]
     count: int
     minimum: float
     maximum: float
@@ -1079,7 +1169,8 @@ class DraftSuggestionOut(BaseModel):
     preferred: str
     statement: str
     rationale: str
-    #: One of `LEANS_ON`, or blank for insufficient evidence; the service contract checks it.
+    #: One of `LEANS_ON`, or blank for insufficient evidence. Derived from the cited
+    #: observations' bases, never asked of the model; the service contract checks it.
     leans_on: str
     basis_ids: list[str]
 
@@ -1087,6 +1178,8 @@ class DraftSuggestionOut(BaseModel):
 class DraftFailureOut(BaseModel):
     code: Literal["search_planning_failed", "evidence_unavailable", "suggestion_failed"]
     message: str
+    #: Why the call failed (`shared.ai.FAILURE_CODES`); null for `evidence_unavailable`.
+    cause: FailureCode | None = None
 
 
 class DraftVariableOut(BaseModel):
@@ -1100,6 +1193,7 @@ class DraftVariableOut(BaseModel):
     statistics: list[DraftGroupSummaryOut]
     suggestion: DraftSuggestionOut | None
     unread_findings: int = 0
+    unverified_quotes: int = 0
 
 
 class DraftSourceErrorOut(BaseModel):

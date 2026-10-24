@@ -59,6 +59,9 @@ def domain_vocabularies() -> dict[str, frozenset[str]]:
         "EVIDENCE_DOMAINS": frozenset(EVIDENCE_DOMAINS),
         "SOURCE_FORMATS": SOURCE_FORMATS,
     }
+    # Keyed by module as well as name: two services may both call a vocabulary
+    # `FAILURE_CODES` (Scout re-exports the shared one, Drafter declares its own), and
+    # a name alone would let the first found hide the second.
     for module in (scout_models, drafter_models):
         for name in dir(module):
             if not name.isupper():
@@ -66,7 +69,7 @@ def domain_vocabularies() -> dict[str, frozenset[str]]:
             value = getattr(module, name)
             if isinstance(value, (frozenset, set, tuple, list)) and value:
                 if all(isinstance(item, str) for item in value):
-                    found.setdefault(name, frozenset(value))
+                    found.setdefault(f"{module.__name__}.{name}", frozenset(value))
     return found
 
 
@@ -97,9 +100,6 @@ API_OWNED: dict[frozenset[str], str] = {
     frozenset({", "}): "a separator caught by the pattern, not a vocabulary",
     frozenset({"insufficient", "limited", "sufficient"}): (
         "how much a comparator cohort can carry, computed by the conformity stage"
-    ),
-    frozenset({"canonical", "title_fallback", "url_fallback"}): (
-        "how a source was fingerprinted, decided by `_source_record_identity`"
     ),
     frozenset({"optimal", "other", "threshold"}): (
         "a target's role, read from the document by the target resolver"

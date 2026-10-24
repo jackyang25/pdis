@@ -13,7 +13,7 @@ import { readFileSync } from "node:fs";
 import path from "node:path";
 import test from "node:test";
 
-import { displayLabel } from "./display-label.ts";
+import { ACRONYMS, SPECIAL_LABELS, displayLabel } from "./display-label.ts";
 
 const REPO = path.resolve(import.meta.dirname, "..", "..");
 const VOCAB = path.join(REPO, "shared", "indications.yaml");
@@ -78,4 +78,12 @@ test("every shared indication is lowercase words joined by underscores", () => {
     );
     assert.ok(displayLabel(tag).trim().length > 0, `${tag} renders no label`);
   }
+});
+
+test("the acronym list is the shared one the server's labels read", () => {
+  // The Drafter Word export names variables in Python. It read "Cogs" while the page read
+  // "COGS", because each side kept its own capitals.
+  const shared = JSON.parse(readFileSync(new URL("../../shared/display_labels.json", import.meta.url), "utf8"));
+  assert.deepEqual([...ACRONYMS].sort(), [...shared.acronyms].sort());
+  assert.deepEqual(SPECIAL_LABELS, shared.special);
 });

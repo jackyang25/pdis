@@ -11,7 +11,9 @@ import {
   DRAFTER_PANELS,
   countVariables,
   drafterMetricItems,
+  evidenceSources,
   figureLine,
+  observationFigure,
   panelVariables,
   suggestionLines,
 } from "./drafter-presentation.ts";
@@ -22,6 +24,7 @@ function variable(name: string, overrides: Partial<DraftVariable> = {}): DraftVa
     status: "complete", failure: null, observations: [], statistics: [],
     suggestion: { kind: "range", minimum: "50%", preferred: "75%", statement: "", rationale: "Because.", leans_on: "comparable_products", basis_ids: [] },
     unread_findings: 0,
+    unverified_quotes: 0,
     ...overrides,
   };
 }
@@ -36,7 +39,7 @@ function draft(): DraftResult {
       variable("vaccine.efficacy"),
       variable("vaccine.dosing_schedule", { evidence_domain: "product", suggestion: { ...variable("x.y").suggestion!, kind: "statement", minimum: "", preferred: "", statement: "Three doses." } }),
       variable("vaccine.cogs", { suggestion: insufficient }),
-      variable("vaccine.shelf_life", { status: "failed", suggestion: null, failure: { code: "suggestion_failed", message: "No valid reply." } }),
+      variable("vaccine.shelf_life", { status: "failed", suggestion: null, failure: { code: "suggestion_failed", message: "No valid reply.", cause: "invalid_model_response" } }),
     ],
   };
 }
@@ -49,8 +52,10 @@ test("every variable falls in exactly one panel, in the order a reviewer works",
   assert.deepEqual(countVariables(result), { total: 4, suggested: 2, insufficient: 1, failed: 1 });
 });
 
-test("a search narrows every panel by label, description and suggestion", () => {
+test("a search narrows every panel by label and suggestion, never by text the row hides", () => {
   const result = draft();
+  result.variables[0].description = "Claims about protective efficacy.";
+  assert.deepEqual(panelVariables(result, "suggested", "claims about").map((item) => item.name), []);
   assert.deepEqual(panelVariables(result, "suggested", "three doses").map((item) => item.name), ["vaccine.dosing_schedule"]);
   assert.deepEqual(panelVariables(result, "suggested", "efficacy").map((item) => item.name), ["vaccine.efficacy"]);
 });
@@ -63,7 +68,7 @@ test("a suggestion reads as its range or its statement", () => {
 
 test("figures say what they are: values stated in one unit, not one measured cohort", () => {
   assert.equal(
-    figureLine({ unit: "%", count: 5, minimum: 56, maximum: 77, median: 68, lower_quartile: 60, upper_quartile: 74 }),
+    figureLine({ unit: "%", observation_ids: ["a", "b", "c", "d", "e"], count: 5, minimum: 56, maximum: 77, median: 68, lower_quartile: 60, upper_quartile: 74 }),
     "5 values stated in %: median 68, middle half 60–74, range 56–77",
   );
 });
@@ -77,7 +82,7 @@ function withEvidence(): DraftVariable {
     observations: [
       { id: "vaccine.efficacy:o1", basis: "comparable_product", url: "https://pubmed.org/1", title: "RTS,S phase 3",
         source_label: "PubMed", product: "RTS,S", measure: "efficacy", quote: "efficacy was 56%",
-        value: { value: 56, lower: null, upper: null, unit: "%" }, numeric_eligible: true },
+        value: { value: 56, lower: null, upper: null, unit: "%", text: "stated" }, numeric_eligible: true },
       { id: "vaccine.efficacy:g1", basis: "published_guidance", url: "https://who.int/ppc", title: "Malaria vaccine PPC",
         source_label: "WHO", product: "WHO", measure: "", quote: "at least 75% efficacy", value: null, numeric_eligible: false },
     ],
@@ -90,8 +95,8 @@ const render = (props: Record<string, unknown>) => renderToStaticMarkup(React.cr
 
 test("the two kinds of evidence are listed apart, each counted", () => {
   const html = render({ variable: withEvidence() });
-  assert.match(html, /Comparable products 1/);
-  assert.match(html, /Published guidance 1/);
+  assert.match(html, /Comparable products<\/span><span[^>]*>1</);
+  assert.match(html, /Published guidance<\/span><span[^>]*>1</);
   assert.match(html, /Minimum 50% · Preferred 75%/);
 });
 
@@ -114,8 +119,61 @@ test("the no-evidence note appears only when nothing was retrieved or read", () 
   assert.doesNotMatch(render({ variable: unread }), /No source this run found/);
 });
 
+test("quotes a source does not contain are counted beside the sources set aside", () => {
+  // A reader's quote that its excerpt does not hold is not kept, so it never becomes an
+  // observation. Unstated, a variable that lost every quote would read as one nothing
+  // spoke to.
+  const html = render({ variable: variable("vaccine.cogs", { suggestion: insufficient, unread_findings: 1, unverified_quotes: 3 }) });
+  assert.match(html, /1 source could not be read\s+and was set aside\./);
+  assert.match(html, /3 quotes could not be found in their source\s+and were set aside\./);
+  const quotesOnly = render({ variable: variable("vaccine.cogs", { suggestion: insufficient, unverified_quotes: 1 }) });
+  assert.match(quotesOnly, /1 quote could not be found in its source\s+and was set aside\./);
+  assert.doesNotMatch(quotesOnly, /No source this run found/);
+  assert.doesNotMatch(render({ variable: withEvidence() }), /could not be found in/);
+});
+
 test("a row offers nothing to decide: it shows the suggestion and its evidence", () => {
   const html = render({ variable: withEvidence() });
   assert.doesNotMatch(html, /<button[^>]*>(Accept|Edit|Clear|Save)<\/button>/);
   assert.match(html, /Minimum 50% · Preferred 75%/);
+});
+
+test("one source is listed once however many products it names, cited sources first", () => {
+  const base = withEvidence().observations[0];
+  const page = { ...base, url: "https://cdc.gov/rsv", title: "RSV immunization" };
+  const subject = variable("vaccine.product", {
+    observations: [
+      { ...base, id: "a", url: "https://pubmed.org/9", title: "Uncited trial" },
+      { ...page, id: "b", product: "Arexvy" },
+      { ...page, id: "c", product: "Abrysvo" },
+    ],
+    suggestion: { ...withEvidence().suggestion!, basis_ids: ["c"] },
+  });
+  const sources = evidenceSources(subject, "comparable_product");
+  assert.deepEqual(sources.map((source) => [source.url, source.cited, source.passages.length]), [
+    ["https://cdc.gov/rsv", true, 1],
+    ["https://pubmed.org/9", false, 1],
+  ]);
+  // One sentence read for two products is quoted once and names both.
+  assert.deepEqual(sources[0].passages[0].products, ["Arexvy", "Abrysvo"]);
+  const html = render({ variable: subject });
+  assert.equal(html.match(/RSV immunization/g)?.length, 1);
+  assert.equal(html.match(/efficacy was 56%/g)?.length, 2);
+  assert.match(html, /Comparable products<\/span><span[^>]*>2</);
+});
+
+test("an observation's figure is its value or its range, in its own unit", () => {
+  assert.equal(observationFigure({ value: 56, lower: null, upper: null, unit: "%", text: "stated" }), "56%");
+  assert.equal(observationFigure({ value: null, lower: 30, upper: 120, unit: "µg", text: "stated" }), "30–120 µg");
+  assert.equal(observationFigure({ value: 3, lower: null, upper: null, unit: "", text: "stated" }), "3");
+  assert.equal(observationFigure(null), "");
+});
+
+test("a suggestion and its rationale are one contribution, marked once", () => {
+  const html = render({ variable: withEvidence() });
+  assert.equal((html.match(/viewBox="0 0 24 24"[^>]*class="mr-\[0\.45em\]/g) ?? []).length, 1);
+});
+
+test("a row offers to report a problem with its suggestion", () => {
+  assert.match(render({ variable: withEvidence() }), /Report a problem/);
 });

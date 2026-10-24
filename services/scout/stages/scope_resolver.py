@@ -19,10 +19,11 @@ reports success.
 
 from __future__ import annotations
 
-import logging
+from shared.ai import Effort, ModelTask
 
-from ..ai import request_structured
+from ..ai import request_validated
 from ..ai_contracts import run_scope_value
+from ..context import render_canonical_binding
 from ..models import (
     RUN_SCOPE_DIMENSIONS,
     Attribute,
@@ -30,15 +31,18 @@ from ..models import (
     RetrievalScopeLedger,
 )
 
-logger = logging.getLogger(__name__)
-
-DEFAULT_MAX_TOKENS = 2000
+#: One reading per scope dimension: a per-item decision about one bound target.
+DIMENSIONS_PER_REQUEST = 1
+#: The fast tier at low effort: the place is already bound and cited by the target
+#: resolver, and the stage decides only whether that text names an indexable place.
+TASK: ModelTask = "fast"
+EFFORT: Effort = "low"
+#: Reasoning counts against the budget, so it is sized for the thinking, not the reply.
+DEFAULT_MAX_TOKENS = 8000
 
 
 def build_system_prompt(dimension: str) -> str:
     return f"""You are reading one variable of a product-development document to decide what it says about the run's {dimension}.
-
-Return ONLY valid JSON. No markdown fences, no preamble.
 
 `found`: "yes" only if the text names a place a clinical-trial registry or regulator
 would hold in a location field - a country, or a region a registry indexes such as
@@ -51,10 +55,8 @@ about, and a request built from one returns nothing while looking like a filter.
 words where they are already indexable. One place, never a list: if the document names
 several, give the one its own text treats as primary. Empty when `found` is "no".
 
-`reason`: one sentence, why this is or is not an indexable place.
-
 `block_ids`: the blocks the value was read from. Required when `found` is "yes" - a
-value that cannot be pointed at is a value nobody can check.
+value that cannot be pointed at is a value nobody can check. Empty when it is "no".
 
 You are not deciding where the product should be studied, and you are not completing a
 document that left this open. A document that states no geography narrows nothing, which
@@ -65,9 +67,8 @@ def _user_message(attribute: Attribute) -> str:
     return (
         f"variable: {attribute.name}\n"
         f"What this variable covers: {attribute.description.strip()}\n\n"
-        "What the document states for it:\n"
-        f"{attribute.document_target or '(the document stated nothing for this variable)'}\n\n"
-        f"Blocks it was read from: {', '.join(attribute.block_ids) or '(none)'}\n\n"
+        "What the document states for it, by the block each passage was read from:\n"
+        f"{render_canonical_binding(attribute) or '(the document stated nothing for this variable)'}\n\n"
         "Decide now."
     )
 
@@ -82,10 +83,11 @@ def resolve_retrieval_scope(
 ) -> RetrievalScopeLedger:
     """Return one complete ledger: header values, document values, and the gaps.
 
-    A dimension no attribute supplies, whose attribute bound nothing, or whose reading
-    failed is recorded `unset`. All three are the same value and the ledger keeps them
-    distinguishable from a reader who deliberately widened the search, because `unset`
-    means nobody supplied it rather than somebody left it blank.
+    A dimension no attribute supplies, whose attribute bound nothing, or whose document
+    states no indexable place is recorded `unset`: nobody supplied it, which the ledger
+    keeps distinguishable from a reader who deliberately widened the search. A reading
+    that stays invalid after its retry raises instead, because recording it `unset`
+    would silently widen the search on a failure.
     """
     supplied: dict[str, tuple[str, str, tuple[str, ...]]] = {}
     if condition.strip():
@@ -130,32 +132,38 @@ def _read_dimension(
     max_tokens: int,
 ) -> tuple[str, str, tuple[str, ...]] | None:
     allowed = list(dict.fromkeys(attribute.block_ids))
-    parsed = request_structured(
+
+    def parse(parsed: object) -> tuple[str, str, tuple[str, ...]] | None:
+        if not isinstance(parsed, dict):
+            raise ValueError("no structured reading was returned")
+        found = str(parsed.get("found", "")).strip().lower()
+        if found not in {"yes", "no"}:
+            raise ValueError('found must be "yes" or "no"')
+        if found == "no":
+            return None
+        value = " ".join(str(parsed.get("value") or "").split())
+        cited = tuple(
+            block_id
+            for block_id in dict.fromkeys(
+                str(item).strip() for item in parsed.get("block_ids") or []
+            )
+            if block_id in allowed
+        )
+        if not value or not cited:
+            # A claimed reading with no phrase or no supplied block is not a reading.
+            raise ValueError(
+                'found is "yes" but the value is empty or cites no supplied block'
+            )
+        return (value, "document", cited)
+
+    return request_validated(
         llm_client,
         run_scope_value(allowed),
         build_system_prompt(dimension),
         _user_message(attribute),
         max_tokens=max_tokens,
-        task="fast",
+        task=TASK,
+        effort=EFFORT,
+        parse=parse,
+        failure=f"Run scope {dimension} could not be read from {attribute.name}",
     )
-    if not isinstance(parsed, dict):
-        logger.warning("Run scope %s unreadable from %s", dimension, attribute.name)
-        return None
-    if str(parsed.get("found", "")).strip().lower() != "yes":
-        return None
-    value = " ".join(str(parsed.get("value") or "").split())
-    cited = tuple(
-        block_id
-        for block_id in dict.fromkeys(
-            str(item).strip() for item in parsed.get("block_ids") or []
-        )
-        if block_id in allowed
-    )
-    if not value or not cited:
-        # A claimed reading with no phrase or no block is not a reading. Dropped rather
-        # than stored uncited, for the same reason the ledger refuses it.
-        logger.warning(
-            "Run scope %s claimed but not citable from %s", dimension, attribute.name
-        )
-        return None
-    return (value, "document", cited)

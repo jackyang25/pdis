@@ -6,7 +6,8 @@ import {
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { InterfaceNote, Quoted, Reading } from "@/components/ui/evidence-text";
 import { sourceIdentityCaveat } from "@/lib/scout-labels";
-import { formatMeasure } from "@/lib/scout-result-view";
+import { formatMeasure } from "@/lib/measure-format";
+import { countLabel } from "@/lib/count-label";
 
 // The shared formatter, not a local copy: this one had the same missing space as the
 // benchmark formatter, which is how "0.6administration occasions" reached an axis label.
@@ -38,7 +39,7 @@ function Point({
       <PopoverTrigger asChild>
         <button
           type="button"
-          className="absolute z-10 flex h-5 w-5 -translate-x-1/2 -translate-y-1/2 items-center justify-center rounded-full outline-none transition-colors hover:bg-foreground/[0.045] focus-visible:ring-2 focus-visible:ring-ring/30 motion-reduce:transition-none"
+          className="absolute z-10 flex h-5 w-5 -translate-x-1/2 -translate-y-1/2 items-center justify-center rounded-full outline-none transition-colors hover:bg-foreground/[0.045] focus-visible:ring-2 focus-visible:ring-ring/60 motion-reduce:transition-none"
           style={{ left: `${point.x}%`, top: `calc(50% + ${laneOffsets[point.lane]}px)` }}
           aria-label={`${contextual ? "Non-admitted measurement" : "Admitted comparator"}: ${formatValue(point.value, unit)}. ${point.source_quote}`}
         >
@@ -138,8 +139,12 @@ export function ComparatorDistributionPlot({
         </span>
         <span className="text-[10px] text-muted-foreground">
           {hasIncluded
-            ? `${conformity.target_meeting_count}/${conformity.benchmark_count} meet target · ${Math.round(conformity.target_meeting_rate * 100)}% observed share`
-            : `${model.excluded.length} non-admitted measurement${model.excluded.length === 1 ? "" : "s"}`}
+            ? [
+                `${conformity.target_meeting_count}/${conformity.benchmark_count} meet target`,
+                // Null only without a cohort, which `hasIncluded` already excludes.
+                conformity.target_meeting_rate == null ? null : `${Math.round(conformity.target_meeting_rate * 100)}% observed share`,
+              ].filter(Boolean).join(" · ")
+            : countLabel(model.excluded.length, "non-admitted measurement")}
         </span>
       </figcaption>
 

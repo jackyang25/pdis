@@ -8,8 +8,9 @@ as distinct structured observations. None is promoted to causal proof.
 from __future__ import annotations
 
 from datetime import datetime, timezone
-from urllib.parse import quote, urlencode
+from urllib.parse import urlencode
 
+from ..errors import RetrievalError
 from ..models import (
     Finding,
     RetrievalIntent,
@@ -19,6 +20,7 @@ from ..models import (
     SourceAttribution,
     SourceSpec,
 )
+from .fda import MIN_REQUEST_INTERVAL_SECONDS, OPENFDA_RATE_GROUP
 from .literature import active_tracks
 from .planning import request_lineage
 from .tooluniverse_records import (
@@ -38,7 +40,6 @@ DEVICE_ENTITY_TYPES = {"device"}
 PRODUCT_ENTITY_TYPES = tuple(sorted(DRUG_ENTITY_TYPES | DEVICE_ENTITY_TYPES))
 MAX_PRODUCTS = 3
 MAX_RESULTS = 10
-MIN_REQUEST_INTERVAL_SECONDS = 0.3
 FAERS_QUALIFICATION = (
     "FAERS contains spontaneous reports. Counts do not measure incidence and "
     "do not establish that the product caused the event."
@@ -53,7 +54,9 @@ class FDASafetySource:
         key="fda_safety",
         label="FDA Safety",
         worker_limit=4,
+        # openFDA's quota, shared with the `fda` lane.
         request_interval_seconds=MIN_REQUEST_INTERVAL_SECONDS,
+        rate_group=OPENFDA_RATE_GROUP,
         default_enabled=False,
         integration_key=TOOLUNIVERSE_INTEGRATION,
         operations=(
@@ -107,10 +110,7 @@ class FDASafetySource:
                         input_queries=input_queries,
                         connector=TOOLUNIVERSE_INTEGRATION,
                         operation=operation,
-                        options=(
-                            ("product_name", product.name),
-                            ("limit", str(MAX_RESULTS)),
-                        ),
+                        options=(("product_name", product.name),),
                     )
                 )
         return requests
@@ -121,7 +121,6 @@ class FDASafetySource:
         runtime: SearchRuntime,
         *,
         max_tokens: int,
-        max_uses: int,
     ) -> list[Finding]:
         if request.operation == DRUG_WARNING_TOOL:
             return _drug_warnings(request, runtime)
@@ -138,12 +137,19 @@ def _drug_warnings(request: SearchRequest, runtime: SearchRuntime) -> list[Findi
     product = request.option("product_name")
     result = run_tool(
         runtime,
+        FDASafetySource.spec,
         DRUG_WARNING_TOOL,
-        {"drug_name": product, "limit": MAX_RESULTS, "skip": 0},
+        {"drug_name": product, "limit": FDASafetySource.spec.max_results, "skip": 0},
     )
     retrieved_at = datetime.now(timezone.utc)
     findings: list[Finding] = []
-    for index, record in enumerate(result_records(result, "results")[:MAX_RESULTS]):
+    for record in result_records(result, "results"):
+        # The label's set id names it across revisions; the tool returns it with every
+        # name-searched record. A record without one is not a label anyone can open, so
+        # it is not kept - its URL used to be a search for the product with a fragment.
+        set_id = _first(record.get("set_id"))
+        if not set_id:
+            continue
         boxed = _strings(record.get("boxed_warning"))
         warnings = _strings(record.get("warnings"))
         details = [*boxed, *warnings]
@@ -154,18 +160,18 @@ def _drug_warnings(request: SearchRequest, runtime: SearchRuntime) -> list[Findi
         product_name = brand or generic or product
         signal = "Boxed warning" if boxed else "Official label warning"
         detail = " ".join(details)
-        url = (
-            "https://api.fda.gov/drug/label.json?"
-            + urlencode({"search": f'openfda.generic_name:"{product}"', "limit": 1})
-            + f"#record-{index + 1}"
-        )
         findings.append(
             Finding(
-                url=url,
+                url=(
+                    "https://dailymed.nlm.nih.gov/dailymed/drugInfo.cfm?"
+                    + urlencode({"setid": set_id})
+                ),
                 title=f"{product_name} · {signal}",
                 query=request.query,
                 retrieved_at=retrieved_at,
                 excerpt=detail[:16_000],
+                identifiers={"setid": set_id, "spl_id": _first(record.get("id"))},
+                record_key=f"fda_safety:label_warning:{set_id}",
                 source="fda_safety",
                 safety_observations=[
                     SafetyObservationRecord(
@@ -186,21 +192,18 @@ def _faers_reactions(request: SearchRequest, runtime: SearchRuntime) -> list[Fin
     product = request.option("product_name")
     result = run_tool(
         runtime,
+        FDASafetySource.spec,
         FAERS_REACTION_TOOL,
         {"medicinalproduct": product},
     )
     if isinstance(result, dict) and (result.get("error") or result.get("status") == "error"):
-        raise RuntimeError(str(result.get("error") or "FAERS retrieval failed"))
+        raise RetrievalError(
+            "FAERS", "tool_error", str(result.get("error") or "retrieval failed")
+        )
     records = result if isinstance(result, list) else []
     retrieved_at = datetime.now(timezone.utc)
-    base_url = "https://api.fda.gov/drug/event.json?" + urlencode(
-        {
-            "search": f"patient.drug.medicinalproduct:{product}",
-            "count": "patient.reaction.reactionmeddrapt.exact",
-        }
-    )
     findings: list[Finding] = []
-    for record in records[:MAX_RESULTS]:
+    for record in records[: FDASafetySource.spec.max_results]:
         if not isinstance(record, dict):
             continue
         signal = text(record.get("term"))
@@ -209,7 +212,20 @@ def _faers_reactions(request: SearchRequest, runtime: SearchRuntime) -> list[Fin
             continue
         findings.append(
             Finding(
-                url=base_url + "#" + quote(signal.casefold()),
+                # A query that returns this reaction's reports for this product, so the
+                # count can be checked: its total is the count shown. Two reactions used
+                # to share one URL told apart only by a fragment, which canonical URLs
+                # drop, so deduplication merged every reaction into one record.
+                url="https://api.fda.gov/drug/event.json?"
+                + urlencode(
+                    {
+                        "search": (
+                            f"patient.drug.medicinalproduct:{product} AND "
+                            f'patient.reaction.reactionmeddrapt.exact:"{signal}"'
+                        ),
+                        "limit": 1,
+                    }
+                ),
                 title=f"{product} · {signal.title()} reports",
                 query=request.query,
                 retrieved_at=retrieved_at,
@@ -217,6 +233,8 @@ def _faers_reactions(request: SearchRequest, runtime: SearchRuntime) -> list[Fin
                     f"FAERS reported event: {signal.title()}. Report count: {count}. "
                     f"{FAERS_QUALIFICATION}"
                 ),
+                excerpt_kind="structured_fields",
+                record_key=f"fda_safety:faers:{product}:{signal}",
                 source="fda_safety",
                 evidence_role="reference",
                 safety_observations=[
@@ -239,13 +257,16 @@ def _device_events(request: SearchRequest, runtime: SearchRuntime) -> list[Findi
     search = f'device.generic_name:"{_lucene_phrase(product)}"'
     result = run_tool(
         runtime,
+        FDASafetySource.spec,
         DEVICE_EVENT_TOOL,
-        {"search": search, "limit": MAX_RESULTS, "skip": 0},
+        {"search": search, "limit": FDASafetySource.spec.max_results, "skip": 0},
     )
     retrieved_at = datetime.now(timezone.utc)
     findings: list[Finding] = []
-    for record in result_records(result, "results")[:MAX_RESULTS]:
+    for record in result_records(result, "results"):
         report_number = text(record.get("report_number"))
+        if not report_number:
+            continue
         devices = record.get("device") if isinstance(record.get("device"), list) else []
         device = devices[0] if devices and isinstance(devices[0], dict) else {}
         product_name = (
@@ -256,7 +277,7 @@ def _device_events(request: SearchRequest, runtime: SearchRuntime) -> list[Findi
         event_type = text(record.get("event_type")) or "Device adverse-event report"
         detail = _device_event_detail(record, device)
         url = "https://api.fda.gov/device/event.json?" + urlencode(
-            {"search": f'report_number:"{report_number or product}"', "limit": 1}
+            {"search": f'report_number:"{report_number}"', "limit": 1}
         )
         findings.append(
             Finding(
@@ -266,6 +287,8 @@ def _device_events(request: SearchRequest, runtime: SearchRuntime) -> list[Findi
                 retrieved_at=retrieved_at,
                 published_at=parse_datetime(text(record.get("date_received")), "%Y%m%d"),
                 excerpt=(detail + "\n" + MAUDE_QUALIFICATION).strip(),
+                excerpt_kind="structured_fields",
+                record_key=f"fda_safety:device_event:{report_number}",
                 source="fda_safety",
                 evidence_role="reference",
                 safety_observations=[
@@ -288,13 +311,16 @@ def _device_recalls(request: SearchRequest, runtime: SearchRuntime) -> list[Find
     search = f'product_description:"{_lucene_phrase(product)}"'
     result = run_tool(
         runtime,
+        FDASafetySource.spec,
         DEVICE_RECALL_TOOL,
-        {"search": search, "limit": MAX_RESULTS, "skip": 0},
+        {"search": search, "limit": FDASafetySource.spec.max_results, "skip": 0},
     )
     retrieved_at = datetime.now(timezone.utc)
     findings: list[Finding] = []
-    for record in result_records(result, "results")[:MAX_RESULTS]:
-        recall_id = text(record.get("product_res_number")) or text(record.get("cfres_id"))
+    for record in result_records(result, "results"):
+        recall_id = text(record.get("product_res_number"))
+        if not recall_id:
+            continue
         description = text(record.get("product_description")) or product
         classification = text(record.get("classification"))
         status = text(record.get("recall_status"))
@@ -311,7 +337,7 @@ def _device_recalls(request: SearchRequest, runtime: SearchRuntime) -> list[Find
         ]
         detail = "\n".join(detail_parts)
         url = "https://api.fda.gov/device/recall.json?" + urlencode(
-            {"search": f'product_res_number:"{recall_id or product}"', "limit": 1}
+            {"search": f'product_res_number:"{recall_id}"', "limit": 1}
         )
         findings.append(
             Finding(
@@ -323,6 +349,8 @@ def _device_recalls(request: SearchRequest, runtime: SearchRuntime) -> list[Find
                     text(record.get("event_date_posted")), "%Y%m%d", "%Y-%m-%d"
                 ),
                 excerpt=detail,
+                excerpt_kind="structured_fields",
+                record_key=f"fda_safety:recall:{recall_id}",
                 source="fda_safety",
                 safety_observations=[
                     SafetyObservationRecord(

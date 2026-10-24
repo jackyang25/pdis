@@ -139,8 +139,9 @@ evidence, not semantic model accuracy.
 
 The denominator never shrinks: every question appears with a state, every run. No count
 is stored, because a carried count is a second authority that can disagree with the
-list it summarizes. A bank with no question applicable to the run's intervention class
-fails loudly.
+list it summarizes. A run for an intervention class the bank is not written for, or a
+bank with no question applicable to the run's class, fails loudly in `resolve_questions`
+before parsing, whichever caller started the run.
 
 ### One document collection
 
@@ -258,17 +259,24 @@ table index that can be reused by footnotes or text boxes.
 There are no lexical filters, top-k limits or arbitrary truncation. Selection
 retains potentially relevant, partial, conflicting and contextual evidence.
 
-Throughput comes from flat fan-out, bounded by `MAX_PARALLEL_QUESTIONS = 6`.
+Selection runs on the fast tier at low effort and sends page and slide images at low
+detail: every image of a document travels with every question, the text of every page
+is supplied beside it, and low detail is enough to tell that a visual bears on a
+question. Assessment runs on the reasoning tier at medium effort and reads the selected
+images at high detail. Each stage owns its budget (`MAX_TOKENS`).
+
+Throughput comes from flat fan-out, bounded by `MAX_PARALLEL_QUESTIONS = 12`.
 All selections complete before assessment starts; the two phases never multiply
-their worker pools. Selection reports completed question/document pairs through
-the existing progress stream. Parsing remains bounded at three documents. For 15 documents,
+their worker pools. Selection reports completed question/document pairs and
+assessment reports completed questions through the progress stream, each as
+`completed`/`total` from `shared.batching.map_ordered`. Parsing remains bounded at three documents. For 15 documents,
 each applicable question requires 15 selection calls and one assessment, before
 bounded retries. A single document uses the same path.
 
 Empty selection is valid; an unreadable document or failed selection is not.
 Selection errors abort the run rather than masquerading as absence. If every
 selection is empty, assessment receives an explicit no-selected-evidence message
-and cannot cite blocks or claim an answered state.
+and its schema offers only `not_found`, since both answered states need a citation.
 
 The model receives three decisions: `answered`, `partly_answered`, and `not_found`.
 They map directly to result states. The fourth result state, `not_applicable`, is
@@ -277,21 +285,25 @@ decided by configuration before assessment and is never offered to the model.
 Every model decision carries a non-empty `statement`. Both answer states require
 citations to supplied blocks; `not_found` and `not_applicable` cannot cite evidence.
 Only `partly_answered` carries a non-empty `missing` statement. Invalid model decisions
-are retried once and then fail the run. Final contract validation checks completeness,
-document/block identities, citation membership, and the state/evidence pairing.
+and truncated replies are retried once (a truncation at a lower effort with the same
+budget) and then fail the run; a refusal is not retried. Final contract validation checks completeness, document/block
+identities, citation membership, the state/evidence pairing, a statement on every model
+decision, that the run's intervention class is one the bank serves, and that each
+question's discipline, order, text, requirement and `not_applicable` placement are the
+bank's.
 
 ## Run
 
 ```text
 resolve   deterministic, no I/O; the state the question text owns, fail before parsing
-parse     chunker parse-only, every supplied document; preserve input order
+parse     chunker parse-only, every supplied document, counted; preserve input order
 select    one call per question/document pair, reading that complete document
 assess    one call per applicable question, reading its combined source selections
 result    every question, each in one state, with all documents and retained blocks
 ```
 
-Selection sends document material before the question, allowing shared prefixes
-where supported. Final assessment material varies by question; no cache saving is
+Both stages send the question last, after the document material and its images,
+allowing shared prefixes where supported. Final assessment material varies by question; no cache saving is
 guaranteed.
 
 ### Capacity and quality limits
@@ -304,9 +316,11 @@ baseline before claiming improved quality or support for 15–20 documents. Incl
 complementary, partial, conflicting, comparator and image-only evidence; measure
 selected-source recall, final citations/states, largest payload, latency and tokens.
 
-A single document or the combined selected evidence can still exceed gateway/model
-limits. All parsed sources and images are retained, so this is not a hard memory
-guarantee. No evidence is silently truncated to fit a request.
+Every document's selection request is measured against `shared.request_budget` before
+any selection is sent, and every question's combined selection before any assessment
+is; one over budget stops the run with `request_too_large` rather than failing on the
+provider partway through. All parsed sources and images are retained, so this is not a
+hard memory guarantee. No evidence is silently truncated to fit a request.
 
 Discipline grouping follows the bank's authored order. There is no reconciliation
 or deduplication stage: each discipline's question remains independently visible.

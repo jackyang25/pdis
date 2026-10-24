@@ -62,25 +62,28 @@ def run_pipeline(
     """
     if progress_callback:
         progress_callback("parse")
-    blocks = attach_image_assets(
-        parse_document(file_path, doc_id, accepted_suffixes=accepted_suffixes), file_path
-    )
+    blocks = _parse(file_path, doc_id, accepted_suffixes)
     if config is not None and llm_client is not None:
         if progress_callback:
             progress_callback("label")
         blocks = label_blocks(blocks, config, llm_client, max_tokens=max_tokens)
     _stamp_header(
         blocks,
-        org=org if org is not None else (config.org if config else None),
-        source_type=source_type
-        if source_type is not None
-        else (config.source_type if config else None),
-        intervention_class=intervention_class
-        if intervention_class is not None
-        else (config.intervention_class if config else None),
+        config,
+        org=org,
+        source_type=source_type,
+        intervention_class=intervention_class,
         indication=indication,
     )
     return blocks
+
+
+def _parse(
+    file_path: str, doc_id: str, accepted_suffixes: Set[str] = DOCUMENT_SUFFIXES
+) -> list[ContentBlock]:
+    return attach_image_assets(
+        parse_document(file_path, doc_id, accepted_suffixes=accepted_suffixes), file_path
+    )
 
 
 def parse_context_file(
@@ -114,7 +117,7 @@ def parse_context_file(
         ContentBlock(
             id=f"{doc_id}/b-0001",
             doc_id=doc_id,
-            ordinal=1,
+            ordinal=0,
             block_type="image",
             content="[image]",
             heading_stack=[],
@@ -128,12 +131,19 @@ def parse_context_file(
 
 def _stamp_header(
     blocks: list[ContentBlock],
+    config: DocumentTypeConfig | None,
     *,
-    org: str | None,
-    source_type: str | None,
-    intervention_class: str | None,
+    org: str | None = None,
+    source_type: str | None = None,
+    intervention_class: str | None = None,
     indication: str | None,
 ) -> None:
+    """Stamp provenance, taking any field not stated from the config's header."""
+    if config is not None:
+        org = org if org is not None else config.org
+        source_type = source_type if source_type is not None else config.source_type
+        if intervention_class is None:
+            intervention_class = config.intervention_class
     for block in blocks:
         block.org = org
         block.source_type = source_type
@@ -188,9 +198,7 @@ def _run_one(
 ) -> PipelineResult:
     result = PipelineResult(file_path=file_path, doc_id=doc_id)
     try:
-        result.blocks = attach_image_assets(
-            parse_document(file_path, doc_id), file_path
-        )
+        result.blocks = _parse(file_path, doc_id)
     except Exception as exc:
         result.parse_error = str(exc)
         return result
@@ -204,13 +212,7 @@ def _run_one(
         except Exception as exc:
             result.mapping_error = str(exc)
 
-    _stamp_header(
-        result.blocks,
-        org=config.org if config else None,
-        source_type=config.source_type if config else None,
-        intervention_class=config.intervention_class if config else None,
-        indication=indication,
-    )
+    _stamp_header(result.blocks, config, indication=indication)
     return result
 
 

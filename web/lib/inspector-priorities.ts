@@ -1,5 +1,5 @@
 import type { InspectionReviewView } from "./api.ts";
-import { VERDICT_LABEL } from "./api.ts";
+import { verdictLabel } from "./api.ts";
 import type { PriorityFinding } from "./priorities.ts";
 
 /**
@@ -23,7 +23,7 @@ export function inspectorPriorityFindings(review: InspectionReviewView): Priorit
       // section itself. The section is the group only when it is not already the name.
       subject: unit.variable_name ?? section.section_name,
       group: unit.variable_name ? section.section_name : undefined,
-      verdicts: [VERDICT_LABEL[unit.verdict] ?? unit.verdict],
+      verdicts: [verdictLabel(unit.verdict)],
       statements: [unit.statement],
       blockIds: unit.cited_block_ids,
     })),

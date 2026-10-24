@@ -51,7 +51,7 @@ class EvidenceUnitIdentityWire(_WireModel):
     status: Literal["resolved", "record_level", "uncertain"]
     group: SemanticSlotWire
     cohort: SemanticSlotWire
-    reason: str = Field(min_length=1)
+    reason: str = Field(min_length=1, pattern=r"\S")
 
     @model_validator(mode="after")
     def validate_identity(self) -> "EvidenceUnitIdentityWire":
@@ -76,7 +76,7 @@ class EvidenceUnitPartitionWire(_WireModel):
     """
 
     status: Literal["single_unit", "disjoint_units", "overlapping_or_uncertain"]
-    reason: str = Field(min_length=1)
+    reason: str = Field(min_length=1, pattern=r"\S")
 
 
 class NumericDisplayWire(_WireModel):
@@ -141,7 +141,7 @@ class NumericExpressionWire(_WireModel):
 
 class TargetExpressionWire(_WireModel):
     kind: Literal["bound"]
-    unit: str = Field(min_length=1)
+    unit: str = Field(min_length=1, pattern=r"\S")
     value: float
     lower: None
     upper: None
@@ -198,17 +198,20 @@ def inline_json_schema(model: type[BaseModel]) -> dict[str, Any]:
         branch["properties"].update(changes)
         return branch
 
+    # Text a validator strips before checking is required to hold a non-space character,
+    # so the schema cannot permit "  " where the parser refuses it.
+    text = {"minLength": 1, "pattern": "\\S"}
     if model is SemanticSlotWire:
         return {"anyOf": [
             variant(result, {"state": {"type": "string", "enum": [state]},
-                "value": {"type": "string", **({"minLength": 1} if state == "specified" else {"enum": [""]})},
-                "other": {"type": "string", **({"minLength": 1} if state == "other" else {"enum": [""]})}})
+                "value": {"type": "string", **(text if state == "specified" else {"enum": [""]})},
+                "other": {"type": "string", **(text if state == "other" else {"enum": [""]})}})
             for state in ("specified", "other", "not_specified", "unknown")
         ]}
     if model is TernaryDecisionWire:
         return {"anyOf": [
             variant(result, {"state": {"type": "string", "enum": [state]},
-                "reason": {"type": "string", **({"minLength": 1} if state != "yes" else {})}})
+                "reason": {"type": "string", **(text if state != "yes" else {})}})
             for state in ("yes", "no", "unknown")
         ]}
     if model is EvidenceUnitIdentityWire:
@@ -225,7 +228,7 @@ def inline_json_schema(model: type[BaseModel]) -> dict[str, Any]:
         for kinds in (("point_estimate", "count", "rate"), ("bound",), ("range", "confidence_interval"), ("other", "unknown")):
             changes = {"kind": {"type": "string", "enum": list(kinds)}}
             if kinds[0] not in {"other", "unknown"}:
-                changes["unit"] = {"type": "string", "minLength": 1}
+                changes["unit"] = {"type": "string", **text}
                 if kinds[0] == "range":
                     changes.update({"lower": {"type": "number"}, "upper": {"type": "number"}})
                 else:

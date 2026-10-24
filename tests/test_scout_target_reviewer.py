@@ -7,6 +7,9 @@ import json
 from dataclasses import asdict
 from dataclasses import replace
 
+import httpx
+import openai
+
 from services.chunker import ContentBlock
 from services.scout.models import (
     Attribute,
@@ -63,9 +66,12 @@ class _Client:
         self.reviews = reviews or []
         self.failure = failure
         self.user_message = ""
+        self.document = ""
 
-    def call_structured(self, _system, user_message, *_args, **_kwargs):
-        self.user_message = user_message
+    def call_structured(self, _system, user_message, *_args, **kwargs):
+        # The document leads the request; the proposal follows its images.
+        self.document = user_message
+        self.user_message = kwargs.get("trailing_text", "")
         if self.failure:
             raise self.failure
         return {"reviews": self.reviews}
@@ -147,24 +153,31 @@ class TargetReviewerTests(unittest.TestCase):
         self.assertEqual(reviewed.ai_recommendation, "confirm")
         self.assertEqual(reviewed.review_status, "needs_review")
         self.assertEqual(attributes[0].quantitative_target_ids, [reviewed.id])
-        self.assertIn("Background incidence was 14%", client.user_message)
+        self.assertIn("Background incidence was 14%", client.document)
+        self.assertNotIn("[target:", client.document)
         expression_line = next(line for line in client.user_message.splitlines() if line.startswith("Numeric expression: "))
         self.assertEqual(json.loads(expression_line.removeprefix("Numeric expression: ")), asdict(self.target.expression))
         self.assertIn("Target role: threshold", client.user_message)
 
-    def test_missing_or_failed_ai_review_degrades_to_manual_review(self) -> None:
-        for client in (
-            None,
-            _Client([]),
-            _Client(failure=RuntimeError("provider unavailable")),
+    def test_failed_ai_review_degrades_to_manual_review_with_its_code(self) -> None:
+        for client, code in (
+            (_Client([]), "invalid_model_response"),
+            (_Client(failure=openai.APIConnectionError(request=httpx.Request("POST", "https://x"))),
+             "provider_error"),
         ):
-            with self.subTest(client="missing" if client is None else type(client.failure).__name__):
+            with self.subTest(code=code):
                 _, ledger = prefill_target_review(
                     [self.attribute], self.ledger, [self.block], client,
                 )
                 self.assertEqual(ledger.targets[0].ai_recommendation, "unavailable")
-                self.assertEqual(ledger.targets[0].ai_review_failure_code, "independent_review_unavailable")
+                self.assertEqual(ledger.targets[0].ai_review_failure_code, code)
                 self.assertEqual(ledger.targets[0].review_status, "needs_review")
+
+    def test_a_programming_error_is_not_recorded_as_a_review_failure(self) -> None:
+        with self.assertRaisesRegex(RuntimeError, "bug"):
+            prefill_target_review(
+                [self.attribute], self.ledger, [self.block], _Client(failure=RuntimeError("bug")),
+            )
 
     def test_each_target_is_reviewed_in_its_own_request(self) -> None:
         """A target decision must not see an unrelated proposal in its prompt."""
@@ -173,10 +186,14 @@ class TargetReviewerTests(unittest.TestCase):
                 self.batches: list[list[str]] = []
 
             def call_structured(self, _system, _user_message, *_args, **kwargs):
-                self.batches.append(list(kwargs["schema"]["properties"]["reviews"][
+                batch = list(kwargs["schema"]["properties"]["reviews"][
                     "items"
-                ]["properties"]["target_id"]["enum"]))
-                return {"reviews": []}
+                ]["properties"]["target_id"]["enum"])
+                self.batches.append(batch)
+                return {"reviews": [
+                    {"target_id": target_id, "decision": "flag", "reason": "Check the role."}
+                    for target_id in batch
+                ]}
 
         targets = [
             _target(index + 1, f"Target {index + 1} must exceed {index + 1}%.")
@@ -203,6 +220,23 @@ class TargetReviewerTests(unittest.TestCase):
         )
 
         self.assertEqual([len(batch) for batch in client.batches], [1, 1, 1])
+
+    def test_an_incomplete_review_is_retried_once(self) -> None:
+        class _IncompleteThenComplete(_ConcurrentClient):
+            calls = 0
+
+            def call_structured(self, *args, **kwargs):
+                type(self).calls += 1
+                if type(self).calls == 1:
+                    return {"reviews": []}
+                return super().call_structured(*args, **kwargs)
+
+        _, ledger = prefill_target_review(
+            [self.attribute], self.ledger, [self.block], _IncompleteThenComplete(),
+        )
+
+        self.assertEqual(_IncompleteThenComplete.calls, 2)
+        self.assertEqual(ledger.targets[0].ai_recommendation, "confirm")
 
     def test_review_batches_run_concurrently_without_cross_batch_ids(self) -> None:
         targets = [

@@ -8,13 +8,19 @@ surface below is the cross-service contract; consumers never reach into an
 adapter or stage.
 """
 
+from .errors import RETRIEVAL_ERROR_CODES, RetrievalError
 from .models import (
+    CROSS_LANE_IDENTIFIER_SCHEMES,
     DEVELOPMENT_RECORD_TYPES,
     DevelopmentRecord,
     EVIDENCE_DOMAINS,
     ENTITY_TYPES,
+    EXCERPT_KINDS,
     FINDING_ROLES,
     Finding,
+    IDENTIFIER_SCHEMES,
+    OUTCOME_WARNING_CODES,
+    OutcomeWarning,
     INDICATOR_SPATIAL_TYPES,
     QueryFacets,
     RetrievalEntity,
@@ -24,7 +30,7 @@ from .models import (
     SearchReport,
     SearchRequest,
     SearchRuntime,
-    SearcherLLMClientProtocol,
+    LLMClientProtocol,
     SAFETY_RECORD_TYPES,
     SAFETY_SOURCE_SYSTEMS,
     SOURCE_ROLES,
@@ -32,11 +38,14 @@ from .models import (
     SourceAttribution,
     SourceQueryIntent,
     SourceSpec,
+    dedupe_findings,
     findings_to_dicts,
     merge_findings,
     outcomes_to_dicts,
 )
+from .dates import PUBLISHED_PRECISIONS
 from .connectors import TavilyHTTPConnector, ToolUniverseHTTPConnector
+from .sources.tavily import TAVILY_INTEGRATION
 from .controller import (
     integration_operations,
     lane_class,
@@ -47,21 +56,25 @@ from .controller import (
     validate_source_keys,
     unconfigured_source_keys,
 )
-from .net import prefer_ipv4
 from .pipeline import SEARCH_ENTITIES_DESCRIPTION, SEARCH_ENTITY_FIELDS, SEARCH_TEXT_FIELDS, run_pipeline
-from .stages.searcher import DEFAULT_MAX_TOKENS, DEFAULT_MAX_USES
-
-# Make the direct-HTTP lanes (PubMed, ClinicalTrials.gov) resilient in
-# IPv6-less containers - see net.py. Cheap, idempotent, applied on import.
-prefer_ipv4()
+from .stages.searcher import DEFAULT_MAX_TOKENS
 
 __all__ = [
+    "CROSS_LANE_IDENTIFIER_SCHEMES",
+    "EXCERPT_KINDS",
+    "IDENTIFIER_SCHEMES",
+    "OUTCOME_WARNING_CODES",
+    "OutcomeWarning",
+    "PUBLISHED_PRECISIONS",
+    "RETRIEVAL_ERROR_CODES",
+    "RetrievalError",
+    "dedupe_findings",
     "DEFAULT_MAX_TOKENS",
     "SEARCH_ENTITIES_DESCRIPTION",
     "SEARCH_ENTITY_FIELDS",
     "SEARCH_TEXT_FIELDS",
+    "TAVILY_INTEGRATION",
     "TavilyHTTPConnector",
-    "DEFAULT_MAX_USES",
     "DEVELOPMENT_RECORD_TYPES",
     "DevelopmentRecord",
     "EVIDENCE_DOMAINS",
@@ -77,7 +90,7 @@ __all__ = [
     "SearchReport",
     "SearchRequest",
     "SearchRuntime",
-    "SearcherLLMClientProtocol",
+    "LLMClientProtocol",
     "SAFETY_RECORD_TYPES",
     "SAFETY_SOURCE_SYSTEMS",
     "SOURCE_ROLES",

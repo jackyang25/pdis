@@ -11,8 +11,11 @@ from services.scout import (
 )
 from services.chunker import available_configs as available_chunker_configs
 from services.drafter import has_config as has_drafter_config
-from services.inspector import has_config as has_inspector_config
-from services.inspector.configuration import find_profile, profile_catalog
+from services.inspector import (
+    find_profile,
+    has_config as has_inspector_config,
+    profile_catalog,
+)
 from services.screener import available_configs as available_screener_configs
 
 from api.schemas import (
@@ -45,7 +48,7 @@ def list_document_types() -> DocumentTypesResponse:
                     # Aligner uses the Chunker contract for both documents and
                     # owns one source-type-neutral alignment configuration.
                     "aligner": True,
-                    "inspector": _has_inspector_config(org, source_type, intervention),
+                    "inspector": has_inspector_config(org, source_type, intervention),
                     "scout": _has_scout_config(org, source_type, intervention),
                     "drafter": has_drafter_config(org, source_type, intervention),
                 },
@@ -93,11 +96,6 @@ def get_inspector_profile(
     except LookupError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     return InspectorProfileOut(**profile_catalog(profile))
-
-
-def _has_inspector_config(org: str, source_type: str, intervention: str) -> bool:
-    return has_inspector_config(org, source_type, intervention)
-
 
 
 def _has_scout_config(org: str, source_type: str, intervention: str) -> bool:

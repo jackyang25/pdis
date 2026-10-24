@@ -25,7 +25,7 @@ import { cn } from "@/lib/utils";
  * ended.
  */
 export const EXPANDABLE_ROW = cn(
-  "flex cursor-pointer select-none items-start gap-4 px-5 py-4 outline-none transition-colors focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring/20 sm:px-6 [&::-webkit-details-marker]:hidden motion-reduce:transition-none",
+  "flex cursor-pointer select-none items-start gap-4 px-5 py-4 outline-none transition-colors focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring/60 sm:px-6 [&::-webkit-details-marker]:hidden motion-reduce:transition-none",
   SURFACE.hover,
   "focus-visible:bg-foreground/[0.045]",
   SURFACE.open.header,

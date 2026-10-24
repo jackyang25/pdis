@@ -44,7 +44,7 @@ export const SURFACE_ENTRY_MOTION =
  * card's own, not this recipe's — a card that cannot be hovered sits at the same height.
  */
 export const CARD_LIFT_MOTION =
-  "transition-[box-shadow,transform] duration-base ease-enter hover:-translate-y-px hover:shadow-lifted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/25 motion-reduce:transition-none motion-reduce:hover:translate-y-0";
+  "transition-[box-shadow,transform] duration-base ease-enter hover:-translate-y-px hover:shadow-lifted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/60 motion-reduce:transition-none motion-reduce:hover:translate-y-0";
 
 /**
  * The affordance inside a lifting card: the arrow that says it opens something.

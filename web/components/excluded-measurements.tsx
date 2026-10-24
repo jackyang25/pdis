@@ -10,8 +10,10 @@ import { Computed, Reading, SourceEntry } from "@/components/ui/evidence-text";
 import type { Conformity, Match, Measurement, QuantitativeTarget } from "@/lib/api";
 import { ScoutComparison } from "@/components/scout-comparison";
 import { SEMANTIC_STATUS_LABEL } from "@/lib/scout-labels";
-import { exclusionReasonLines, formatMeasure } from "@/lib/scout-result-view";
+import { formatMeasure } from "@/lib/measure-format";
+import { exclusionReasonLines } from "@/lib/scout-result-view";
 import { DisclosureSummary } from "@/components/ui/disclosure-summary";
+import { countLabel } from "@/lib/count-label";
 
 /**
  * What one numeric target's comparison left out, and why.
@@ -67,7 +69,7 @@ export function ExcludedMeasurements({
           onClose={() => setOpen(false)}
           eyebrow="Excluded"
           title="What this comparison left out"
-          description={`${reviewed} source passage${reviewed === 1 ? "" : "s"} were reviewed for this target. These are the ones that did not enter the cohort.`}
+          description={`${countLabel(reviewed, "source passage")} were reviewed for this target. These are the ones that did not enter the cohort.`}
       >
           {excluded.length > 0 && (
             <TracePanelSection label="Read, then not admitted" className="border-t-0 pt-0">
@@ -164,7 +166,7 @@ function ExcludedMeasurement({
       )}
       {other.length > 0 && <Reading>{other.join(" · ")}</Reading>}
       <details className="mt-2">
-        <DisclosureSummary className="w-fit rounded text-[11px] text-muted-foreground hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/20">Comparison details</DisclosureSummary>
+        <DisclosureSummary className="w-fit rounded text-[11px] text-muted-foreground hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/60">Comparison details</DisclosureSummary>
         <ScoutComparison measurement={measurement} target={target} compact />
       </details>
     </SourceEntry>

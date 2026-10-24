@@ -5,6 +5,7 @@ import { DocumentSourceTrace } from "@/components/document-source-trace";
 import { EYEBROW } from "@/lib/typography";
 import { cn } from "@/lib/utils";
 import { semanticSlotLabel, dimensionLabel, comparisonRuleLabel, comparisonDimensions } from "@/lib/scout-comparison";
+import { reviewRecommendationReason } from "@/lib/scout-labels";
 import { DisclosureSummary } from "@/components/ui/disclosure-summary";
 
 export function TargetQualifierSource({ target, dimension }: {
@@ -45,7 +46,7 @@ function TargetComparisonRule({ target, dimension }: {
 export function TargetComparisonRules({ target }: { target: QuantitativeTarget }) {
   const dimensions = Object.keys(target.comparison_contract) as Array<keyof QuantitativeSemanticProfile>;
   return <details key={target.id} className="mt-5 rounded-lg border border-border/60">
-    <DisclosureSummary className="rounded-lg px-4 py-3 text-xs font-medium text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">How evidence will be compared</DisclosureSummary>
+    <DisclosureSummary className="rounded-lg px-4 py-3 text-xs font-medium text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/60">How evidence will be compared</DisclosureSummary>
     <div className="space-y-4 px-4 pb-4">
       <p className="text-xs leading-relaxed text-muted-foreground">Scout checks whether evidence measures the same thing under comparable conditions. Its result does not need to meet the target.</p>
       {dimensions.map(dimension => <div key={dimension} className="space-y-1">
@@ -57,7 +58,7 @@ export function TargetComparisonRules({ target }: { target: QuantitativeTarget }
 }
 
 /** A disclosure inside the comparison: plain, because the table is the one bordered box. */
-const INNER_SUMMARY = "w-fit select-none rounded-sm text-[11px] font-medium text-muted-foreground outline-none hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/20";
+const INNER_SUMMARY = "w-fit select-none rounded-sm text-[11px] font-medium text-muted-foreground outline-none hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/60";
 
 /**
  * Read-only provenance, shared by review and final measurement details.
@@ -101,9 +102,9 @@ export function ScoutComparison({ target, measurement, compact = false }: {
         </ul>
       </div>
     </details>}
-    {compact && measurement.ai_review_reason && <div className="border-t border-border/60 pt-3 text-xs">
+    {compact && reviewRecommendationReason(measurement) && <div className="border-t border-border/60 pt-3 text-xs">
       <p className="font-medium">{measurement.ai_recommendation === "unavailable" ? "Independent AI review unavailable" : "Independent AI recommendation"}</p>
-      {measurement.ai_recommendation === "unavailable" ? <InterfaceNote>{measurement.ai_review_reason}</InterfaceNote> : <Reading>{measurement.ai_review_reason}</Reading>}
+      {measurement.ai_recommendation === "unavailable" ? <InterfaceNote>{reviewRecommendationReason(measurement)}</InterfaceNote> : <Reading>{measurement.ai_review_reason}</Reading>}
     </div>}
   </div>;
 }

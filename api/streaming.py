@@ -16,9 +16,12 @@ import json
 import logging
 import queue
 import threading
+import weakref
 from typing import Any, Callable, Generator, Iterator
 
-from api.execution import run_slot
+from fastapi import HTTPException
+
+from api.execution import CapacityExceeded, RunCancelled, admit_run, run_slot
 from api.error_recovery import recovery_guidance
 
 
@@ -38,7 +41,7 @@ HEARTBEAT_SECONDS = 15
 QUEUED_STAGE = "queued"
 
 
-def run_with_progress(work: Callable[..., Any]) -> Generator[str, None, None]:
+def run_with_progress(work: Callable[..., Any]) -> Iterator[str]:
     """Run `work(progress_callback)` in a background thread, yielding NDJSON.
 
     `work` is a callable that takes `progress_callback(stage, completed=None,
@@ -51,14 +54,31 @@ def run_with_progress(work: Callable[..., Any]) -> Generator[str, None, None]:
 
     progress() is thread-safe: it is called from pipeline worker threads, and
     queue.Queue.put is safe for concurrent producers.
+
+    Admission is decided here, in the handler, so a full queue is a 503 rather
+    than an error event on a 200. The run starts at once. When the stream is
+    closed before the run ends - the client went away - the run is cancelled:
+    a queued run never takes a slot, and a running one raises `RunCancelled`
+    from its next progress() call.
+
+    Raises:
+        HTTPException: 503 when running and waiting runs are both at their cap.
     """
+    try:
+        release_admission = admit_run()
+    except CapacityExceeded as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+
     events: "queue.Queue[Any]" = queue.Queue()
+    cancelled = threading.Event()
     stage_lock = threading.Lock()
     current_stage = {"name": "startup"}
 
     def progress(
         stage: str, completed: int | None = None, total: int | None = None
     ) -> None:
+        if cancelled.is_set():
+            raise RunCancelled("The client closed the stream.")
         with stage_lock:
             current_stage["name"] = stage
         event: dict[str, Any] = {"event": "stage", "name": stage}
@@ -70,15 +90,22 @@ def run_with_progress(work: Callable[..., Any]) -> Generator[str, None, None]:
     def runner() -> None:
         # Waiting for capacity is not a stage of the work, so the queued event is
         # published directly instead of through progress(): a later failure stays
-        # attributed to the pipeline stage that failed. The slot is released on
-        # every exit path, because a run that ended without releasing would
-        # retire that capacity until the next restart.
+        # attributed to the pipeline stage that failed. The slot and the admission
+        # are released on every exit path, because a run that ended without
+        # releasing would retire that capacity until the next restart.
         try:
             with run_slot(
-                on_queued=lambda: events.put({"event": "stage", "name": QUEUED_STAGE})
+                on_queued=lambda: events.put({"event": "stage", "name": QUEUED_STAGE}),
+                cancelled=cancelled,
             ):
+                if cancelled.is_set():
+                    raise RunCancelled("The client closed the stream.")
                 result = work(progress)
                 events.put({"event": "complete", "result": result})
+        except RunCancelled:
+            with stage_lock:
+                stopped_stage = current_stage["name"]
+            logger.info("Run abandoned by its client during stage %s", stopped_stage)
         except Exception as exc:  # noqa: BLE001
             with stage_lock:
                 failed_stage = current_stage["name"]
@@ -89,20 +116,34 @@ def run_with_progress(work: Callable[..., Any]) -> Generator[str, None, None]:
                 detail = f"{detail} {guidance}"
             events.put({"event": "error", "detail": detail})
         finally:
+            release_admission()
             events.put(END)
 
-    thread = threading.Thread(target=runner, daemon=True)
-    thread.start()
-
-    while True:
+    def stream() -> Generator[str, None, None]:
         try:
-            item = events.get(timeout=HEARTBEAT_SECONDS)
-        except queue.Empty:
-            yield json.dumps({"event": "ping"}) + "\n"
-            continue
-        if item is END:
-            break
-        yield json.dumps(item) + "\n"
+            while True:
+                try:
+                    item = events.get(timeout=HEARTBEAT_SECONDS)
+                except queue.Empty:
+                    yield json.dumps({"event": "ping"}) + "\n"
+                    continue
+                if item is END:
+                    break
+                yield json.dumps(item) + "\n"
+        finally:
+            # Also reached by GeneratorExit when the server closes an abandoned
+            # stream. After a finished run it changes nothing.
+            cancelled.set()
+
+    # A bare Thread starts with an empty context, so the request ID the logging
+    # filter reads from a ContextVar would vanish from everything the run logs.
+    context = contextvars.copy_context()
+    threading.Thread(target=context.run, args=(runner,), daemon=True).start()
+    events_stream = stream()
+    # A stream the server never starts is never closed, so its `finally` cannot
+    # run; collecting it cancels the run instead.
+    weakref.finalize(events_stream, cancelled.set)
+    return events_stream
 
 
 PING = object()

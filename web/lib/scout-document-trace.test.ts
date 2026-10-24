@@ -315,3 +315,17 @@ test("Scout claims spans and blocks only, never anchors or block emphasis", () =
     "every Scout annotation cites at least one retained block",
   );
 });
+
+test("a field left out at review places no grounding or precedent mark", () => {
+  // No check ran for it, so a mark would present the passage as examined.
+  const unsearched = structuredClone(result);
+  unsearched.assessments[0] = { ...unsearched.assessments[0], strength: "not_searched", reason: "", supporting_insight_ids: [] };
+  unsearched.precedents[0] = {
+    ...unsearched.precedents[0], precedent: "not_searched", outcome: "not_searched", reason: "",
+    coverage_insight_ids: [], outcome_insight_ids: [], supporting_insight_ids: [],
+  };
+  const kinds = buildScoutDocumentAnnotations(unsearched).map((annotation) => annotation.kind);
+  assert.ok(kinds.includes("field"), "the document target itself is still placed");
+  assert.ok(!kinds.includes("grounding"));
+  assert.ok(!kinds.includes("precedent"));
+});

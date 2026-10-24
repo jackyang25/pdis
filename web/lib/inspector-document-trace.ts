@@ -4,7 +4,7 @@ import type {
   SectionAssessment,
   Verdict,
 } from "./api.ts";
-import { VERDICT_LABEL, worklist } from "./api.ts";
+import { VERDICT_TONE, verdictLabel, worklist } from "./api.ts";
 import type {
   DocumentAnnotation,
   DocumentAnnotationEmphasis,
@@ -45,19 +45,13 @@ export type InspectorDocumentAnnotation = DocumentAnnotation<
 
 /**
  * A negative result, not a system error, so this rides the tone tokens rather
- * than `--destructive`.
- *
- * Read from the vocabulary's own order, which is declared worst-first: the verdicts
- * that leave something absent read as danger, and the one that leaves the requirement
- * covered but unusable reads as caution. There is no separate tone table to keep in step, and no
- * severity field - the position in the one list is the severity.
+ * than `--destructive`. The tone is the verdict's own, from the one map the pill and
+ * the count row read, so the trace cannot decide the split a second time.
  */
-const WEAKER_VERDICTS: readonly Verdict[] = ["vague"];
-
 function emphasisFor(item: Assessment): DocumentAnnotationEmphasis {
   return {
-    tone: WEAKER_VERDICTS.includes(item.verdict) ? "warning" : "danger",
-    badge: VERDICT_LABEL[item.verdict] ?? item.verdict,
+    tone: VERDICT_TONE[item.verdict],
+    badge: verdictLabel(item.verdict),
   };
 }
 
@@ -144,7 +138,7 @@ export function buildInspectorDocumentAnnotations(
     const anchor = item.section_name
       ? anchorBySection.get(item.section_name)
       : conflictAnchor(item, sectionByBlock, anchorBySection);
-    const label = VERDICT_LABEL[item.verdict] ?? item.verdict;
+    const label = verdictLabel(item.verdict);
 
     return {
       id: inspectorAnnotationId(item.id),

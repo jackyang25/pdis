@@ -11,40 +11,32 @@ from __future__ import annotations
 
 from services.chunker import ContentBlock
 
-from shared.spans import DocumentSpan, line_addressable, line_span_schema, resolved_spans
-from shared.document_metadata import extraction_context
 from shared.references import reference_array
+from shared.source_blocks import image_inputs as _image_inputs, render_blocks
+from shared.spans import DocumentSpan, line_span_schema, resolved_spans
 
 __all__ = ["format_blocks", "image_inputs", "read_spans"]
 
+#: What an image block's text is replaced with: the visual itself is sent beside the
+#: text, and it is cited by identity, never by a quoted line.
+IMAGE_BODY = "Retained visual; cite visual_block_ids, not a text span."
+
 
 def format_blocks(blocks: list[ContentBlock]) -> str:
-    """Blocks addressed by ID, their text addressed by line.
+    """Blocks addressed by ID, with their headings, their text addressed by line.
 
     Both addresses are needed: the model names a block to say which passage, and lines
     inside it to say which part of the passage. The line labels are a wire view only -
-    nothing that comes back carries text, so they never reach a result.
+    nothing that comes back carries text, so they never reach a result. The headings are
+    what tells a table cell which row and section it belongs to; without them a cell
+    reading "36 months" said nothing about what lasts 36 months.
     """
-    rendered = []
-    for block in blocks:
-        metadata = extraction_context(block.structural_meta)
-        header = f"[block:{block.id}] ({block.source_type} · {block.block_type})\n"
-        if metadata:
-            header += f"Source location: {metadata}\n"
-        rendered.append(header + (
-            "Retained visual; cite visual_block_ids, not a text span."
-            if block.block_type == "image" else line_addressable(block.content)
-        ))
-    return "\n\n".join(rendered)
+    return render_blocks(blocks, source_type=True, line_numbers=True, image_body=IMAGE_BODY)
 
 
 def image_inputs(blocks: list[ContentBlock]) -> list[dict[str, str]]:
     """Slide and figure images, so a bar set in a picture is readable."""
-    return [
-        {"block_id": block.id, "data_url": block.image.data_url()}
-        for block in blocks
-        if block.image
-    ]
+    return _image_inputs(blocks)
 
 
 def read_spans(raw: object, blocks: list[ContentBlock]) -> list[DocumentSpan]:

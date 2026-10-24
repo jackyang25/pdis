@@ -1,11 +1,21 @@
-"""Deterministic product-development projections over normalized Findings."""
+"""Deterministic product-development projections over normalized Findings.
+
+Grouping is by identity, and identity is decided once, upstream: which program and
+product names denote one thing is `projection_reconciler`'s partition, passed in as
+``names`` (each name as a provider stated it, to the name its group is shown under).
+Nothing here folds case or spacing to decide that two names are one, and a record
+repeated across fields or lanes is merged by its record identity
+(`services.searcher.dedupe_findings`), not its page.
+"""
 
 from __future__ import annotations
 
+import copy
 import hashlib
 import re
+from typing import Mapping
 
-from services.searcher import Finding
+from services.searcher import Finding, dedupe_findings
 
 from .models import (
     DevelopmentProgram,
@@ -13,34 +23,53 @@ from .models import (
 )
 
 
+def projection_names(findings_by_attribute: Mapping[str, list[Finding]]) -> list[str]:
+    """Every program and product name the projections would group, as stated, in order."""
+    return list(dict.fromkeys(
+        name
+        for findings in findings_by_attribute.values()
+        for finding in findings
+        for name in (
+            *(record.program_name.strip() for record in finding.development_records),
+            *(record.product_name.strip() for record in finding.safety_observations),
+        )
+        if name
+    ))
+
+
 def build_development_landscape(
-    findings_by_attribute: dict[str, list[Finding]],
+    findings_by_attribute: Mapping[str, list[Finding]],
+    names: Mapping[str, str] | None = None,
 ) -> list[DevelopmentProgram]:
     """Group explicit provider facts by named program without inference."""
+    names = names or {}
     grouped: dict[str, DevelopmentProgram] = {}
+    findings: dict[str, list[Finding]] = {}
     roles: dict[str, set[str]] = {}
-    for attribute_ref, findings in findings_by_attribute.items():
-        for finding in findings:
+    for attribute_ref, attribute_findings in findings_by_attribute.items():
+        for finding in attribute_findings:
             for record in finding.development_records:
-                key = _key(record.program_name)
-                if not key:
+                stated = record.program_name.strip()
+                if not stated:
                     continue
-                program = grouped.setdefault(
-                    key,
-                    DevelopmentProgram(name=record.program_name.strip()),
-                )
+                key = names.get(stated, stated)
+                program = grouped.setdefault(key, DevelopmentProgram(name=key))
                 _append(program.sponsors, record.sponsor)
                 _append(program.phases, record.phase)
                 _append(program.statuses, record.status)
                 _append(program.record_types, record.record_type)
                 _append(program.record_ids, record.record_id)
                 _append(program.attribute_refs, attribute_ref)
-                _append_finding(program.supporting_findings, finding)
+                findings.setdefault(key, []).append(finding)
                 if record.source_role != "unknown":
                     roles.setdefault(key, set()).add(record.source_role)
     for key, program in grouped.items():
         program.projection_id = _projection_id("dp", key)
         program.source_role = _grouped_role(roles.get(key, set()))
+        program.supporting_findings = _one_entry_per_record(findings[key])
+    # Presentation order only - most advanced first, then by name. The phase is read
+    # from the provider's own label (AGENTS: lexical rules may reorder results already
+    # returned), because no adapter states a phase in a closed vocabulary yet.
     return sorted(
         grouped.values(),
         key=lambda item: (-_highest_phase(item.phases), item.name.casefold()),
@@ -48,24 +77,28 @@ def build_development_landscape(
 
 
 def build_safety_observations(
-    findings_by_attribute: dict[str, list[Finding]],
+    findings_by_attribute: Mapping[str, list[Finding]],
+    names: Mapping[str, str] | None = None,
 ) -> list[SafetyObservation]:
-    """Group repeated retrievals of the same explicit safety observation."""
+    """Group repeated retrievals of the same explicit safety observation.
+
+    One observation is one product (by the reconciled name), one record type and
+    source system (closed vocabularies), and one label as the source system states it.
+    """
+    names = names or {}
     grouped: dict[tuple[str, str, str, str], SafetyObservation] = {}
+    findings: dict[tuple[str, str, str, str], list[Finding]] = {}
     roles: dict[tuple[str, str, str, str], set[str]] = {}
-    for attribute_ref, findings in findings_by_attribute.items():
-        for finding in findings:
+    for attribute_ref, attribute_findings in findings_by_attribute.items():
+        for finding in attribute_findings:
             for record in finding.safety_observations:
-                key = (
-                    _key(record.product_name),
-                    record.record_type.casefold(),
-                    record.source_system.casefold(),
-                    _key(record.label),
-                )
+                stated = record.product_name.strip()
+                product = names.get(stated, stated)
+                key = (product, record.record_type, record.source_system, record.label.strip())
                 observation = grouped.setdefault(
                     key,
                     SafetyObservation(
-                        product_name=record.product_name.strip(),
+                        product_name=product,
                         record_type=record.record_type,
                         source_system=record.source_system,
                         label=record.label.strip(),
@@ -84,12 +117,13 @@ def build_safety_observations(
                 if not observation.qualification and record.qualification:
                     observation.qualification = record.qualification.strip()
                 _append(observation.attribute_refs, attribute_ref)
-                _append_finding(observation.supporting_findings, finding)
+                findings.setdefault(key, []).append(finding)
                 if record.source_role != "unknown":
                     roles.setdefault(key, set()).add(record.source_role)
     for key, observation in grouped.items():
         observation.projection_id = _projection_id("so", "\n".join(key))
         observation.source_role = _grouped_role(roles.get(key, set()))
+        observation.supporting_findings = _one_entry_per_record(findings[key])
     order = {
         "label_warning": 0,
         "recall": 1,
@@ -101,7 +135,7 @@ def build_safety_observations(
         key=lambda item: (
             item.product_name.casefold(),
             order.get(item.record_type, 9),
-            item.source_system.casefold(),
+            item.source_system,
             -(item.report_count or 0),
             item.label.casefold(),
         ),
@@ -114,16 +148,14 @@ def _append(values: list[str], value: str) -> None:
         values.append(normalized)
 
 
-def _append_finding(findings: list[Finding], finding: Finding) -> None:
-    if not any(
-        existing.url == finding.url and existing.source == finding.source
-        for existing in findings
-    ):
-        findings.append(finding)
+def _one_entry_per_record(findings: list[Finding]) -> list[Finding]:
+    """One entry per record, its lineage merged the way Searcher's dedup merges it.
 
-
-def _key(value: str) -> str:
-    return " ".join(value.casefold().split())
+    The same record retrieved under two fields, or by two lanes, is one source: listing
+    it twice would count it twice, and keeping only one would drop a lane. Copies,
+    because the retrieved Finding is shared with each field's own evidence list.
+    """
+    return dedupe_findings(copy.copy(finding) for finding in findings)
 
 
 def _projection_id(prefix: str, grouping_key: str) -> str:

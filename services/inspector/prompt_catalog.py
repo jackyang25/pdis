@@ -3,7 +3,8 @@
 The assessor owns its prompt text. This module owns the list of prompts, how to
 render each against a placeholder rubric, and which result fields each produces.
 
-Inspector sends one prompt per rubric unit and one for the whole document, so the
+Inspector sends one system prompt per rubric, whichever unit is asked about (the
+unit itself travels in the user message), and one for the whole document, so the
 published pair is the complete set. It was four - one per dimension plus
 consistency - and merging the dimensions merged their prompts with them.
 """
@@ -48,11 +49,7 @@ PROMPT_CATALOG: tuple[CatalogEntry, ...] = (
         stage="assessment",
         title="Rubric unit assessment",
         builder_name="build_assessment_prompt",
-        render=lambda: build_assessment_prompt(
-            PLACEHOLDER_SECTION,
-            PLACEHOLDER_VARIABLE,
-            PLACEHOLDER_CONFIG.stage_guidance,
-        ),
+        render=lambda: build_assessment_prompt(PLACEHOLDER_CONFIG.stage_guidance),
         framing_slot="stage_guidance",
         result_fields=(
             "reviews[].sections[].units[].verdict",

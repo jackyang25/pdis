@@ -11,7 +11,7 @@ from api.deps import (
     get_search_integrations,
     validate_configuration,
 )
-import services.searcher.controller as search_controller
+import services.searcher.calls as search_calls
 import services.searcher.sources.semantic_scholar as semantic_scholar_source
 from services.searcher import (
     RetrievalEntity,
@@ -30,7 +30,7 @@ from services.searcher import (
 
 
 class _NoopLLM:
-    def search_web(self, query: str, *, max_tokens: int, max_uses: int):
+    def search_web(self, query: str, *, max_tokens: int):
         raise AssertionError("web search should not run")
 
 
@@ -149,13 +149,13 @@ class _MultiSourceToolUniverse:
                     ]
                 },
             }
-        if tool_name == "ChEMBL_search_targets":
-            return {"status": "success", "data": {"targets": []}}
         if tool_name == "FDA_get_warnings_by_drug_name":
             return {
                 "results": [
                     {
                         "openfda.brand_name": ["Example drug"],
+                        "set_id": "00000000-0000-0000-0000-0000000000a1",
+                        "id": "00000000-0000-0000-0000-0000000000b1",
                         "warnings": ["May cause severe hypersensitivity."],
                     }
                 ]
@@ -216,7 +216,7 @@ class _CoordinatedLLM:
     def __init__(self, web_started: threading.Event):
         self.web_started = web_started
 
-    def search_web(self, query: str, *, max_tokens: int, max_uses: int):
+    def search_web(self, query: str, *, max_tokens: int):
         self.web_started.set()
         return {"output": []}
 
@@ -238,29 +238,29 @@ class _HTTPResponse:
 class ToolUniverseConnectorTests(unittest.TestCase):
     def test_semantic_scholar_throttle_stays_below_one_request_per_second(self) -> None:
         source = "semantic_scholar"
-        previous = search_controller._NEXT_SOURCE_START.get(source)
-        search_controller._NEXT_SOURCE_START.pop(source, None)
+        previous = search_calls._NEXT_START.get(source)
+        search_calls._NEXT_START.pop(source, None)
         try:
             with (
                 patch(
-                    "services.searcher.controller.time.monotonic",
+                    "services.searcher.calls.time.monotonic",
                     side_effect=(10.0, 10.5),
                 ),
-                patch("services.searcher.controller.time.sleep") as sleep,
+                patch("services.searcher.calls.time.sleep") as sleep,
             ):
-                search_controller._wait_for_source_start(
+                search_calls.pace(
                     source,
                     semantic_scholar_source.MIN_REQUEST_INTERVAL_SECONDS,
                 )
-                search_controller._wait_for_source_start(
+                search_calls.pace(
                     source,
                     semantic_scholar_source.MIN_REQUEST_INTERVAL_SECONDS,
                 )
         finally:
             if previous is None:
-                search_controller._NEXT_SOURCE_START.pop(source, None)
+                search_calls._NEXT_START.pop(source, None)
             else:
-                search_controller._NEXT_SOURCE_START[source] = previous
+                search_calls._NEXT_START[source] = previous
 
         sleep.assert_called_once()
         self.assertGreaterEqual(sleep.call_args.args[0], 0.59)
@@ -332,7 +332,7 @@ class ToolUniverseConnectorTests(unittest.TestCase):
         )
 
         with patch(
-            "services.searcher.connectors.tooluniverse.urlopen",
+            "services.searcher.transport._open",
             return_value=response,
         ) as mocked:
             result = connector.run(
@@ -352,6 +352,32 @@ class ToolUniverseConnectorTests(unittest.TestCase):
 
         with self.assertRaisesRegex(ValueError, "not allowlisted"):
             connector.run("PythonExecutor", {"code": "pass"})
+
+    def test_a_wrapped_provider_rate_limit_is_retried_and_other_tool_errors_are_not(self) -> None:
+        # ToolUniverse answers 200 with the provider's refusal as text, so the transport never
+        # saw a rate limit: a live run lost 47 Semantic Scholar requests to this.
+        from services.searcher import transport
+        from services.searcher.errors import RetrievalError
+
+        connector = ToolUniverseHTTPConnector(
+            base_url="http://tooluniverse.test:8080",
+            allowed_tools=frozenset({"SemanticScholar_search_papers"}),
+        )
+        limited = {"success": True, "result": {"status": "error", "error": "Semantic Scholar API error 429"}}
+        ok = {"success": True, "result": {"status": "success", "data": []}}
+        with patch("services.searcher.transport._open", side_effect=[_HTTPResponse(limited), _HTTPResponse(ok)]), \
+                patch.object(transport, "pause") as pause:
+            result = connector.run("SemanticScholar_search_papers", {"query": "rsv"})
+        self.assertEqual(result["status"], "success")
+        pause.assert_called_once()
+
+        broken = {"success": True, "result": {"status": "error", "error": "Unknown field: limit"}}
+        with patch("services.searcher.transport._open", return_value=_HTTPResponse(broken)), \
+                patch.object(transport, "pause") as pause:
+            with self.assertRaises(RetrievalError) as caught:
+                connector.run("SemanticScholar_search_papers", {"query": "rsv"})
+        self.assertEqual(caught.exception.code, "tool_error")
+        pause.assert_not_called()
 
     def test_semantic_scholar_is_a_normal_traced_source_adapter(self) -> None:
         connector = _FakeToolUniverse()
@@ -375,12 +401,11 @@ class ToolUniverseConnectorTests(unittest.TestCase):
         )
 
         requests = plan_requests([intent], sources=("semantic_scholar",))
-        with patch("services.searcher.controller._wait_for_source_start") as throttle:
+        with patch("services.searcher.calls.pace") as throttle:
             outcomes = run_requests(
                 requests,
                 runtime=runtime,
                 max_tokens=100,
-                max_uses=1,
             )
 
         self.assertEqual(len(requests), 1)
@@ -417,7 +442,6 @@ class ToolUniverseConnectorTests(unittest.TestCase):
                 "WHO_Guideline_Full_Text",
                 "OpenTargets_get_evidence_by_datasource",
                 "ChEMBL_search_drugs",
-                "ChEMBL_search_targets",
                 "FDA_search_drug_labels",
                 "OpenFDA_search_device_510k",
                 "FDA_get_warnings_by_drug_name",
@@ -504,7 +528,6 @@ class ToolUniverseConnectorTests(unittest.TestCase):
                 integrations={"tooluniverse": connector},
             ),
             max_tokens=100,
-            max_uses=1,
         )
         self.assertEqual(outcomes[0].status, "skipped")
         self.assertEqual(connector.calls, [])
@@ -543,7 +566,6 @@ class ToolUniverseConnectorTests(unittest.TestCase):
             requests,
             runtime=runtime,
             max_tokens=100,
-            max_uses=1,
         )
         findings = [
             finding
@@ -552,8 +574,12 @@ class ToolUniverseConnectorTests(unittest.TestCase):
         ]
 
         self.assertTrue(all(outcome.status == "complete" for outcome in outcomes))
-        self.assertTrue(
-            any(url.startswith("https://platform.opentargets.org/evidence/") for url in {f.url for f in findings})
+        open_targets = next(f for f in findings if f.source == "open_targets")
+        # A literature row points at the paper it cites; its identity is its record key.
+        self.assertEqual(open_targets.url, "https://europepmc.org/article/MED/12345678")
+        self.assertEqual(
+            open_targets.record_key,
+            "open_targets:ENSG00000123456:EFO_0001068:europepmc:literature:12345678",
         )
         self.assertIn("https://www.ebi.ac.uk/chembl/explore/compound/CHEMBL76", {f.url for f in findings})
         self.assertEqual(
@@ -609,7 +635,6 @@ class ToolUniverseConnectorTests(unittest.TestCase):
                 ("document/b-0001", "document/b-0002"),
             )
             self.assertEqual(request.tracks, ("general", "counterfactual"))
-            self.assertEqual(request.option("ranking"), "all_input_queries")
         self.assertEqual(
             [request.operation for request in requests],
             [
@@ -641,12 +666,11 @@ class ToolUniverseConnectorTests(unittest.TestCase):
         )
         requests = plan_requests([intent], sources=("ctis", "isrctn", "fda"))
 
-        with patch("services.searcher.controller._wait_for_source_start"):
+        with patch("services.searcher.calls.pace"):
             outcomes = run_requests(
                 requests,
                 runtime=runtime,
                 max_tokens=100,
-                max_uses=1,
             )
 
         self.assertTrue(all(outcome.status == "complete" for outcome in outcomes))
@@ -666,9 +690,9 @@ class ToolUniverseConnectorTests(unittest.TestCase):
         self.assertEqual(
             [call[1] for call in connector.calls],
             [
-                {"medical_condition": "malaria", "limit": 50},
-                {"condition": "malaria", "limit": 50, "intervention": "vaccine"},
-                {"indication": "malaria", "limit": 20},
+                {"medical_condition": "malaria", "limit": 10},
+                {"condition": "malaria", "limit": 10, "intervention": "vaccine"},
+                {"indication": "malaria", "limit": 10},
             ],
         )
 
@@ -688,12 +712,11 @@ class ToolUniverseConnectorTests(unittest.TestCase):
         )
 
         request = plan_requests([intent], sources=("fda",))[0]
-        with patch("services.searcher.controller._wait_for_source_start"):
+        with patch("services.searcher.calls.pace"):
             outcome = run_requests(
                 [request],
                 runtime=runtime,
                 max_tokens=100,
-                max_uses=1,
             )[0]
 
         self.assertEqual(request.operation, "OpenFDA_search_device_510k")
@@ -722,12 +745,11 @@ class ToolUniverseConnectorTests(unittest.TestCase):
         )
 
         requests = plan_requests([intent], sources=("fda_safety",))
-        with patch("services.searcher.controller._wait_for_source_start"):
+        with patch("services.searcher.calls.pace"):
             outcomes = run_requests(
                 requests,
                 runtime=runtime,
                 max_tokens=100,
-                max_uses=1,
             )
 
         self.assertEqual(
@@ -823,12 +845,11 @@ class ToolUniverseConnectorTests(unittest.TestCase):
         )
 
         requests = plan_requests([intent], sources=("fda_safety",))
-        with patch("services.searcher.controller._wait_for_source_start"):
+        with patch("services.searcher.calls.pace"):
             outcomes = run_requests(
                 requests,
                 runtime=runtime,
                 max_tokens=100,
-                max_uses=1,
             )
 
         observations = [
@@ -866,12 +887,11 @@ class ToolUniverseConnectorTests(unittest.TestCase):
         )
 
         requests = plan_requests([intent], sources=("fda_safety",))
-        with patch("services.searcher.controller._wait_for_source_start"):
+        with patch("services.searcher.calls.pace"):
             outcomes = run_requests(
                 requests,
                 runtime=runtime,
                 max_tokens=100,
-                max_uses=1,
             )
 
         reported_finding = next(
@@ -881,12 +901,14 @@ class ToolUniverseConnectorTests(unittest.TestCase):
             if finding.safety_observations
             and finding.safety_observations[0].record_type == "reported_event"
         )
+        # The query whose total is the count shown, so the count can be checked.
         self.assertEqual(
             reported_finding.url,
             "https://api.fda.gov/drug/event.json?"
-            "search=patient.drug.medicinalproduct%3ACAB-LA&"
-            "count=patient.reaction.reactionmeddrapt.exact",
+            "search=patient.drug.medicinalproduct%3ACAB-LA+AND+"
+            "patient.reaction.reactionmeddrapt.exact%3A%22NAUSEA%22&limit=1",
         )
+        self.assertEqual(reported_finding.record_key, "fda_safety:faers:CAB-LA:NAUSEA")
 
     def test_global_worker_limit_bounds_future_source_fanout(self) -> None:
         connector = _CountingToolUniverse()
@@ -910,12 +932,11 @@ class ToolUniverseConnectorTests(unittest.TestCase):
             sources=("semantic_scholar",),
         )
 
-        with patch("services.searcher.controller._wait_for_source_start"):
+        with patch("services.searcher.calls.pace"):
             run_requests(
                 requests,
                 runtime=runtime,
                 max_tokens=100,
-                max_uses=1,
             )
 
         self.assertEqual(connector.max_active, 2)
@@ -943,12 +964,11 @@ class ToolUniverseConnectorTests(unittest.TestCase):
         )
         updates: list[tuple[int, int]] = []
 
-        with patch("services.searcher.controller._wait_for_source_start"):
+        with patch("services.searcher.calls.pace"):
             outcomes = run_requests(
                 requests,
                 runtime=runtime,
                 max_tokens=100,
-                max_uses=1,
                 progress=lambda completed, total: updates.append((completed, total)),
             )
 
@@ -979,12 +999,11 @@ class ToolUniverseConnectorTests(unittest.TestCase):
             )
         )
 
-        with patch("services.searcher.controller._wait_for_source_start"):
+        with patch("services.searcher.calls.pace"):
             outcomes = run_requests(
                 requests,
                 runtime=runtime,
                 max_tokens=100,
-                max_uses=1,
             )
 
         self.assertTrue(connector.observed_web_start)

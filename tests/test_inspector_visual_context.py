@@ -19,7 +19,7 @@ def block(name, slide, *, visual=False, doc_id="deck"):
 
 class InspectorVisualContextTests(unittest.TestCase):
     def test_assessment_and_contract_share_visual_scope_without_remapping(self):
-        from services.inspector.stages.assessor import assess_document
+        from services.inspector.stages.assessor import assess_rubrics
         from services.inspector.contract import validate_result_contract
         from tests.test_inspector_contract import _config, _result
 
@@ -38,7 +38,7 @@ class InspectorVisualContextTests(unittest.TestCase):
                 return {"verdict": "specified", "statement": "", "block_ids": [overview.id]}
 
         config = _config()
-        assessments, mapped = assess_document(source, config, Client(), max_tokens=1000)
+        assessments, mapped = assess_rubrics(source, [config], Client())[0]
         self.assertEqual(mapped, {"Profile": [text.id]})
         self.assertEqual(len(calls), 2)
         for schema, kwargs in calls:

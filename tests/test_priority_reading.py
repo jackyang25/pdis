@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import unittest
 
+from shared.errors import ModelResponseError
 from services.assistant import (
     PriorityFinding,
     PriorityRequest,
@@ -16,7 +17,10 @@ from services.assistant import (
     read_priorities,
 )
 from services.assistant.priorities import (
+    EFFORT,
     MAX_FINDINGS_CHARACTERS,
+    MAX_TOKENS,
+    TASK,
     MAX_POINTS,
     build_system_prompt,
     build_user_message,
@@ -30,9 +34,10 @@ class FakeClient:
         self.calls: list[dict] = []
 
     def call_structured(
-        self, system_prompt, user_message, max_tokens, *, schema_name, schema, **_
+        self, system_prompt, user_message, max_tokens, *, schema_name, schema, **policy
     ):
-        self.calls.append({"system": system_prompt, "user": user_message, "schema": schema})
+        self.calls.append({"system": system_prompt, "user": user_message, "schema": schema,
+                           "max_tokens": max_tokens, **policy})
         return None if self.payload is None else dict(self.payload)
 
 
@@ -91,20 +96,35 @@ class ReadingTests(unittest.TestCase):
 
     def test_a_point_naming_an_unknown_finding_refuses_the_reply(self) -> None:
         """A point that opens nothing is a broken reply, not a smaller one."""
-        with self.assertRaises(ValueError):
+        with self.assertRaises(ModelResponseError):
             self.read({"summary": "S", "points": [point(finding_ids=["u-9"])]})
 
     def test_a_point_without_findings_refuses_the_reply(self) -> None:
-        with self.assertRaises(ValueError):
+        with self.assertRaises(ModelResponseError):
             self.read({"summary": "S", "points": [point(finding_ids=[])]})
 
     def test_an_empty_summary_is_refused(self) -> None:
-        with self.assertRaises(ValueError):
+        with self.assertRaises(ModelResponseError):
             self.read({"summary": "  ", "points": []})
 
     def test_no_structured_answer_is_refused(self) -> None:
-        with self.assertRaises(ValueError):
+        with self.assertRaises(ModelResponseError):
             self.read(None)
+
+    def test_a_broken_reply_is_asked_for_once_more_with_its_reason(self) -> None:
+        """A one-shot request surfaced every broken or cut-off reply as a 502 on the card."""
+        client = FakeClient({"summary": "S", "points": [{"title": "T", "statement": "S", "finding_ids": ["nope"]}]})
+        with self.assertRaises(ModelResponseError):
+            read_priorities(PriorityRequest(authority="A", focus="F", findings=(finding(),)), llm_client=client)
+        self.assertEqual(len(client.calls), 2)
+        self.assertIn("does not hold", client.calls[1]["user"])
+
+    def test_the_reading_states_its_own_tier_effort_and_budget(self) -> None:
+        client = FakeClient({"summary": "S", "points": []})
+        read_priorities(PriorityRequest(authority="A", focus="F", findings=(finding(),)), llm_client=client)
+        call = client.calls[0]
+        self.assertEqual((call["task"], call["effort"], call["max_tokens"]), (TASK, EFFORT, MAX_TOKENS))
+        self.assertGreater(MAX_TOKENS, 2000)
 
     def test_a_result_with_no_findings_is_not_read(self) -> None:
         with self.assertRaises(ValueError):
@@ -132,6 +152,15 @@ class SchemaTests(unittest.TestCase):
         self.assertFalse(item["additionalProperties"])
         self.assertEqual(item["properties"]["title"]["minLength"], 1)
         self.assertEqual(item["properties"]["statement"]["minLength"], 1)
+
+    def test_whitespace_the_parser_refuses_is_refused_by_the_schema(self) -> None:
+        import re
+
+        schema = reading_schema(["u-1"])
+        item = schema["properties"]["points"]["items"]["properties"]
+        for field in (schema["properties"]["summary"], item["title"], item["statement"]):
+            self.assertIsNone(re.search(field["pattern"], "  \n "))
+            self.assertIsNotNone(re.search(field["pattern"], " a "))
 
 
 class PromptTests(unittest.TestCase):

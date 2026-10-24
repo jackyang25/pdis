@@ -10,6 +10,7 @@ from fastapi import APIRouter, File, Form, HTTPException, UploadFile
 from fastapi.responses import StreamingResponse
 
 from services.scout import (
+    FieldSelectionError,
     result_from_target_review,
     ScoutResult,
     assessments_to_dicts,
@@ -36,11 +37,11 @@ from api.schemas import (
     DevelopmentProgramOut,
     DocumentContextValidationOut,
     EvidenceAssessmentOut,
-    FindingOut,
     FunnelStatsOut,
-    InsightOut,
+    IdentityReconciliationOut,
     MatchOut,
     QuantitativeLedgerOut,
+    RetrievalScopeOut,
     ScoutContinueRequest,
     ScoutRunResponse,
     SafetyObservationOut,
@@ -49,7 +50,7 @@ from api.schemas import (
     VariableOut,
 )
 from api.streaming import run_with_progress
-from api.uploads import document_upload_parts
+from api.uploads import document_upload_parts, read_uploads, require_distinct_doc_ids
 
 router = APIRouter()
 
@@ -62,9 +63,12 @@ def _response_from_result(
     intervention_class: str,
     indication: str,
 ) -> ScoutRunResponse:
-    match_dicts = matches_to_dicts(result.matches)
-    assessment_dicts = assessments_to_dicts(result.assessments)
-    precedent_dicts = precedents_to_dicts(result.precedents)
+    """Publish a result through the schema, field for field.
+
+    Each record is validated from its serialised form rather than rebuilt by hand: a
+    hand-built copy is where `failure_code` went missing from matches, assessments and
+    precedents, so a failed stage published a value with nothing saying why.
+    """
     return ScoutRunResponse(
         phase=result.phase,
         org=org,
@@ -75,65 +79,25 @@ def _response_from_result(
         context_validation=DocumentContextValidationOut.model_validate(
             asdict(result.context_validation)
         ),
+        retrieval_scope=RetrievalScopeOut.model_validate(asdict(result.retrieval_scope)),
+        reconciliations=[
+            IdentityReconciliationOut.model_validate(asdict(record))
+            for record in result.reconciliations
+        ],
+        not_searched_fields=list(result.not_searched_fields),
         quantitative_ledger=QuantitativeLedgerOut.model_validate(
             asdict(result.quantitative_ledger)
         ),
         variables=[VariableOut.model_validate(asdict(item)) for item in result.variables],
         search_plan=[SearchTraceOut.model_validate(asdict(item)) for item in result.search_plan],
-        matches=[
-            MatchOut(
-                insight=InsightOut(
-                    id=item["insight"].get("id", ""),
-                    statement=item["insight"]["statement"],
-                    query=item["insight"]["query"],
-                    query_tracks=item["insight"].get("query_tracks", []),
-                    retrieval_target_ids=item["insight"].get("retrieval_target_ids", []),
-                    supporting_findings=[
-                        FindingOut(**finding)
-                        for finding in item["insight"]["supporting_findings"]
-                    ],
-                    org=item["insight"].get("org"),
-                    source_type=item["insight"].get("source_type"),
-                    intervention_class=item["insight"].get("intervention_class"),
-                    indication=item["insight"].get("indication"),
-                    attribute_ref=item["insight"].get("attribute_ref"),
-                ),
-                relation=item["relation"],
-                reason=item["reason"],
-                doc_block_ids=item.get("doc_block_ids", []),
-            )
-            for item in match_dicts
-        ],
+        matches=[MatchOut.model_validate(item) for item in matches_to_dicts(result.matches)],
         assessments=[
-            EvidenceAssessmentOut(
-                attribute_ref=item["attribute_ref"],
-                strength=item["strength"],
-                reason=item["reason"],
-                doc_target=item.get("doc_target", ""),
-                doc_block_ids=item.get("doc_block_ids", []),
-                supporting_insight_ids=item.get("supporting_insight_ids", []),
-                supporting_findings=[
-                    FindingOut(**finding) for finding in item["supporting_findings"]
-                ],
-            )
-            for item in assessment_dicts
+            EvidenceAssessmentOut.model_validate(item)
+            for item in assessments_to_dicts(result.assessments)
         ],
         conformity=[ConformityOut(**item) for item in conformity_to_dicts(result.conformity)],
         precedents=[
-            PrecedentOut(
-                attribute_ref=item["attribute_ref"],
-                precedent=item["precedent"],
-                outcome=item.get("outcome", "unknown"),
-                reason=item["reason"],
-                doc_block_ids=item.get("doc_block_ids", []),
-                coverage_insight_ids=item.get("coverage_insight_ids", []),
-                outcome_insight_ids=item.get("outcome_insight_ids", []),
-                supporting_insight_ids=item.get("supporting_insight_ids", []),
-                supporting_findings=[
-                    FindingOut(**finding) for finding in item["supporting_findings"]
-                ],
-            )
-            for item in precedent_dicts
+            PrecedentOut.model_validate(item) for item in precedents_to_dicts(result.precedents)
         ],
         development_landscape=[
             DevelopmentProgramOut(**item)
@@ -160,24 +124,15 @@ async def run_scout(
     try:
         config = find_config(org, source_type, intervention_class)
     except LookupError as exc:
-        raise HTTPException(status_code=404, detail=str(exc))
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
 
-    temp_paths: list[str] = []
-    doc_ids: list[str] = []
-    used_doc_ids: set[str] = set()
-    for upload in files:
-        base_doc_id, suffix = document_upload_parts(upload.filename, tool="Scout")
-        contents = await upload.read()
-        with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as temp_file:
-            temp_file.write(contents)
-            temp_paths.append(temp_file.name)
-        doc_id = base_doc_id
-        suffix_number = 2
-        while doc_id in used_doc_ids:
-            doc_id = f"{base_doc_id}-{suffix_number}"
-            suffix_number += 1
-        used_doc_ids.add(doc_id)
-        doc_ids.append(doc_id)
+    uploads = [
+        (upload, *document_upload_parts(upload.filename, tool="Scout"))
+        for upload in files
+    ]
+    doc_ids = [doc_id for _, doc_id, _ in uploads]
+    require_distinct_doc_ids(doc_ids)
+    payloads = await read_uploads([(upload, doc_id) for upload, doc_id, _ in uploads])
 
     # Construct provider clients before the stream opens: a missing credential
     # must fail the request, not arrive as an event on a 200 response.
@@ -189,7 +144,12 @@ async def run_scout(
         raise HTTPException(status_code=500, detail=str(exc)) from exc
 
     def work(progress):
+        temp_paths: list[str] = []
         try:
+            for payload, (_, _, suffix) in zip(payloads, uploads):
+                with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as temp_file:
+                    temp_file.write(payload)
+                    temp_paths.append(temp_file.name)
             result = run_pipeline(
                 temp_paths,
                 doc_ids=doc_ids,
@@ -226,9 +186,15 @@ async def continue_scout(payload: ScoutContinueRequest) -> StreamingResponse:
     draft = payload.draft
     try:
         config = find_config(draft.org, draft.source_type, draft.intervention_class)
+    except LookupError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    try:
         prepared = result_from_target_review(draft.model_dump())
-    except (LookupError, TypeError, ValueError) as exc:
-        raise HTTPException(status_code=422, detail=str(exc))
+    except FieldSelectionError as exc:
+        # The reviewer's own choice, correctable on the checkpoint, before any work starts.
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except (TypeError, ValueError) as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
 
     # Construct provider clients before the stream opens: a missing credential
     # must fail the request, not arrive as an event on a 200 response.

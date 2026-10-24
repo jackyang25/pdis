@@ -6,12 +6,15 @@ or re-decides a question. It authorizes model output; it does not replace review
 
 The check that matters most is completeness. Every question in the resolved bank
 appears exactly once, so a run cannot quietly assess fewer questions than the gate
-asks and still present a count.
+asks and still present a count. What the bank owns — which discipline holds a
+question, its text, its requirement, and whether it applies to this run's class —
+is checked against the bank, because those are the facts no model decides.
 """
 
 from __future__ import annotations
 
 from .models import (
+    MODEL_STATES,
     QUESTION_STATES,
     GateConfig,
     GateReview,
@@ -23,6 +26,7 @@ def validate_result_contract(result: GateReview, config: GateConfig) -> GateRevi
     _gate_matches(result, config)
     _documents(result)
     _questions_are_complete(result, config)
+    _bank_facts_are_the_banks(result, config)
     _evidence_agrees_with_state(result)
     return result
 
@@ -37,6 +41,11 @@ def _gate_matches(result: GateReview, config: GateConfig) -> None:
         raise ValueError("a gate review must carry its gate label")
     if not result.intervention_class.strip():
         raise ValueError("a gate review must carry its intervention class")
+    if not config.serves(result.intervention_class):
+        raise ValueError(
+            f"the {config.gate_label} bank is not written for "
+            f"{result.intervention_class!r}; a review of it would be a review of nothing"
+        )
     if result.bank_source.strip() != config.mirrors.strip():
         raise ValueError(
             "a gate review must carry the bank source its config declares, so the "
@@ -97,6 +106,40 @@ def _questions_are_complete(result: GateReview, config: GateConfig) -> None:
             raise ValueError(f"discipline {discipline.id!r} carries no label")
 
 
+def _bank_facts_are_the_banks(result: GateReview, config: GateConfig) -> None:
+    """Discipline, text, requirement and applicability come from the bank alone."""
+    placed = [
+        (discipline.id, [item.id for item in discipline.questions])
+        for discipline in result.disciplines
+    ]
+    authored = [
+        (discipline.id, [question.id for question in discipline.questions])
+        for discipline in config.disciplines
+    ]
+    if placed != authored:
+        raise ValueError(
+            "questions must sit under the discipline that owns them, in bank order"
+        )
+
+    specs = {question.id: question for _, question in config.questions()}
+    for item in result.assessments():
+        question = specs[item.id]
+        if item.text != question.text:
+            raise ValueError(f"{item.id}: question text differs from the bank")
+        if item.requirement != question.requirement:
+            raise ValueError(f"{item.id}: requirement differs from the bank")
+        applies = question.applies(result.intervention_class)
+        if item.state == "not_applicable" and applies:
+            raise ValueError(
+                f"{item.id}: marked not_applicable, but the question applies to this run"
+            )
+        if item.state != "not_applicable" and not applies:
+            raise ValueError(
+                f"{item.id}: the question text does not apply to "
+                f"{result.intervention_class}, so it cannot carry an assessment"
+            )
+
+
 def _evidence_agrees_with_state(result: GateReview) -> None:
     known_blocks = {block.id for block in result.blocks}
 
@@ -118,20 +161,23 @@ def _evidence_agrees_with_state(result: GateReview) -> None:
                 f"{item.id}: state {item.state} cannot carry a `missing` note"
             )
 
+        # Every model decision says what the material holds, `not_found` included; the
+        # one state no model reached says nothing.
+        if item.state in MODEL_STATES and not item.statement.strip():
+            raise ValueError(f"{item.id}: a {item.state} question must carry a statement")
+        if item.state == "not_applicable" and item.statement:
+            raise ValueError(
+                f"{item.id}: the question text excluded this run, so no model "
+                "read it and there is nothing for it to have observed"
+            )
+
         if item.state not in ("answered", "partly_answered"):
             if item.cited_block_ids:
                 raise ValueError(
                     f"{item.id}: state {item.state} cannot cite evidence"
                 )
-            if item.state == "not_applicable" and item.statement:
-                raise ValueError(
-                    f"{item.id}: the question text excluded this run, so no model "
-                    "read it and there is nothing for it to have observed"
-                )
             continue
 
-        if not item.statement.strip():
-            raise ValueError(f"{item.id}: an answered question must say what it found")
         if not item.cited_block_ids:
             raise ValueError(f"{item.id}: answered but cites no block")
         unknown = [b for b in item.cited_block_ids if b not in known_blocks]

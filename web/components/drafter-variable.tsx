@@ -1,9 +1,21 @@
 "use client";
 
-import { DisclosureSummary } from "@/components/ui/disclosure-summary";
-import { Computed, InterfaceNote, Reading, SourceEntry } from "@/components/ui/evidence-text";
-import type { DraftBasis, DraftObservation, DraftVariable } from "@/lib/api";
-import { figureLine, panelOf, suggestionLines } from "@/lib/drafter-presentation";
+import { ReportFinding } from "@/components/report-finding";
+import { DisclosureRow } from "@/components/ui/disclosure-row";
+import { Computed, InterfaceNote, Quoted, Reading, SourceEntry } from "@/components/ui/evidence-text";
+import type { DraftBasis, DraftVariable } from "@/lib/api";
+import { displayAttributeLabel } from "@/lib/scout-labels";
+import { ROW_TITLE } from "@/lib/typography";
+import { cn } from "@/lib/utils";
+import {
+  DRAFTER_PANELS,
+  evidenceSources,
+  figureLine,
+  panelOf,
+  suggestionLines,
+  type EvidenceSource,
+} from "@/lib/drafter-presentation";
+import { countLabel } from "@/lib/count-label";
 
 const BASIS_LABEL: Record<DraftBasis, string> = {
   comparable_product: "Comparable products",
@@ -20,26 +32,25 @@ const BASIS_LABEL: Record<DraftBasis, string> = {
 export function DrafterVariableRow({ variable }: { variable: DraftVariable }) {
   const panel = panelOf(variable);
   const { suggestion } = variable;
+  const target = panel === "suggested" && suggestion ? suggestionLines(suggestion).join(" · ") : "";
   return (
-    <li className="min-w-0 py-3 first:pt-0 last:pb-0">
-      <span className="block min-w-0 break-words text-xs font-medium leading-relaxed text-foreground">
-        {variable.label}
+    <li className="group/variable min-w-0 py-4 first:pt-0 last:pb-0">
+      <span className={cn("block min-w-0 break-words", ROW_TITLE)}>
+        {/* The shared variable name, so this row and Scout's field read the same. */}
+        {displayAttributeLabel(variable.name)}
       </span>
-      {variable.description && (
-        <p className="mt-0.5 line-clamp-2 text-[11px] leading-relaxed text-muted-foreground">{variable.description}</p>
-      )}
 
-      {panel === "suggested" && suggestion && (
-        <Reading size="prominent" className="mt-2">{suggestionLines(suggestion).join(" · ")}</Reading>
-      )}
-      {suggestion?.rationale && <Reading className="mt-1.5">{suggestion.rationale}</Reading>}
+      {/* The target and its rationale are one contribution, so the second hangs off the first
+          rather than carrying a second mark. */}
+      {target && <Reading size="prominent">{target}</Reading>}
+      {suggestion?.rationale && <Reading continued={Boolean(target)}>{suggestion.rationale}</Reading>}
       {/* The tool's own note, and only when nothing was retrieved or read: with sources set
           aside, or a model's empty rationale over evidence, it would not be true. */}
-      {panel === "insufficient" && !suggestion?.rationale && variable.observations.length === 0 && variable.unread_findings === 0 && (
-        <InterfaceNote className="mt-1.5">No source this run found spoke to this variable.</InterfaceNote>
+      {panel === "insufficient" && !suggestion?.rationale && variable.observations.length === 0 && variable.unread_findings === 0 && variable.unverified_quotes === 0 && (
+        <InterfaceNote variant="content" className="mt-1">No source this run found spoke to this variable.</InterfaceNote>
       )}
       {panel === "failed" && variable.failure && (
-        <InterfaceNote className="mt-1.5">{variable.failure.message}</InterfaceNote>
+        <InterfaceNote variant="content" className="mt-1">{variable.failure.message}</InterfaceNote>
       )}
 
       {variable.statistics.map((group) => (
@@ -48,54 +59,70 @@ export function DrafterVariableRow({ variable }: { variable: DraftVariable }) {
         </Computed>
       ))}
 
-      <EvidenceLists variable={variable} />
-      {variable.unread_findings > 0 && (
-        <InterfaceNote className="mt-1.5">
-          {variable.unread_findings} {variable.unread_findings === 1 ? "source" : "sources"} could not be read and{" "}
-          {variable.unread_findings === 1 ? "was" : "were"} set aside.
-        </InterfaceNote>
+      {(variable.observations.length > 0 || variable.unread_findings > 0 || variable.unverified_quotes > 0) && (
+        <div className="mt-2">
+          {(["comparable_product", "published_guidance"] as const).map((basis) => (
+            <EvidenceList key={basis} basis={basis} sources={evidenceSources(variable, basis)} />
+          ))}
+          {variable.unread_findings > 0 && (
+            <p className="py-1.5 text-[11px] text-muted-foreground">
+              {countLabel(variable.unread_findings, "source")} could not be read
+              and {variable.unread_findings === 1 ? "was" : "were"} set aside.
+            </p>
+          )}
+          {variable.unverified_quotes > 0 && (
+            <p className="py-1.5 text-[11px] text-muted-foreground">
+              {countLabel(variable.unverified_quotes, "quote")} could not be found in{" "}
+              {variable.unverified_quotes === 1 ? "its source" : "their source"}
+              {" "}and {variable.unverified_quotes === 1 ? "was" : "were"} set aside.
+            </p>
+          )}
+        </div>
       )}
+      {/* Revealed on hover or focus: thirty rows each carrying a visible link was a column of
+          noise for an action a reader takes rarely. Always shown where there is no hover. */}
+      <div className="mt-1 transition-opacity duration-base motion-reduce:transition-none sm:opacity-0 sm:group-hover/variable:opacity-100 sm:group-focus-within/variable:opacity-100">
+        <ReportFinding
+          report={{
+            finding: `${DRAFTER_PANELS.find((entry) => entry.id === panel)?.title}: ${displayAttributeLabel(variable.name)}`,
+            detail: [target, suggestion?.rationale].filter(Boolean).join(" · "),
+            reference: variable.name,
+            location: countLabel(variable.observations.length, "observation"),
+          }}
+        />
+      </div>
     </li>
   );
 }
 
-function EvidenceLists({ variable }: { variable: DraftVariable }) {
-  const cited = new Set(variable.suggestion?.basis_ids ?? []);
+function EvidenceList({ basis, sources }: { basis: DraftBasis; sources: EvidenceSource[] }) {
+  if (sources.length === 0) return null;
   return (
-    <>
-      {(["comparable_product", "published_guidance"] as const).map((basis) => {
-        const observations = variable.observations
-          .filter((observation) => observation.basis === basis)
-          // What the suggestion rests on first, so the reader checks those before the rest.
-          .sort((a, b) => Number(cited.has(b.id)) - Number(cited.has(a.id)));
-        if (observations.length === 0) return null;
-        return (
-          <details key={basis} className="mt-1.5">
-            <DisclosureSummary className="w-fit select-none rounded-sm text-[11px] font-medium text-muted-foreground outline-none hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/20">
-              {BASIS_LABEL[basis]} {observations.length}
-            </DisclosureSummary>
-            <ul className="mt-2">
-              {observations.map((observation) => (
-                <ObservationEntry key={observation.id} observation={observation} cited={cited.has(observation.id)} />
-              ))}
-            </ul>
-          </details>
-        );
-      })}
-    </>
+    <DisclosureRow label={BASIS_LABEL[basis]} count={sources.length}>
+      <ul className="pt-1">
+        {sources.map((source) => <EvidenceEntry key={source.url} source={source} />)}
+      </ul>
+    </DisclosureRow>
   );
 }
 
-function ObservationEntry({ observation, cited }: { observation: DraftObservation; cited: boolean }) {
-  const value = observation.value;
-  const figure = value
-    ? [value.value != null ? `${value.value}` : "", value.lower != null && value.upper != null ? `${value.lower}–${value.upper}` : ""]
-        .filter(Boolean).join(" ") + (value.unit ? ` ${value.unit}` : "")
-    : "";
-  const meta = [observation.product, observation.source_label, figure].filter(Boolean).join(" · ");
+/** One source, once, with each thing it said: the `SourceEntry` shape with its quotes beneath. */
+function EvidenceEntry({ source }: { source: EvidenceSource }) {
   return (
-    <SourceEntry title={observation.title || observation.url} href={observation.url} meta={meta} quote={observation.quote}>
-      {cited && <InterfaceNote className="mt-1">Cited by this suggestion.</InterfaceNote>}
+    <SourceEntry
+      title={source.title || source.url}
+      href={source.url}
+      meta={[source.source_label, source.cited ? "Cited by the suggestion" : ""].filter(Boolean).join(" · ")}
+    >
+      {source.passages.map((passage) => {
+        const detail = [passage.products.join(", "), passage.figure].filter(Boolean).join(" · ");
+        return (
+          <div key={`${passage.quote}|${passage.figure}`} className="mt-2">
+            {detail && <Computed className="block text-[11px] leading-relaxed">{detail}</Computed>}
+            <Quoted collapsible>{passage.quote}</Quoted>
+          </div>
+        );
+      })}
     </SourceEntry>
   );
 }

@@ -38,6 +38,7 @@ from typing import TYPE_CHECKING, Any, Literal, Protocol
 
 import yaml
 
+from shared.ai import Effort, ModelTask, Verbosity
 from shared.vocabulary import intervention_classes
 
 if TYPE_CHECKING:  # pragma: no cover - typing only
@@ -58,7 +59,11 @@ class LLMClientProtocol(Protocol):
         schema_name: str,
         schema: dict[str, Any],
         images: list[dict[str, str]] | None = None,
-        task: str = "reasoning",
+        trailing_text: str = "",
+        task: ModelTask = "reasoning",
+        effort: Effort | None = None,
+        verbosity: Verbosity | None = None,
+        cache_key: str | None = None,
     ) -> dict[str, Any] | None: ...
 
 
@@ -205,12 +210,6 @@ class GateConfig:
     mirrors: str
     disciplines: tuple[DisciplineSpec, ...]
 
-    def discipline_for(self, question_id: str) -> DisciplineSpec:
-        for discipline in self.disciplines:
-            if any(q.id == question_id for q in discipline.questions):
-                return discipline
-        raise KeyError(f"no discipline owns question {question_id!r}")
-
     def serves(self, intervention_class: str) -> bool:
         """Whether this bank is written for the class a run configured."""
         return intervention_class in self.intervention_classes
@@ -286,8 +285,17 @@ def resolve_questions(
     documents do not answer is reported as not found rather than excused.
 
     Runs before any parsing, so a bank with nothing to say about this product fails
-    before the expensive part rather than after it.
+    before the expensive part rather than after it. That includes a class the bank
+    is not written for at all: refused here, in the service, rather than returned
+    with every question inapplicable, whichever caller asked.
     """
+    if not config.serves(intervention_class):
+        raise ValueError(
+            f"The {config.gate_label} question bank is written for "
+            f"{', '.join(sorted(config.intervention_classes))} programs, not for "
+            f"{intervention_class}. Its questions ask about matters this modality "
+            "does not have, so every one would report as unanswered."
+        )
     resolutions = [
         QuestionResolution(
             question,
@@ -391,11 +399,9 @@ def load_config(path: str) -> GateConfig:
 
     Cached on the file's modification time. A bank is 80 questions of prose and
     parsing all seven takes most of a second, which is fine once per run and not
-    fine for `available_gates` in a loop — the config route asks whether Screener can
-    read each document type, and without this that endpoint spent nine seconds
-    re-parsing the same files. Keying on mtime rather than path alone keeps a
-    hand-edited bank picked up immediately, which matters because editing these by
-    hand is how they are maintained.
+    fine for `available_configs`, which every gate listing and lookup calls. Keying
+    on mtime rather than path alone keeps a hand-edited bank picked up immediately,
+    which matters because editing these by hand is how they are maintained.
 
     This is a cache of immutable files on disk, not session state: nothing a caller
     did is remembered, and two callers cannot observe different values.

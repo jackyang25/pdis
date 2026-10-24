@@ -10,6 +10,7 @@ import logging
 import math
 import os
 import shutil
+import signal
 import subprocess
 import tempfile
 import threading
@@ -18,7 +19,9 @@ from pathlib import Path
 
 logger = logging.getLogger(__name__)
 
-CONVERT_TIMEOUT_SECONDS = 60
+# One LibreOffice start converts every vector image of a document, so the bound is
+# per batch rather than per image.
+CONVERT_TIMEOUT_SECONDS = 120
 PRESENTATION_TIMEOUT_SECONDS = 120
 PDF_RENDER_SCALE = 1.5
 MAX_RENDER_PAGES = 200
@@ -31,6 +34,12 @@ SUFFIX_BY_MEDIA_TYPE = {
     "image/wmf": ".wmf",
     "image/svg+xml": ".svg",
 }
+
+# LibreOffice's PDF export omits hidden slides unless told otherwise (JSON filter
+# options, LibreOffice 7.4+).
+PRESENTATION_PDF_TARGET = (
+    'pdf:impress_pdf_Export:{"ExportHiddenSlides":{"type":"boolean","value":"true"}}'
+)
 
 _soffice_lookup: str | None | bool = False
 _pdfium_lock = threading.Lock()
@@ -59,19 +68,59 @@ def _soffice_path() -> str | None:
     return _soffice_lookup  # type: ignore[return-value]
 
 
-def rasterize_to_png(data: bytes, media_type: str) -> bytes | None:
-    """Return PNG bytes for a supported vector format, or ``None`` on failure."""
-    suffix = SUFFIX_BY_MEDIA_TYPE.get(media_type.lower())
+def _run_office(arguments: list[str], *, timeout: int) -> None:
+    """Run LibreOffice in its own process group and kill the whole group on timeout.
+
+    `soffice` is a launcher that starts `soffice.bin`; killing only the launcher, as
+    `subprocess.run(timeout=...)` does, leaves the converter running with its profile
+    and temporary directory in use.
+    """
+    process = subprocess.Popen(
+        arguments,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+        start_new_session=True,
+    )
+    try:
+        returncode = process.wait(timeout=timeout)
+    except subprocess.TimeoutExpired:
+        try:
+            os.killpg(process.pid, signal.SIGKILL)
+        except ProcessLookupError:
+            pass
+        process.wait()
+        raise
+    if returncode != 0:
+        raise subprocess.CalledProcessError(returncode, arguments)
+
+
+def rasterize_many_to_png(items: list[tuple[bytes, str]]) -> list[bytes | None]:
+    """Convert vector images to PNG with one LibreOffice start, in input order.
+
+    Each result is ``None`` when its format is unsupported or its conversion
+    produced nothing; a failed or timed-out batch returns ``None`` for every item.
+    Callers deduplicate identical bytes before calling, so a repeated logo is
+    converted once.
+    """
+    results: list[bytes | None] = [None] * len(items)
     soffice = _soffice_path()
-    if not data or not suffix or not soffice:
-        return None
+    pending = [
+        (index, data, SUFFIX_BY_MEDIA_TYPE.get((media_type or "").lower()))
+        for index, (data, media_type) in enumerate(items)
+    ]
+    pending = [(index, data, suffix) for index, data, suffix in pending if data and suffix]
+    if not pending or not soffice:
+        return results
     try:
         with tempfile.TemporaryDirectory(prefix="pdis-image-") as directory:
-            source = os.path.join(directory, f"image{suffix}")
-            with open(source, "wb") as handle:
-                handle.write(data)
+            sources = []
+            for index, data, suffix in pending:
+                source = os.path.join(directory, f"image-{index}{suffix}")
+                with open(source, "wb") as handle:
+                    handle.write(data)
+                sources.append(source)
             profile = f"file://{os.path.join(directory, 'profile')}"
-            subprocess.run(
+            _run_office(
                 [
                     soffice,
                     f"-env:UserInstallation={profile}",
@@ -80,21 +129,19 @@ def rasterize_to_png(data: bytes, media_type: str) -> bytes | None:
                     "png",
                     "--outdir",
                     directory,
-                    source,
+                    *sources,
                 ],
-                check=True,
                 timeout=CONVERT_TIMEOUT_SECONDS,
-                stdout=subprocess.DEVNULL,
-                stderr=subprocess.DEVNULL,
             )
-            output = os.path.join(directory, "image.png")
-            if not os.path.exists(output):
-                return None
-            with open(output, "rb") as handle:
-                return handle.read()
+            for index, _, _ in pending:
+                output = os.path.join(directory, f"image-{index}.png")
+                if os.path.exists(output):
+                    with open(output, "rb") as handle:
+                        results[index] = handle.read() or None
     except (subprocess.SubprocessError, OSError) as exc:
         logger.warning("Image rasterization failed: %s", exc)
-        return None
+        return [None] * len(items)
+    return results
 
 
 def render_pdf_pages(
@@ -104,7 +151,9 @@ def render_pdf_pages(
 
     PDFium calls are globally serialized. Its public Python bindings do not promise
     that independent documents may be rendered concurrently, while Chunker fans out
-    document parsing across threads.
+    document parsing across threads. Only PDFium work holds the lock: each page is
+    copied out of its bitmap under it, and PNG encoding happens outside it, so one
+    document's encoding does not stall another's rendering.
     """
     try:
         import pypdfium2 as pdfium
@@ -114,74 +163,43 @@ def render_pdf_pages(
     try:
         with _pdfium_lock:
             document = pdfium.PdfDocument(file_path)
-            try:
-                page_count = len(document)
-                if page_count <= 0:
-                    raise RenderFailedError("PDF renderer found no pages")
-                if page_count > MAX_RENDER_PAGES:
-                    raise RenderLimitError(
-                        f"PDF rendering exceeds the {MAX_RENDER_PAGES}-page limit"
-                    )
-                if expected_pages is not None and page_count != expected_pages:
-                    raise RenderFailedError(
-                        f"PDF renderer produced {page_count} pages; expected {expected_pages}"
-                    )
-                rendered: dict[int, bytes] = {}
-                encoded_bytes = 0
-                for page_index in range(page_count):
-                    page = document[page_index]
-                    try:
-                        width = float(page.get_width())
-                        height = float(page.get_height())
-                        if (
-                            not math.isfinite(width)
-                            or not math.isfinite(height)
-                            or width <= 0
-                            or height <= 0
-                        ):
-                            raise RenderFailedError(
-                                f"PDF page {page_index + 1} has invalid dimensions"
-                            )
-                        pixel_width = math.ceil(width * PDF_RENDER_SCALE)
-                        pixel_height = math.ceil(height * PDF_RENDER_SCALE)
-                        if pixel_width * pixel_height > MAX_RENDER_PIXELS_PER_PAGE:
-                            raise RenderLimitError(
-                                f"PDF page {page_index + 1} exceeds the per-page pixel limit"
-                            )
-                        bitmap = page.render(scale=PDF_RENDER_SCALE)
-                        try:
-                            image = bitmap.to_pil()
-                            try:
-                                if image.width <= 0 or image.height <= 0:
-                                    raise RenderFailedError(
-                                        f"PDF page {page_index + 1} rendered with invalid dimensions"
-                                    )
-                                if image.width * image.height > MAX_RENDER_PIXELS_PER_PAGE:
-                                    raise RenderLimitError(
-                                        f"PDF page {page_index + 1} exceeds the per-page pixel limit"
-                                    )
-                                output = BytesIO()
-                                image.save(output, format="PNG", optimize=True)
-                                payload = output.getvalue()
-                            finally:
-                                image.close()
-                        finally:
-                            bitmap.close()
-                    finally:
-                        page.close()
+            page_count = len(document)
+        try:
+            if page_count <= 0:
+                raise RenderFailedError("PDF renderer found no pages")
+            if page_count > MAX_RENDER_PAGES:
+                raise RenderLimitError(
+                    f"PDF rendering exceeds the {MAX_RENDER_PAGES}-page limit"
+                )
+            if expected_pages is not None and page_count != expected_pages:
+                raise RenderFailedError(
+                    f"PDF renderer produced {page_count} pages; expected {expected_pages}"
+                )
+            rendered: dict[int, bytes] = {}
+            encoded_bytes = 0
+            for page_index in range(page_count):
+                with _pdfium_lock:
+                    image = _render_page_image(document, page_index)
+                try:
+                    output = BytesIO()
+                    image.save(output, format="PNG")
+                    payload = output.getvalue()
+                finally:
+                    image.close()
 
-                    if not payload:
-                        raise RenderFailedError(
-                            f"PDF page {page_index + 1} rendered no image bytes"
-                        )
-                    encoded_bytes += len(payload)
-                    if encoded_bytes > MAX_RENDERED_BYTES:
-                        raise RenderLimitError(
-                            "PDF rendering exceeds the aggregate encoded-image limit"
-                        )
-                    rendered[page_index + 1] = payload
-                return rendered
-            finally:
+                if not payload:
+                    raise RenderFailedError(
+                        f"PDF page {page_index + 1} rendered no image bytes"
+                    )
+                encoded_bytes += len(payload)
+                if encoded_bytes > MAX_RENDERED_BYTES:
+                    raise RenderLimitError(
+                        "PDF rendering exceeds the aggregate encoded-image limit"
+                    )
+                rendered[page_index + 1] = payload
+            return rendered
+        finally:
+            with _pdfium_lock:
                 document.close()
     except RenderError:
         raise
@@ -189,10 +207,50 @@ def render_pdf_pages(
         raise RenderFailedError(f"PDF rendering failed: {exc}") from exc
 
 
+def _render_page_image(document, page_index: int):
+    """Render one page to an independent PIL image; the caller holds the lock."""
+    page = document[page_index]
+    try:
+        width = float(page.get_width())
+        height = float(page.get_height())
+        if not math.isfinite(width) or not math.isfinite(height) or width <= 0 or height <= 0:
+            raise RenderFailedError(f"PDF page {page_index + 1} has invalid dimensions")
+        pixel_width = math.ceil(width * PDF_RENDER_SCALE)
+        pixel_height = math.ceil(height * PDF_RENDER_SCALE)
+        if pixel_width * pixel_height > MAX_RENDER_PIXELS_PER_PAGE:
+            raise RenderLimitError(
+                f"PDF page {page_index + 1} exceeds the per-page pixel limit"
+            )
+        bitmap = page.render(scale=PDF_RENDER_SCALE)
+        try:
+            # `to_pil` shares the bitmap's buffer, so copy before the bitmap closes.
+            shared = bitmap.to_pil()
+            try:
+                if shared.width <= 0 or shared.height <= 0:
+                    raise RenderFailedError(
+                        f"PDF page {page_index + 1} rendered with invalid dimensions"
+                    )
+                if shared.width * shared.height > MAX_RENDER_PIXELS_PER_PAGE:
+                    raise RenderLimitError(
+                        f"PDF page {page_index + 1} exceeds the per-page pixel limit"
+                    )
+                return shared.copy()
+            finally:
+                shared.close()
+        finally:
+            bitmap.close()
+    finally:
+        page.close()
+
+
 def render_presentation_slides(
     file_path: str, *, expected_pages: int | None = None
 ) -> dict[int, bytes]:
     """Render a PPTX into one PNG per slide, keyed by one-based slide number.
+
+    Hidden slides are rendered too: they are part of the document the parser reads,
+    and LibreOffice's default export skips them, which would leave fewer pages than
+    slides and lose every slide's render.
 
     Typed failures let callers distinguish missing runtime support from a failed
     or incomplete conversion and choose an explicit degraded fallback.
@@ -204,21 +262,18 @@ def render_presentation_slides(
     try:
         with tempfile.TemporaryDirectory(prefix="pdis-pptx-") as directory:
             profile = f"file://{os.path.join(directory, 'profile')}"
-            subprocess.run(
+            _run_office(
                 [
                     soffice,
                     f"-env:UserInstallation={profile}",
                     "--headless",
                     "--convert-to",
-                    "pdf",
+                    PRESENTATION_PDF_TARGET,
                     "--outdir",
                     directory,
                     file_path,
                 ],
-                check=True,
                 timeout=PRESENTATION_TIMEOUT_SECONDS,
-                stdout=subprocess.DEVNULL,
-                stderr=subprocess.DEVNULL,
             )
             pdf_path = os.path.join(
                 directory, f"{Path(file_path).stem}.pdf"

@@ -53,9 +53,9 @@ export function RunHistory<TResult>({
   return (
     <Popover>
       <PopoverTrigger asChild>
-        <Button variant="ghost" size="sm">
+        <Button variant="quiet" size="toolbar">
           {runs.length} runs
-          <ChevronDown className="ml-1 h-3 w-3" aria-hidden="true" />
+          <ChevronDown aria-hidden="true" />
         </Button>
       </PopoverTrigger>
       <PopoverContent align="end" className="w-72 p-1">
@@ -72,7 +72,7 @@ export function RunHistory<TResult>({
                 type="button"
                 onClick={() => onSelect(run.id)}
                 aria-current={run.id === selectedId ? "true" : undefined}
-                className="flex min-w-0 flex-1 items-center gap-2 rounded-sm px-2 py-1.5 text-left text-xs transition-colors hover:bg-foreground/[0.045] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/20 motion-reduce:transition-none"
+                className="flex min-w-0 flex-1 items-center gap-2 rounded-sm px-2 py-1.5 text-left text-xs transition-colors hover:bg-foreground/[0.045] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/60 motion-reduce:transition-none"
               >
                 <Check
                   className={cn(
@@ -94,7 +94,7 @@ export function RunHistory<TResult>({
                 type="button"
                 onClick={() => onRemove(run.id)}
                 aria-label={`Remove ${label(run.result)}`}
-                className="rounded-sm p-1 text-muted-foreground transition-colors hover:bg-foreground/[0.045] hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/20 motion-reduce:transition-none"
+                className="rounded-sm p-1 text-muted-foreground transition-colors hover:bg-foreground/[0.045] hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/60 motion-reduce:transition-none"
               >
                 <X className="h-3 w-3" aria-hidden="true" />
               </button>

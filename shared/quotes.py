@@ -8,6 +8,7 @@ earns its citation by appearing in the source, and the rule for "appears" must b
 from __future__ import annotations
 
 import html
+import re
 
 
 # Characters a word processor renders differently while the words stay the same.
@@ -46,6 +47,42 @@ def normalize_quote(value: str) -> str:
     return " ".join(folded.split()).casefold()
 
 
-def quote_in_text(quote: str, source_text: str) -> bool:
+#: An elision a quotation marks with an ellipsis, bracketed or not, after normalization
+#: (which already spells "…" as "...").
+_ELISION = re.compile(r"\s*\[?\s*\.\.\.\s*\]?\s*")
+
+
+def quote_fragments(quote: str) -> list[str]:
+    """The quoted runs an elided quotation joins, normalized, in their order."""
+    return [part for part in _ELISION.split(normalize_quote(quote)) if part]
+
+
+def quote_in_text(quote: str, source_text: str, *, allow_elision: bool = False) -> bool:
+    """Whether the quotation is the source's own words.
+
+    `allow_elision` accepts a quotation that skips text with an ellipsis, as quoting
+    convention does, when every quoted run is the source's own words in the source's order.
+    Off where one contiguous span is the provenance - a number's measurement - because
+    joining runs could set a figure beside qualifiers from another sentence.
+    """
     normalized_quote = normalize_quote(quote)
-    return bool(normalized_quote) and normalized_quote in normalize_quote(source_text)
+    if not normalized_quote:
+        return False
+    source = normalize_quote(source_text)
+    if normalized_quote in source:
+        return True
+    if not allow_elision:
+        return False
+    position = 0
+    for part in quote_fragments(quote):
+        found = source.find(part, position)
+        if found < 0:
+            return False
+        position = found + len(part)
+    return True
+
+
+def in_one_fragment(words: str, quote: str) -> bool:
+    """Whether the words sit inside one quoted run rather than across an elision."""
+    target = normalize_quote(words)
+    return bool(target) and any(target in part for part in quote_fragments(quote))

@@ -8,8 +8,9 @@ underscores, so the namespace and the dot went to the provider:
 
 No provider knows what `vaccine.duration` is, and the prefix repeats the intervention class
 that is already the word before it. The two places were the numeric fallback query in
-`query_extractor` and `RetrievalIntent.topic`, which six source adapters fall back to when a
-query carries no text of its own.
+`query_extractor` (since removed: code no longer writes queries) and
+`RetrievalIntent.topic`, which six source adapters fall back to when a query carries no
+text of its own.
 """
 
 import unittest
@@ -93,9 +94,9 @@ class NoRawRefReachesAProviderTests(unittest.TestCase):
                 offenders.append(f"{name}: {line.strip()}")
         self.assertEqual(offenders, [], "use searchable_attribute_phrase")
 
-    def test_both_call_sites_use_the_shared_phrase(self):
+    def test_the_topic_call_site_uses_the_shared_phrase(self):
+        """`query_extractor` no longer writes query text: every query is the model's."""
         import pathlib
 
-        for name in self.FILES:
-            text = pathlib.Path(name).read_text()
-            self.assertIn("searchable_attribute_phrase", text, name)
+        text = pathlib.Path("services/scout/stages/intent_builder.py").read_text()
+        self.assertIn("searchable_attribute_phrase", text)

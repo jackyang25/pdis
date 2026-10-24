@@ -7,11 +7,15 @@ should import from `services.searcher`, never from this module directly.
 from __future__ import annotations
 
 import hashlib
+import re
 from dataclasses import asdict, dataclass, field
 from datetime import date
 from datetime import datetime
-from typing import Any, Mapping, Protocol
+from typing import Any, Iterable, Mapping, Protocol
 from urllib.parse import unquote_plus, urlsplit, urlunsplit
+
+from .cache import ProviderCalls
+from .dates import PUBLISHED_PRECISIONS, latest_day
 
 from shared.vocabulary import (
     DOWNSTREAM_OUTPUTS,
@@ -23,6 +27,40 @@ from shared.vocabulary import (
 )
 
 FINDING_ROLES = frozenset({"evidence", "reference"})
+#: Provider-stated identifiers a Finding may carry, keyed by scheme.
+#:
+#: Set by adapters from the provider's own fields, never recovered from a URL or a title:
+#: a DOI read out of a title is a guess about which part of the title is an identifier.
+IDENTIFIER_SCHEMES = frozenset(
+    {
+        "doi",
+        "pmid",
+        "pmcid",
+        "nct",
+        "euct",
+        "eudract",
+        "isrctn",
+        "setid",
+        "spl_id",
+        "k_number",
+        "chembl",
+    }
+)
+#: Schemes that name one work wherever it is found, so two lanes returning the same value
+#: returned the same record and are merged. The others identify a record inside the lane
+#: that issued it: an FDA label and that label's warnings share a set id, but the two
+#: lanes return different content about it, and merging them would keep one excerpt.
+CROSS_LANE_IDENTIFIER_SCHEMES = frozenset(
+    {"doi", "pmid", "pmcid", "nct", "euct", "eudract", "isrctn"}
+)
+#: What a Finding's excerpt is.
+#:
+#: `passage` is the source's own words (an abstract, page text). `structured_fields` is
+#: this service's labels around provider values ("Phase: Phase 3"): the values are the
+#: provider's, the sentence is not. `generated` was written by a model, e.g. the web lane's
+#: answer text or a Semantic Scholar TLDR.
+EXCERPT_KINDS = frozenset({"passage", "structured_fields", "generated"})
+_EXCERPT_KIND_RANK = {"generated": 0, "structured_fields": 1, "passage": 2}
 #: What kind of source stated a development fact.
 #:
 #: Rendered per program, because the type is how a reader judges the row: "Phase 3" from
@@ -63,14 +101,17 @@ class SourceSpec:
     key: str
     label: str
     worker_limit: int
-    # Minimum spacing between adapter request starts. This is appropriate when
-    # one adapter request maps to one provider request (for example Semantic
-    # Scholar). Sources that fan one adapter request into several provider
-    # calls retain endpoint-level throttling inside their adapter stage.
+    # Minimum spacing between provider calls in this lane's `rate_group`,
+    # process-wide. Applied per call, not per adapter request: one request may make
+    # several calls (WHO reads a page per result), and each spends the quota.
     request_interval_seconds: float = 0.0
-    # Most requests one intent may become. Request count became variable when
-    # adapters started narrowing by stated facets, so a source declares its own
-    # budget beside its other limits. 0 means the source sets no bound.
+    #: Whose quota `request_interval_seconds` spends. Lanes calling one provider share a
+    #: group, because the provider counts their calls together: `fda` and `fda_safety`
+    #: are both openFDA. Defaults to the lane key.
+    rate_group: str = ""
+    # Most requests one intent may become, region twins included. Request count
+    # became variable when adapters started narrowing by stated facets, so a source
+    # declares its own budget beside its other limits. 0 means no bound.
     max_requests_per_intent: int = 0
     default_enabled: bool = True
     integration_key: str = ""
@@ -114,12 +155,15 @@ class SourceSpec:
     #: findings that were never eligible. A lane declaring False is not broken; it means
     #: its window is enforced after retrieval, and a reader can see which is which.
     honors_date_bound: bool = False
-    #: Most findings one request returns. Declared here rather than as a constant in
-    #: the adapter, because a limit is a share of a budget and a share can only be
-    #: judged against the others. 0 defers to the provider's own default.
+    #: Most findings one request returns, and the number the request asks the provider
+    #: for. Declared here rather than as a constant in the adapter, because a limit is a
+    #: share of a budget and a share can only be judged against the others. 0 defers to
+    #: the provider's own default (the web lane, where a model decides).
     max_results: int = 0
 
     def __post_init__(self) -> None:
+        if not self.rate_group:
+            object.__setattr__(self, "rate_group", self.key)
         if self.worker_limit < 1:
             raise ValueError("source worker_limit must be positive")
         if self.evidence_class not in EVIDENCE_CLASSES:
@@ -345,16 +389,58 @@ class SearchOutcome:
     findings: list["Finding"] = field(default_factory=list)
     status: str = "complete"  # complete | failed | skipped
     error: str = ""
+    #: Machine-readable failure kind beside `error`'s prose: a `RetrievalError` code, or
+    #: `adapter_error` for any other failure. Empty unless the request failed.
+    error_code: str = ""
+    #: The query the provider reports it actually ran, where it reports one (PubMed's
+    #: query translation). Differs from `request.query` when the provider mapped terms.
+    provider_query: str = ""
+    #: What the provider reported beside its records: a phrase it ignored, part of an
+    #: answer it could not return. A complete outcome with warnings is still complete.
+    warnings: list["OutcomeWarning"] = field(default_factory=list)
+
+
+#: Closed vocabulary for what a provider reported beside its records.
+OUTCOME_WARNING_CODES = frozenset(
+    {
+        # The provider answered and flagged part of the request (e.g. a quoted phrase it
+        # could not find, which it then searched without).
+        "provider_warning",
+        # The provider rejected part of the request but still answered the rest.
+        "provider_error",
+        # A record was returned without content the lane normally attaches.
+        "content_unavailable",
+    }
+)
+
+
+@dataclass(frozen=True)
+class OutcomeWarning:
+    """Something a provider reported about one request, beside its records."""
+
+    code: str
+    detail: str
+
+    def __post_init__(self) -> None:
+        if self.code not in OUTCOME_WARNING_CODES:
+            raise ValueError(f"unknown outcome warning code: {self.code}")
 
 
 @dataclass
 class SearchRuntime:
     """Injected capabilities available to adapters, never global provider state."""
 
-    llm_client: "SearcherLLMClientProtocol"
-    ncbi_api_key: str | None = None
+    llm_client: "LLMClientProtocol"
+    # Kept out of repr, so a logged runtime never prints the credential.
+    ncbi_api_key: str | None = field(default=None, repr=False)
     integrations: Mapping[str, Any] = field(default_factory=dict)
     global_worker_limit: int = 48
+    #: A deployment's contact address for providers that ask for one (NCBI's `email`,
+    #: a `mailto:` in the User-Agent). Empty sends none; Searcher never invents one.
+    contact_email: str = ""
+    #: This run's memo of provider answers. A runtime is composed per run, so identical
+    #: native calls made by different requests of one run reach the provider once.
+    calls: ProviderCalls = field(default_factory=ProviderCalls, repr=False, compare=False)
 
 
 @dataclass(frozen=True)
@@ -437,7 +523,17 @@ class Finding:
 
     Stays intentionally primitive. No synthesis, no relevance scores.
     `excerpt` is a lane-provided cited passage, abstract/full-text extract, or
-    structured registry summary. Otherwise it is None.
+    structured registry summary - `excerpt_kind` says which. Otherwise it is None.
+
+    `url` is where a reader goes to see the record, and several records may share one
+    page. `record_key` is the record's identity (`<lane>:<provider id>`), and is what
+    deduplication compares; a lane whose only identity is the page it cites leaves it
+    blank and it becomes `url:<url>`. `identifiers` are the provider-stated identifiers,
+    by scheme, so a consumer never has to read one out of a URL or a title.
+
+    `published_at` is the first day the provider's date allows and
+    `published_precision` how much of it the provider stated. Compare a lower bound with
+    `published_before`, which reads the latest day the stated date allows.
     """
 
     url: str
@@ -464,11 +560,34 @@ class Finding:
     title_source_lane: str = ""
     excerpt_source_lane: str = ""
     published_source_lane: str = ""
+    identifiers: dict[str, str] = field(default_factory=dict)
+    record_key: str = ""
+    published_precision: str = ""
+    excerpt_kind: str = "passage"
 
     def __post_init__(self) -> None:
         self.url = _canonical_url(self.url)
         if self.evidence_role not in FINDING_ROLES:
             raise ValueError(f"unknown finding evidence role: {self.evidence_role}")
+        unknown = set(self.identifiers) - IDENTIFIER_SCHEMES
+        if unknown:
+            raise ValueError(f"unknown identifier scheme(s): {', '.join(sorted(unknown))}")
+        self.identifiers = {
+            scheme: normalized
+            for scheme, value in self.identifiers.items()
+            if (normalized := normalize_identifier(scheme, value))
+        }
+        self.record_key = self.record_key.strip() or f"url:{self.url}"
+        if self.excerpt_kind not in EXCERPT_KINDS:
+            raise ValueError(f"unknown excerpt kind: {self.excerpt_kind}")
+        if self.published_at is None:
+            self.published_precision = ""
+        else:
+            self.published_precision = self.published_precision or "day"
+            if self.published_precision not in PUBLISHED_PRECISIONS:
+                raise ValueError(
+                    f"unknown publication date precision: {self.published_precision}"
+                )
         self.development_records = list(dict.fromkeys(self.development_records))
         self.safety_observations = list(dict.fromkeys(self.safety_observations))
         if self.query and self.query not in self.queries:
@@ -483,6 +602,77 @@ class Finding:
             self.excerpt_source_lane = self.excerpt_source_lane or self.source
         if self.published_at:
             self.published_source_lane = self.published_source_lane or self.source
+
+    def published_before(self, day: date) -> bool:
+        """Whether every day the stated date allows falls before `day`.
+
+        A finding with no date is never before anything: an absent date is not evidence
+        of age. A year-precision date is before `day` only if all of that year is.
+        """
+        if self.published_at is None:
+            return False
+        return latest_day(self.published_at.date(), self.published_precision) < day
+
+    def identity_keys(self) -> set[str]:
+        """The keys under which this record is the same record as another."""
+        return {
+            f"record:{self.record_key}",
+            *(
+                f"{scheme}:{value}"
+                for scheme, value in self.identifiers.items()
+                if scheme in CROSS_LANE_IDENTIFIER_SCHEMES
+            ),
+        }
+
+
+#: The syntax each scheme defines. A provider field that does not match is not an
+#: identifier: registries fill an absent cross-reference with "Nil known" or "N/A", and
+#: reading that as a trial number would make every such record the same record.
+_IDENTIFIER_SYNTAX = {
+    "doi": re.compile(r"10\.\d{4,9}/\S+"),
+    "pmid": re.compile(r"\d{1,9}"),
+    "pmcid": re.compile(r"PMC\d+"),
+    "nct": re.compile(r"NCT\d{8}"),
+    "euct": re.compile(r"\d{4}-\d{6}-\d{2}-\d{2}"),
+    "eudract": re.compile(r"\d{4}-\d{6}-\d{2}"),
+    "isrctn": re.compile(r"ISRCTN\d{8}"),
+    "setid": re.compile(r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}"),
+    "spl_id": re.compile(r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}"),
+    "k_number": re.compile(r"[KPD][A-Z]{0,2}\d{6}"),
+    "chembl": re.compile(r"CHEMBL\d+"),
+}
+_DOI_RESOLVERS = (
+    "https://doi.org/",
+    "http://doi.org/",
+    "https://dx.doi.org/",
+    "http://dx.doi.org/",
+    "doi:",
+)
+
+
+def normalize_identifier(scheme: str, value: object) -> str:
+    """Write one provider identifier in its scheme's canonical syntax, or blank.
+
+    Syntax only, and only what the scheme defines: a DOI is case-insensitive and may
+    arrive as a resolver link; a PMCID may arrive without its prefix; a UUID is
+    case-insensitive. Nothing here decides whether two different identifiers mean one
+    record.
+    """
+    text = str(value or "").strip()
+    if scheme == "doi":
+        text = text.casefold()
+        for prefix in _DOI_RESOLVERS:
+            if text.startswith(prefix):
+                text = text[len(prefix):].strip()
+                break
+    elif scheme == "pmcid":
+        text = text.upper()
+        text = text if text.startswith("PMC") else f"PMC{text}"
+    elif scheme in {"setid", "spl_id"}:
+        text = text.casefold()
+    else:
+        text = text.upper()
+    return text if _IDENTIFIER_SYNTAX[scheme].fullmatch(text) else ""
 
 
 def _canonical_url(url: str) -> str:
@@ -500,7 +690,7 @@ def _canonical_url(url: str) -> str:
     return urlunsplit((split.scheme.casefold(), host, split.path, query, ""))
 
 
-class SearcherLLMClientProtocol(Protocol):
+class LLMClientProtocol(Protocol):
     """Contract searcher requires from any injected LLM client.
 
     Library code depends only on this Protocol - the concrete client
@@ -512,7 +702,7 @@ class SearcherLLMClientProtocol(Protocol):
     contracts differ.
     """
 
-    def search_web(self, query: str, *, max_tokens: int, max_uses: int) -> Any:
+    def search_web(self, query: str, *, max_tokens: int) -> Any:
         ...
 
 
@@ -577,6 +767,7 @@ def merge_findings(existing: Finding, incoming: Finding) -> Finding:
     existing.source = existing.source_lanes[0] if existing.source_lanes else existing.source
     if incoming_is_evidence and not existing_was_evidence:
         existing.excerpt = incoming.excerpt
+        existing.excerpt_kind = incoming.excerpt_kind
         existing.excerpt_source_lane = (
             incoming.excerpt_source_lane or incoming.source
             if incoming.excerpt
@@ -585,19 +776,81 @@ def merge_findings(existing: Finding, incoming: Finding) -> Finding:
     elif (
         incoming.excerpt
         and incoming_is_evidence == existing_was_evidence
-        and len(incoming.excerpt) > len(existing.excerpt or "")
+        and _excerpt_preference(incoming) > _excerpt_preference(existing)
     ):
         existing.excerpt = incoming.excerpt
+        existing.excerpt_kind = incoming.excerpt_kind
         existing.excerpt_source_lane = incoming.excerpt_source_lane or incoming.source
     if (not existing.title or existing.title == existing.url) and incoming.title:
         existing.title = incoming.title
         existing.title_source_lane = incoming.title_source_lane or incoming.source
-    if existing.published_at is None and incoming.published_at is not None:
+    if incoming.published_at is not None and (
+        existing.published_at is None
+        or _precision_rank(incoming) > _precision_rank(existing)
+    ):
         existing.published_at = incoming.published_at
+        existing.published_precision = incoming.published_precision
         existing.published_source_lane = (
             incoming.published_source_lane or incoming.source
         )
+    existing.identifiers = {**incoming.identifiers, **existing.identifiers}
     return existing
+
+
+def _excerpt_preference(finding: Finding) -> tuple[int, int]:
+    """A source's own words beat labels around its values, which beat a model's text."""
+    if not finding.excerpt:
+        return (-1, 0)
+    return (_EXCERPT_KIND_RANK[finding.excerpt_kind], len(finding.excerpt))
+
+
+def _precision_rank(finding: Finding) -> int:
+    return {"year": 0, "month": 1, "day": 2}.get(finding.published_precision, -1)
+
+
+def dedupe_findings(findings: Iterable[Finding]) -> list[Finding]:
+    """Merge findings that are one record, in first-seen order, keeping every lane.
+
+    One record is one `record_key`, or one cross-lane identifier (a DOI, a PMID, a trial
+    number) found by two lanes. A finding whose only identity is the page it cites also
+    joins whatever record already cites that page. Distinct records that share a page
+    stay distinct: FAERS counts for two reactions are two records whatever URL shows them.
+    Merging keeps every query, lane and retrieval path (see `merge_findings`).
+    """
+    merged: list[Finding | None] = []
+    owners: dict[str, int] = {}
+    page_owners: dict[str, int] = {}
+    for finding in findings:
+        keys = finding.identity_keys()
+        matches = sorted({owners[key] for key in keys if key in owners})
+        if not matches and finding.record_key.startswith("url:") and finding.url in page_owners:
+            matches = [page_owners[finding.url]]
+        if not matches:
+            index = len(merged)
+            merged.append(finding)
+        else:
+            index = matches[0]
+            target = merged[index]
+            assert target is not None
+            merge_findings(target, finding)
+            # A finding sharing a key with two held records proves those two are one.
+            for other in matches[1:]:
+                bridged = merged[other]
+                if bridged is not None:
+                    merge_findings(target, bridged)
+                    merged[other] = None
+            for key, owner in list(owners.items()):
+                if owner in matches:
+                    owners[key] = index
+            for url, owner in list(page_owners.items()):
+                if owner in matches:
+                    page_owners[url] = index
+        held = merged[index]
+        assert held is not None
+        for key in keys | held.identity_keys():
+            owners[key] = index
+        page_owners.setdefault(finding.url, index)
+    return [finding for finding in merged if finding is not None]
 
 
 @dataclass
@@ -641,6 +894,9 @@ def outcomes_to_dicts(outcomes: list["SearchOutcome"]) -> list[dict]:
             # outcome, while a lane the planner ruled out never runs and carries its
             # reason on the request. Reporting only the former left every skip unexplained.
             "detail": outcome.error or outcome.request.applicability_reason,
+            "error_code": outcome.error_code,
+            "provider_query": outcome.provider_query,
+            "warnings": [asdict(warning) for warning in outcome.warnings],
             "returned": len(outcome.findings),
         }
         for outcome in outcomes

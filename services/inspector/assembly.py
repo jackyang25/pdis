@@ -148,6 +148,18 @@ def rank_assessments(
     return ordered
 
 
+def rank_document_findings(findings: Sequence[Assessment], *, after: int) -> None:
+    """Rank the document's conflicts after every review's own worklist.
+
+    Conflicts belong to the document, not to any rubric, and each review's worklist
+    shows them beside its own units. `section_conflict` follows every unit verdict in
+    `VERDICTS`, so starting past the longest worklist places them after the units in
+    whichever review is read, without comparing one rubric's ranks with another's.
+    """
+    for offset, item in enumerate(findings):
+        item.rank = after + offset
+
+
 def absent_unit_assessments(
     config: InspectionConfig, section_name: str
 ) -> list[Assessment]:
@@ -178,8 +190,12 @@ def absent_unit_assessments(
                 # this one - and unlike the per-variable case, where both sentences were
                 # built from names already on the row, this one carries something that
                 # appears nowhere else on screen. The field went; the fact did not.
+                # An optional section's absence is the rubric not asking, so there is
+                # nothing wrong to state.
                 statement=(
-                    f"The {section_name} section is not present in the document. "
+                    ""
+                    if spec.optional
+                    else f"The {section_name} section is not present in the document. "
                     f"It should cover: {spec.description}"
                 ),
                 section_name=section_name,

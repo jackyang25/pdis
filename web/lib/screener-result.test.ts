@@ -7,6 +7,9 @@ import { packScreenerResult, unpackScreenerResult, runLabel, runScope } from "./
 import { documentExtractionWarnings, documentBlockLocationLabel } from "./document-extraction.ts";
 import { buildDocumentTrace, documentTracePassages } from "./document-trace.ts";
 
+/** The held run a file is written for; packing never mints identity of its own. */
+const RUN = { id: "run-1", created_at: "2026-01-01T00:00:00.000Z" };
+
 function fixture(): ScreenerResponse {
   const blocks: ContentBlock[] = ["Meeting notes", "Study report"].map((doc_id, index) => ({
     id: `${doc_id}:1`, doc_id, ordinal: 1,
@@ -39,7 +42,7 @@ test("Screener names the gate, not a concatenation of uploaded filenames", () =>
     }));
     result.review.documents = result.review.blocks.map(({ doc_id }) => ({ doc_id }));
     result.review.disciplines[0].questions[0].cited_block_ids = ["source-0:1"];
-    const restored = unpackScreenerResult(JSON.parse(JSON.stringify(packScreenerResult(result))));
+    const restored = unpackScreenerResult(JSON.parse(JSON.stringify(packScreenerResult(result, RUN))));
     assert.equal(runLabel(restored, "screener"), "End of Phase 1");
     assert.equal(runScope(restored, "screener"),
       `Tuberculosis · Small Molecule · ${count} ${count === 1 ? "document" : "documents"}`);
@@ -55,7 +58,7 @@ test("Screener falls back to the saved gate ID when no gate label is present", (
 
 test("arbitrary documents and embedded images survive saved-result and trace round trips together", () => {
   const result = fixture();
-  const file = packScreenerResult(result);
+  const file = packScreenerResult(result, RUN);
   assert.equal(file.analysis_version, 5);
   assert.deepEqual(file.source_documents.map(({ doc_id }) => doc_id), ["Meeting notes", "Study report"]);
   const restored = unpackScreenerResult(JSON.parse(JSON.stringify(file)));
@@ -69,7 +72,7 @@ test("arbitrary documents and embedded images survive saved-result and trace rou
 test("PDF page locations, limitations and citations survive export and trace reconstruction", () => {
   const result = fixture();
   result.review.blocks[0].structural_meta = { page: 3, extraction_warnings: ["pdf_limited_structure"] };
-  const restored = unpackScreenerResult(JSON.parse(JSON.stringify(packScreenerResult(result))));
+  const restored = unpackScreenerResult(JSON.parse(JSON.stringify(packScreenerResult(result, RUN))));
   const annotations = buildScreenerDocumentAnnotations(restored.review);
   const trace = buildDocumentTrace(restored.review.blocks, annotations);
   assert.equal(documentTracePassages(trace, annotations[0].id)[0].sectionLabel, "Page 3");
@@ -81,7 +84,7 @@ test("PDF page locations, limitations and citations survive export and trace rec
 });
 
 test("saved reviews from before retained-only evidence are explicitly refused", () => {
-  const file = packScreenerResult(fixture());
+  const file = packScreenerResult(fixture(), RUN);
   assert.throws(() => unpackScreenerResult({ ...file, analysis_version: 4 }), /re-run the screener analysis/);
 });
 
@@ -92,14 +95,14 @@ test("every answered and partial question must cite passages retained in the fil
     question.state = state;
     question.missing = state === "answered" ? "" : "The completion date.";
     question.cited_block_ids = [];
-    assert.throws(() => packScreenerResult(result), /cites no passage/);
+    assert.throws(() => packScreenerResult(result, RUN), /cites no passage/);
     question.cited_block_ids = ["unretained:1"];
-    assert.throws(() => packScreenerResult(result), /passage the file does not carry/);
+    assert.throws(() => packScreenerResult(result, RUN), /passage the file does not carry/);
   }
 });
 
 test("a saved review cannot silently lose a document's retained content", () => {
-  const file = packScreenerResult(fixture());
+  const file = packScreenerResult(fixture(), RUN);
   file.source_documents.pop();
   assert.throws(() => unpackScreenerResult(file), /document has no retained passages/);
 });

@@ -113,7 +113,7 @@ def parse_pdf(file_path: str, doc_id: str) -> list[ContentBlock]:
         for number, text in enumerate(page_texts, 1):
             warnings = ["pdf_text_layout"]
             blocks.append(ContentBlock(
-                id=f"{doc_id}/b-{number:04d}", doc_id=doc_id, ordinal=len(blocks) + 1,
+                id=f"{doc_id}/b-{number:04d}", doc_id=doc_id, ordinal=len(blocks),
                 block_type="paragraph", content=text, heading_stack=[],
                 structural_meta={"page": number, "extraction_warnings": warnings.copy()},
                 style_hint={"parser": "pdf_text"},
@@ -134,7 +134,7 @@ def parse_pdf(file_path: str, doc_id: str) -> list[ContentBlock]:
                 )
             blocks.append(ContentBlock(
                 id=f"{doc_id}/b-{number:04d}-image-0001",
-                doc_id=doc_id, ordinal=len(blocks) + 1,
+                doc_id=doc_id, ordinal=len(blocks),
                 block_type="image", content="[image]", heading_stack=[],
                 structural_meta={
                     "page": number,

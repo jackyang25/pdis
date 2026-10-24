@@ -7,7 +7,8 @@ import { Button } from "@/components/ui/button";
 
 type Download = {
   filename: string;
-  data: unknown;
+  /** Packs the file on click; see `DownloadButton`. */
+  data: () => unknown;
 };
 
 type Props = {
@@ -24,8 +25,8 @@ type Props = {
  */
 export function NewAnalysisButton({ onClick, disabled }: { onClick: () => void; disabled?: boolean }) {
   return (
-    <Button variant="ghost" size="sm" onClick={onClick} disabled={disabled} className="gap-1.5 px-2 text-muted-foreground hover:text-foreground">
-      <Plus aria-hidden="true" className="h-3.5 w-3.5" />
+    <Button variant="quiet" size="toolbar" onClick={onClick} disabled={disabled}>
+      <Plus aria-hidden="true" />
       New analysis
     </Button>
   );
@@ -40,7 +41,6 @@ export function FinalResultActions({ onNewAnalysis, download }: Props) {
         <DownloadButton
           filename={download.filename}
           data={download.data}
-          format="json"
           label="Download JSON"
         />
       )}

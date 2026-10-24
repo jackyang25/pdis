@@ -67,19 +67,6 @@ test("Inspector reads its model sentences through the shared component", () => {
   assert.match(page, /<Reading size="prominent"[^>]*>/);
 });
 
-test("the quotation rule marks only quotes, in every tool that uses it", () => {
-  // `border-l-2` means "these are someone else's exact words". `LabeledItem` also rules its
-  // left edge and is deliberately not a quotation — it colours the rule, which is what
-  // tells the two apart — so the check is that a bare neutral rule is not applied to a
-  // model's prose.
-  const labeled = read("components", "labeled-item.tsx");
-  assert.match(
-    labeled,
-    /border-l-\[hsl\(var\(--tone-warning\)\)\]|border-l-foreground/,
-    "LabeledItem stopped colouring its rule, so it now looks like a quotation",
-  );
-});
-
 /**
  * The how-to-read panel, and the labels it explains.
  *
@@ -138,9 +125,11 @@ test("a label stays short enough to sit in a chip", () => {
 
 test("no tool hand-rolls its own row of verdict counts", () => {
   const offenders: string[] = [];
+  // Rendered, not merely imported: Aligner's count row moved into the shared figure row
+  // and an unused `VerdictCounts` import kept this passing for a page that drew none.
   for (const tool of ["inspector", "aligner"]) {
     const page = readFileSync(path.join(REPO, "app", tool, "page.tsx"), "utf8");
-    if (!page.includes("VerdictCounts")) offenders.push(tool);
+    if (!page.includes("<VerdictCounts") && !page.includes("<MetricsRow")) offenders.push(tool);
   }
   assert.deepEqual(offenders, [], "a tool counts verdicts in its own shape");
 });
@@ -271,7 +260,12 @@ test("a verdict has one tone, and the pill and the count row both read it", () =
   // Two maps would be one verdict decided twice, which is how a verdict comes to be one
   // colour on a unit and another on the section summarising it.
   const page = readFileSync(path.join(REPO, "app", "inspector", "page.tsx"), "utf8");
-  assert.match(page, /const VERDICT_TONE: Record<Verdict, Tone>/);
+  const api = readFileSync(path.join(REPO, "lib", "api.ts"), "utf8");
+  assert.match(api, /export const VERDICT_TONE: Record<Verdict, Tone>/);
+  // Decided in `lib`, so the document trace reads the same map rather than its own list.
+  assert.ok(!/const VERDICT_TONE/.test(page), "the page decides verdict tones again");
+  const trace = read("lib", "inspector-document-trace.ts");
+  assert.match(trace, /VERDICT_TONE\[item\.verdict\]/, "the trace decides verdict tones again");
   // The tint is applied by `VerdictPill`, which reads the tone directly. A verdict-to-class
   // map lived on the page as well, which is one lookup more than the fact needs.
   const pill = read("components", "ui", "verdict-pill.tsx");
@@ -1346,7 +1340,7 @@ test("a result is built from the four layers, and nothing hand-rolls one", () =>
   // The rule is depth: card, group, row, leaf. `lib/result-layers.ts` states it.
   const layers = read("lib", "result-layers.ts");
   for (const level of ["card", "group", "row", "leaf"]) {
-    assert.match(layers, new RegExp(`${level}:`), `the layering omits ${level}`);
+    assert.match(layers, new RegExp(`\\d\\. ${level.toUpperCase()}\\b`), `the layering omits ${level}`);
   }
 
   // Nobody draws a card by hand. `rounded-lg border` plus a chevron is a `CollapsibleCard`

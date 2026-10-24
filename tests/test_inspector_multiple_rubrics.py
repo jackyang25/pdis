@@ -386,6 +386,76 @@ class AggregateRunTests(unittest.TestCase):
         self.assertEqual(client.schema_names.count("inspector_cross_section_consistency"), 1)
         self.assertIs(result.blocks[0].image, block.image)
 
+    def _two_section_blocks(self):
+        template = find_config("bmgf", "ctpp", "drug")
+        return [ContentBlock(
+            id=f"candidate:b{index}", doc_id="candidate", ordinal=index,
+            block_type="paragraph", content=f"Evidence for {section.name}",
+            heading_stack=[], structural_meta={}, style_hint={}, section_label=section.name,
+        ) for index, section in enumerate(template.sections[:2])]
+
+    def test_a_failed_consistency_pass_keeps_the_assessed_reviews_and_its_code(self) -> None:
+        class InvalidConsistency(_SpecifiedClient):
+            def call_structured(self, *args, schema_name, **kwargs):
+                if schema_name == "inspector_cross_section_consistency":
+                    return {"findings": "not a list"}
+                return super().call_structured(*args, schema_name=schema_name, **kwargs)
+
+        result = inspect_blocks_with_profile(
+            self._two_section_blocks(), profile=find_profile("bmgf", "ctpp", "drug"),
+            applicability_facts={}, llm_client=InvalidConsistency(),
+        )
+        self.assertTrue(result.reviews)
+        self.assertEqual(result.consistency_status, "failed")
+        self.assertEqual(result.consistency_failure_code, "invalid_model_response")
+
+    def test_document_conflicts_rank_after_every_reviews_worklist(self) -> None:
+        blocks = self._two_section_blocks()
+
+        class VagueWithConflict:
+            def call_structured(self, *_args, schema_name, schema, **_kwargs):
+                if schema_name == "inspector_cross_section_consistency":
+                    return {"findings": [{"statement": "Targets disagree.",
+                                          "block_ids": [block.id for block in blocks]}]}
+                block_id = schema["properties"]["block_ids"]["items"]["enum"][0]
+                return {"verdict": "vague", "statement": "Unusable.", "block_ids": [block_id]}
+
+        result = inspect_blocks_with_profile(
+            blocks, profile=find_profile("bmgf", "ctpp", "drug"),
+            applicability_facts={}, llm_client=VagueWithConflict(),
+        )
+        self.assertEqual(result.consistency_failure_code, None)
+        [conflict] = result.document_findings
+        for review in result.reviews:
+            ranks = [unit.rank for section in review.sections for unit in section.units
+                     if unit.needs_work]
+            with self.subTest(rubric=review.rubric.id):
+                self.assertGreater(conflict.rank, max(ranks, default=-1))
+
+    def test_consistency_failure_code_and_status_must_agree(self) -> None:
+        result = inspect_blocks_with_profile(
+            self._two_section_blocks(), profile=find_profile("bmgf", "ctpp", "drug"),
+            applicability_facts={}, llm_client=_SpecifiedClient(),
+        )
+        configs = {item.rubric.id: item.rubric.config
+                   for item in resolve_profile(find_profile("bmgf", "ctpp", "drug"), {})
+                   if item.status == "included"}
+        result.consistency_failure_code = "response_truncated"
+        with self.assertRaisesRegex(ValueError, "requires a failed check"):
+            validate_aggregate_result_contract(result, configs)
+        result.consistency_status, result.consistency_failure_code = "failed", None
+        with self.assertRaisesRegex(ValueError, "must carry a failure code"):
+            validate_aggregate_result_contract(result, configs)
+
+    def test_a_profile_with_no_included_rubric_is_refused_before_parsing(self) -> None:
+        profile = find_profile("bmgf", "ctpp", "drug")
+        with patch("services.inspector.pipeline.resolve_profile", return_value=[]), \
+                patch("services.inspector.pipeline.chunker_run_pipeline") as parse:
+            with self.assertRaisesRegex(ValueError, "no included rubrics"):
+                run_profile_pipeline("/tmp/candidate.docx", profile=profile,
+                                     applicability_facts={}, llm_client=_SpecifiedClient())
+        parse.assert_not_called()
+
     def test_snapshot_freezes_authored_text_and_contract_rejects_bad_citation(self) -> None:
         profile = find_profile("bmgf", "ctpp", "drug")
         block = ContentBlock(

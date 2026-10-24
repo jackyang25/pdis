@@ -44,6 +44,7 @@ export default function ReviewPreview() {
       onTargetDecision={(id, decision) => setResult(previous => ({ ...previous, quantitative_ledger: { ...previous.quantitative_ledger, targets: previous.quantitative_ledger.targets.map(target => target.id === id ? { ...target, review_status: decision } : target) } }))}
       onStatementDecision={id => setResult(previous => ({ ...previous, quantitative_ledger: { ...previous.quantitative_ledger, reviews: previous.quantitative_ledger.reviews.map(review => review.unit_id === id ? { ...review, review_status: "accepted_exclusion" } : review) } }))}
       onAcceptRecommendations={() => setResult(previous => ({ ...previous, quantitative_ledger: { ...previous.quantitative_ledger, targets: previous.quantitative_ledger.targets.map(target => target.review_status !== "needs_review" || !["confirm", "exclude"].includes(target.ai_recommendation) ? target : { ...target, review_status: target.ai_recommendation === "confirm" ? "approved" : "rejected" }) } }))}
+      onFieldSearchChange={not_searched_fields => setResult(previous => ({ ...previous, not_searched_fields }))}
       onContinue={() => setNotice("Retrieval would start here. This preview makes no AI calls; select Evidence review above to inspect its separately seeded checkpoint.")}
       onNewAnalysis={() => reset("target")} /> :
       <QuantitativeReviewCheckpoint key={generation} result={result}

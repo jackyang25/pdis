@@ -8,8 +8,9 @@ protein target; product configs decide which intervention classes enable it.
 from __future__ import annotations
 
 from datetime import datetime, timezone
-from urllib.parse import quote, urlencode
+from urllib.parse import quote
 
+from ..errors import RetrievalError
 from ..models import (
     Finding,
     RetrievalIntent,
@@ -76,7 +77,6 @@ class OpenTargetsSource:
                     ("target_name", target.name),
                     ("target_identifier", target.identifier),
                     ("disease_name", disease),
-                    ("limit", str(MAX_RESULTS)),
                 ),
             )
             for target in targets
@@ -88,26 +88,27 @@ class OpenTargetsSource:
         runtime: SearchRuntime,
         *,
         max_tokens: int,
-        max_uses: int,
     ) -> list[Finding]:
         arguments: dict[str, object] = {
             "disease_name": request.option("disease_name"),
-            "size": int(request.option("limit", str(MAX_RESULTS))),
+            "size": self.spec.max_results,
         }
         identifier = request.option("target_identifier")
         if identifier.upper().startswith("ENSG"):
             arguments["ensemblId"] = identifier
         else:
             arguments["gene_symbol"] = request.option("target_name")
-        result = run_tool(runtime, EVIDENCE_TOOL, arguments)
+        result = run_tool(runtime, self.spec, EVIDENCE_TOOL, arguments)
         disease = _disease_payload(result)
         rows = ((disease.get("evidences") or {}).get("rows") or [])
         if not isinstance(rows, list):
-            raise RuntimeError("Open Targets returned invalid evidence rows")
+            raise RetrievalError(
+                "Open Targets", "invalid_response", "evidence rows are not a list"
+            )
 
         retrieved_at = datetime.now(timezone.utc)
         findings: list[Finding] = []
-        for index, row in enumerate(rows[:MAX_RESULTS]):
+        for row in rows:
             if not isinstance(row, dict):
                 continue
             target = row.get("target") if isinstance(row.get("target"), dict) else {}
@@ -118,7 +119,14 @@ class OpenTargetsSource:
             datasource = text(row.get("datasourceId")) or "Open Targets evidence"
             datatype = text(row.get("datatypeId"))
             score = row.get("score")
-            url = _evidence_url(row, target_id, disease_id, datasource, index)
+            reference = _row_reference(row)
+            # An evidence row has no id of its own in this query. What tells two rows of
+            # one datasource apart is the record each points at - a provider link or the
+            # literature it cites. A row with neither cannot be cited distinctly, so it is
+            # not kept; it used to be addressed by its position in the response, which
+            # changed whenever the response did.
+            if not (reference and target_id and disease_id):
+                continue
             excerpt_parts = [
                 f"Target: {symbol}",
                 f"Disease: {disease_name}",
@@ -136,11 +144,15 @@ class OpenTargetsSource:
                 )
             findings.append(
                 Finding(
-                    url=url,
+                    url=_evidence_url(row, target_id, disease_id),
                     title=f"{symbol} — {disease_name} · {datasource}",
                     query=request.query,
                     retrieved_at=retrieved_at,
                     excerpt="\n".join(excerpt_parts),
+                    excerpt_kind="structured_fields",
+                    record_key=(
+                        f"open_targets:{target_id}:{disease_id}:{datasource}:{reference}"
+                    ),
                     source=self.spec.key,
                 )
             )
@@ -149,9 +161,11 @@ class OpenTargetsSource:
 
 def _disease_payload(result: object) -> dict:
     if not isinstance(result, dict):
-        raise RuntimeError("Open Targets returned an unexpected result shape")
+        raise RetrievalError("Open Targets", "invalid_response", "unexpected result shape")
     if result.get("status") == "error" or result.get("error"):
-        raise RuntimeError(str(result.get("error") or "Open Targets failed"))
+        raise RetrievalError(
+            "Open Targets", "tool_error", str(result.get("error") or "query failed")
+        )
     data = result.get("data")
     disease = data.get("disease") if isinstance(data, dict) else None
     if not isinstance(disease, dict):
@@ -159,13 +173,20 @@ def _disease_payload(result: object) -> dict:
     return disease
 
 
-def _evidence_url(
-    row: dict,
-    target_id: str,
-    disease_id: str,
-    datasource: str,
-    index: int,
-) -> str:
+def _row_reference(row: dict) -> str:
+    """The provider link or the literature an evidence row points at, or blank."""
+    link = _row_link(row)
+    if link:
+        return link
+    literature = row.get("literature")
+    if isinstance(literature, list):
+        cited = [str(value).strip() for value in literature if str(value).strip()]
+        if cited:
+            return "literature:" + ",".join(cited)
+    return ""
+
+
+def _row_link(row: dict) -> str:
     urls = row.get("urls")
     if isinstance(urls, list):
         for item in urls:
@@ -173,10 +194,27 @@ def _evidence_url(
                 url = text(item.get("url"))
                 if url.startswith(("https://", "http://")):
                     return url
-    if target_id and disease_id:
-        base = (
-            "https://platform.opentargets.org/evidence/"
-            f"{quote(target_id)}/{quote(disease_id)}"
-        )
-        return base + "?" + urlencode({"datasource": datasource, "row": index})
-    return "https://platform.opentargets.org/"
+    return ""
+
+
+def _evidence_url(row: dict, target_id: str, disease_id: str) -> str:
+    """Where a reader checks the row: its own link, else the first paper it cites.
+
+    Open Targets literature rows carry PubMed IDs, and Europe PMC addresses a PubMed
+    record as `MED/<pmid>`. A row with neither falls back to the platform page listing
+    this pair's evidence; that page is shared by every such row, which is why identity
+    is the finding's `record_key`, not this URL.
+    """
+    link = _row_link(row)
+    if link:
+        return link
+    literature = row.get("literature")
+    if isinstance(literature, list):
+        for value in literature:
+            pmid = str(value).strip()
+            if pmid.isdigit():
+                return f"https://europepmc.org/article/MED/{pmid}"
+    return (
+        "https://platform.opentargets.org/evidence/"
+        f"{quote(target_id)}/{quote(disease_id)}"
+    )

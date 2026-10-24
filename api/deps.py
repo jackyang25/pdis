@@ -3,19 +3,19 @@
 from __future__ import annotations
 
 import os
+from functools import lru_cache
 from typing import Any, Mapping
 from urllib.parse import urlparse
 
 from shared.anthropic_client import AnthropicQuantitativeClient
 from shared.openai_client import OpenAIClient
 from services.searcher import (
+    TAVILY_INTEGRATION,
     SearchRuntime,
     TavilyHTTPConnector,
     ToolUniverseHTTPConnector,
     integration_operations,
 )
-from services.searcher.connectors.tavily import DEFAULT_BASE_URL, DEFAULT_SEARCH_DEPTH
-from services.searcher.sources.tavily import TAVILY_INTEGRATION
 
 TOOLUNIVERSE_INTEGRATION = "tooluniverse"
 
@@ -43,18 +43,33 @@ class MissingCredentialError(RuntimeError):
 
 
 def get_openai_client() -> OpenAIClient:
-    """Construct the shared client and its server-owned two-tier model policy."""
+    """Return the process's client and its server-owned two-tier model policy.
+
+    One per process, not one per request: the client holds nothing per call, its
+    credentials come from the server environment, and the SDK client it wraps
+    keeps a connection pool that a fresh instance per request would discard.
+    """
     if not (os.environ.get("KONG_KEY") or os.environ.get("OPENAI_API_KEY")):
         raise MissingCredentialError("Missing KONG_KEY or OPENAI_API_KEY in server environment.")
-    return OpenAIClient()
+    return _openai_client()
 
 
 def get_quantitative_anthropic_client() -> AnthropicQuantitativeClient:
-    """Build Scout's server-owned Opus quantitative mapping client."""
+    """Return Scout's server-owned Opus quantitative mapping client, one per process."""
     if not (os.environ.get("KONG_KEY") or os.environ.get("ANTHROPIC_API_KEY")):
         raise MissingCredentialError(
             "Missing KONG_KEY or ANTHROPIC_API_KEY in server environment."
         )
+    return _anthropic_client()
+
+
+@lru_cache(maxsize=1)
+def _openai_client() -> OpenAIClient:
+    return OpenAIClient()
+
+
+@lru_cache(maxsize=1)
+def _anthropic_client() -> AnthropicQuantitativeClient:
     return AnthropicQuantitativeClient()
 
 
@@ -89,15 +104,21 @@ def get_search_integrations(
             timeout_seconds=_positive_float("TOOLUNIVERSE_TIMEOUT_SECONDS", 30.0),
         )
     if api_key := os.environ.get("TAVILY_API_KEY", "").strip():
+        # Unset options keep the connector's own defaults: its endpoint, and advanced
+        # depth, because the reason to run this lane is the quality of the extracted
+        # page text. Depth is overridable for a cheaper comparison run.
+        options = {
+            name: value
+            for name, value in (
+                ("base_url", os.environ.get("TAVILY_BASE_URL", "").strip()),
+                ("search_depth", os.environ.get("TAVILY_SEARCH_DEPTH", "").strip()),
+            )
+            if value
+        }
         configured[TAVILY_INTEGRATION] = TavilyHTTPConnector(
             api_key=api_key,
-            base_url=os.environ.get("TAVILY_BASE_URL", "").strip() or DEFAULT_BASE_URL,
-            # Advanced by default: the reason to run this lane is the quality of the
-            # extracted page text, and basic depth returns less of it. Overridable for a
-            # cheaper comparison run.
-            search_depth=os.environ.get("TAVILY_SEARCH_DEPTH", "").strip()
-            or DEFAULT_SEARCH_DEPTH,
             timeout_seconds=_positive_float("TAVILY_TIMEOUT_SECONDS", 30.0),
+            **options,
         )
     configured.update(overrides or {})
     return configured

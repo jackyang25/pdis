@@ -4,7 +4,6 @@ import type { Conformity, Measurement } from "./api.ts";
 import {
   applyEvidenceReviewRecommendations,
   evidenceReviewRecommendationSummary,
-  reviewQuantitativeCandidate,
   reviewQuantitativeCandidateGroup,
 } from "./quantitative-review.ts";
 
@@ -24,6 +23,7 @@ function candidate(id: string, value: number): Measurement {
     source_quote: `The result was ${value}%.`,
     source_record_id: id,
     source_identity_status: "canonical",
+    ai_review_failure_code: "",
     evidence_unit_id: `${id}/unit:record`,
     evidence_unit: {
       status: "record_level",
@@ -68,7 +68,7 @@ function score(): Conformity {
     target_label: "efficacy >=80%",
     target_quote: "Target efficacy >=80%.",
     target_meeting_count: 0,
-    target_meeting_rate: 0,
+    target_meeting_rate: null,
     verdict: "No admitted comparators",
     benchmark_count: 0,
     benchmark_minimum: null,
@@ -89,7 +89,7 @@ function score(): Conformity {
 }
 
 test("only an explicit approval enters deterministic statistics", () => {
-  const reviewed = reviewQuantitativeCandidate(score(), "high", "approve");
+  const reviewed = reviewQuantitativeCandidateGroup(score(), ["high"], "high");
   assert.equal(reviewed.benchmark_count, 1);
   assert.equal(reviewed.benchmark_median, 90);
   assert.equal(reviewed.target_meeting_count, 1);
@@ -98,8 +98,10 @@ test("only an explicit approval enters deterministic statistics", () => {
 });
 
 test("a rejection remains traceable and never changes statistics", () => {
-  const reviewed = reviewQuantitativeCandidate(score(), "high", "reject");
+  const reviewed = reviewQuantitativeCandidateGroup(score(), ["high"], null);
   assert.equal(reviewed.benchmark_count, 0);
+  // No cohort, so no share - the server's rule. Zero would read as "none of them met it".
+  assert.equal(reviewed.target_meeting_rate, null);
   assert.equal(reviewed.measurements.length, 0);
   assert.equal(
     reviewed.excluded_measurements.find((item) => item.candidate_id === "high")?.admission_status,
@@ -114,8 +116,8 @@ test("distinct evidence units from one source both enter the cohort", () => {
     source_record_id: "doi:shared",
     evidence_unit_id: `doi:shared/unit:arm-${index + 1}`,
   }));
-  const first = reviewQuantitativeCandidate(sharedSource, "low", "approve");
-  const second = reviewQuantitativeCandidate(first, "high", "approve");
+  const first = reviewQuantitativeCandidateGroup(sharedSource, ["low"], "low");
+  const second = reviewQuantitativeCandidateGroup(first, ["high"], "high");
 
   assert.equal(second.benchmark_count, 2);
   assert.deepEqual(second.measurements.map((item) => item.expression.value), [70, 90]);
@@ -207,7 +209,7 @@ test("a non-canonical source identity keeps calibration coverage limited", () =>
     null,
   );
   const admitted = wide.excluded_measurements.reduce(
-    (current, item) => reviewQuantitativeCandidate(current, item.candidate_id, "approve"),
+    (current, item) => reviewQuantitativeCandidateGroup(current, [item.candidate_id], item.candidate_id),
     wide,
   );
 
@@ -222,7 +224,7 @@ test("an equality target tolerates floating point representation", () => {
   exact.target_value = 0.3;
   exact.excluded_measurements = [candidate("drifted", 0.1 + 0.2)];
 
-  const reviewed = reviewQuantitativeCandidate(exact, "drifted", "approve");
+  const reviewed = reviewQuantitativeCandidateGroup(exact, ["drifted"], "drifted");
 
   assert.equal(reviewed.benchmark_count, 1);
   assert.equal(reviewed.target_meeting_count, 1);

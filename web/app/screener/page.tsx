@@ -1,5 +1,6 @@
 "use client";
 
+import { EmptyState } from "@/components/empty-state";
 import { ResultCardStack } from "@/components/ui/result-card-stack";
 
 import { ResultLayout } from "@/components/ui/result-layout";
@@ -13,7 +14,8 @@ import {
   ResultToolbarEnd,
 } from "@/components/ui/result-toolbar";
 import { useTraceFocus } from "@/lib/trace-focus";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useShallow } from "zustand/react/shallow";
 import { RunHistory } from "@/components/run-history";
 import { CollapsibleCard } from "@/components/collapsible-card";
 import {
@@ -64,9 +66,9 @@ import {
   runLabel,
   runScope,
   unpackScreenerResult,
-  readResultIdentity,
 } from "@/lib/result-file";
 import { useScreenerSession } from "@/lib/session";
+import { importTool, runTool } from "@/lib/tool-run";
 import { usePriorityReading } from "@/lib/priority-reading";
 import { PriorityPanel } from "@/components/ui/priority-panel";
 import { isContextComplete, useHeaderStore } from "@/lib/store";
@@ -86,7 +88,10 @@ const STEPS = [
 ];
 
 export default function ScreenerPage() {
-  const session = useScreenerSession();
+  const session = useScreenerSession(
+    useShallow(({ result, busy, startedAt, stage, progress, error }) =>
+      ({ result, busy, startedAt, stage, progress, error })),
+  );
   const header = useHeaderStore((state) => state.header);
   const [gates, setGates] = useState<GateSpec[]>([]);
   // Which context the gates on screen were loaded for, so the field can say it is loading
@@ -121,12 +126,12 @@ export default function ScreenerPage() {
       .catch((error: Error) => {
         if (!live) return;
         setGatesFor(requested);
-        session.setError(`Could not load the gates Screener asks about: ${error.message}`);
+        useScreenerSession.getState().setError(`Could not load the gates Screener asks about: ${error.message}`);
       });
     return () => {
       live = false;
     };
-  }, [header.intervention_class, header.org, session.setError]);
+  }, [header.intervention_class, header.org]);
 
   const slots: readonly DocumentSlot[] = documentIds.map((id, index) => ({
     id,
@@ -135,43 +140,21 @@ export default function ScreenerPage() {
   const contextReady = isContextComplete(header);
   const configured = contextReady && gates.some((item) => item.id === gate);
 
-  async function handleRun(files: Record<string, File>) {
+  function handleRun(files: Record<string, File>) {
     if (!configured || !contextReady) return;
-    session.setBusy(true);
-    session.setError(null);
-    session.setStage(null);
-    session.setProgress(null);
-    try {
-      const result = await runScreener(
-        documentIds.map((id) => files[id]),
-        {
-          gate,
-          org: header.org,
-          intervention_class: header.intervention_class,
-          indication: header.indication,
-        },
-        (stage, progress) => {
-          session.setStage(stage);
-          session.setProgress(progress ?? null);
-        },
-      );
-      session.addResult(result);
-    } catch (error) {
-      session.setError((error as Error).message);
-    } finally {
-      session.setBusy(false);
-    }
+    void runTool(useScreenerSession, (report) => runScreener(
+      documentIds.map((id) => files[id]),
+      {
+        gate,
+        org: header.org,
+        intervention_class: header.intervention_class,
+        indication: header.indication,
+      },
+      report,
+    ));
   }
 
-  async function handleImport(file: File) {
-    session.setError(null);
-    try {
-      const raw = JSON.parse(await file.text());
-      session.addResult(unpackScreenerResult(raw), readResultIdentity(raw));
-    } catch (error) {
-      session.setError(`Could not import result: ${(error as Error).message}`);
-    }
-  }
+  const showSetupPanel = useCallback(() => setShowSetup(true), []);
 
   return (
     <>
@@ -182,6 +165,7 @@ export default function ScreenerPage() {
       <div className="flex flex-col gap-6">
         {(session.busy || !session.result || showSetup) && (
           <RunPanel
+            onCancel={session.result ? () => setShowSetup(false) : undefined}
             busy={session.busy}
             startedAt={session.startedAt}
             documents={slots}
@@ -192,7 +176,7 @@ export default function ScreenerPage() {
               return id;
             }}
             onRemoveDocument={(id) => setDocumentIds((ids) => ids.filter((held) => held !== id))}
-            onRun={(files) => void handleRun(files)}
+            onRun={handleRun}
             steps={STEPS}
             currentStage={session.stage}
             progress={session.progress}
@@ -206,7 +190,7 @@ export default function ScreenerPage() {
                 <ConfigSectionHeading>Run options</ConfigSectionHeading>
                 <ConfigField
                   label="Stage gate"
-                  help="Organization and stage gate select the question bank; health product type determines applicability. Disease / condition labels the review but does not change the assessment."
+                  help="The stage gate selects the question bank; health product type determines applicability. Disease / condition labels the review but does not change the assessment."
                   disabled={!header.org}
                   note={
                     /*
@@ -245,7 +229,7 @@ export default function ScreenerPage() {
                 </ConfigField>
               </ConfigurationShell>
             }
-            onImport={handleImport}
+            onImport={(file) => importTool(useScreenerSession, file, unpackScreenerResult)}
           />
         )}
 
@@ -253,7 +237,7 @@ export default function ScreenerPage() {
         {session.result && (
           <ReviewView
             result={session.result}
-            onNewAnalysis={() => setShowSetup(true)}
+            onNewAnalysis={showSetupPanel}
           />
         )}
       </div>
@@ -275,15 +259,19 @@ function runHint(
 // Result
 // ---------------------------------------------------------------------------
 
-function ReviewView({
+/** Memoized so a run's progress ticks, which re-render the page, leave a held result alone. */
+const ReviewView = memo(function ReviewView({
   result,
   onNewAnalysis,
 }: {
   result: { review: GateReview };
   onNewAnalysis: () => void;
 }) {
-  const { results, selectedId, selectResult, removeResult } =
-    useScreenerSession();
+  const { results, selectedId, selectResult, removeResult } = useScreenerSession(
+    useShallow(({ results, selectedId, selectResult, removeResult }) =>
+      ({ results, selectedId, selectResult, removeResult })),
+  );
+  const held = results.find((entry) => entry.id === selectedId);
   const review = result.review;
   const counts = useMemo(() => countStates(review), [review]);
 
@@ -385,9 +373,9 @@ function ReviewView({
           />
           <FinalResultActions
             onNewAnalysis={onNewAnalysis}
-            download={{
+            download={held && {
               filename: runFilename("screener"),
-              data: packScreenerResult(result),
+              data: () => packScreenerResult(result, held),
             }}
           />
         </>
@@ -454,6 +442,9 @@ function ReviewView({
                 review={review}
                 query={normalizedQuery}
               />
+              {/* Each panel steps aside when the search leaves it nothing, so with no match
+                  anywhere the stack would be empty space. */}
+              {shownQuestions === 0 && <EmptyState message="No question matches that search" />}
             </ResultCardStack>
 
             <BankSource source={review.bank_source} />
@@ -470,7 +461,7 @@ function ReviewView({
     </ResultLayout>
     </DocumentSourceProvider>
   );
-}
+});
 
 /**
  * What question bank this triage came from.
@@ -533,15 +524,19 @@ function splitTrailingUrl(source: string): [string, string | null] {
  * A caveat about how counts relate is prose about figures, and this is where that goes.
  */
 function screenerMetricsNote(counts: ReturnType<typeof countStates>): string {
+  // What the row is, and the one exception a reader could not infer from it. Why zeros show
+  // and what "required" means are in How to read, where a reader goes to learn the tool.
   const assessed = counts.answered + counts.partlyAnswered + counts.notFound;
   return [
     "Every question in the bank by state, so the row sums to the number of questions this gate asks.",
-    "Answered, partly answered and not found appear even at zero, because a zero there says the check ran and found nothing.",
-    assessed === 0
-      ? "None was read: every question in this bank states that it applies to another health product type."
-      : `${assessed} of them ${assessed === 1 ? "was" : "were"} read against everything supplied; any remainder is a question whose own text states it applies to another health product type.`,
-    "A question is required when the bank states this gate needs it answered now, rather than at a later one.",
-  ].join(" ");
+    counts.notApplicable === 0
+      ? ""
+      : assessed === 0
+        ? "None was read: every question states that it applies to another health product type."
+        : counts.notApplicable === 1
+          ? "1 question states it applies to another health product type and was not read."
+          : `${counts.notApplicable} questions state they apply to another health product type and were not read.`,
+  ].filter(Boolean).join(" ");
 }
 
 function CountRow({
@@ -699,7 +694,7 @@ function StatePanel({
         // that padding off and re-add it on every child - three cards in the suite, two
         // ways of attaching one style, and the only way to tell which a card used was to
         // read it.
-        <p className="mt-3 border-t border-border pt-3 text-[11px] leading-relaxed text-muted-foreground">
+        <p className="mt-3 border-t border-border/60 pt-3 text-[11px] leading-relaxed text-muted-foreground">
           {orderNote}
         </p>
       )}
@@ -725,7 +720,7 @@ function QuestionRow({ question }: { question: QuestionAssessment }) {
         */}
         <span className="flex flex-col gap-1.5 sm:flex-row sm:items-baseline sm:gap-3">
           <span
-            className="min-w-0 flex-1 break-words text-xs leading-relaxed text-muted-foreground"
+            className="min-w-0 flex-1 break-words text-xs leading-relaxed text-foreground"
           >
             {question.text}
           </span>

@@ -46,7 +46,7 @@ export function ConfigChip({ selected, children, className, ...props }: React.Co
       type="button"
       aria-pressed={selected}
       className={cn(
-        "inline-flex min-h-8 items-center gap-1.5 rounded-md border px-2.5 py-1 text-xs font-medium transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring disabled:cursor-not-allowed disabled:opacity-50 motion-reduce:transition-none",
+        "inline-flex min-h-8 items-center gap-1.5 rounded-md border px-2.5 py-1 text-xs font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/60 disabled:cursor-not-allowed disabled:opacity-50 motion-reduce:transition-none",
         selected ? "border-foreground/25 bg-secondary text-secondary-foreground" : "border-border bg-card text-muted-foreground hover:text-foreground",
         className,
       )}
@@ -65,7 +65,7 @@ export function ConfigFieldHelp({ label, children }: { label: string; children: 
         <button
           type="button"
           aria-label={`About ${label}`}
-          className="inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-sm text-muted-foreground hover:bg-accent hover:text-foreground focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring"
+          className="inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-sm text-muted-foreground hover:bg-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/60"
         >
           <Info aria-hidden="true" className="h-3.5 w-3.5" />
         </button>
@@ -181,7 +181,7 @@ export function ConfigField({
   );
 }
 
-const INPUT_CLASS = "flex h-9 w-full min-w-0 items-center rounded-md border border-input bg-card px-3 py-2 text-xs font-medium text-foreground placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/20 disabled:cursor-not-allowed disabled:opacity-50";
+const INPUT_CLASS = "flex h-9 w-full min-w-0 items-center rounded-md border border-input bg-card px-3 py-2 text-xs font-medium text-foreground placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/60 disabled:cursor-not-allowed disabled:opacity-50";
 
 /** Shared text/date input styling; value interpretation belongs to the caller. */
 export function ConfigTextInput({

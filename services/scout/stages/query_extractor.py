@@ -2,17 +2,21 @@
 
 Each attribute is treated as a self-contained topic. The scout pipeline
 calls this stage once per attribute and feeds the resulting focused queries
-into searcher.
+into searcher. Five coverage tracks each write their own share of the queries,
+from one prompt builder and one table of what makes each track different.
 """
 
 from __future__ import annotations
 
 import json
 import logging
+from dataclasses import dataclass
 
 from services.searcher import QueryFacets
+from shared.ai import Effort, ModelTask
+from shared.errors import ModelResponseError
 
-from ..ai import request_structured
+from ..ai import request_validated
 from ..ai_contracts import query_batch
 from ..context import BLOCK_ID_JSON_INSTRUCTION, document_block_ids, validated_block_ids
 from ..models import (
@@ -24,10 +28,16 @@ from ..models import (
     ScoutTypeConfig,
 )
 from ..prompt_primitives import COMPARATOR_POLICY_PRIMITIVE, SEMANTIC_DIMENSIONS_PRIMITIVE
-from shared.vocabulary import searchable_attribute_phrase
 
 logger = logging.getLogger(__name__)
 
+#: One track of one variable per request: a track's queries are one set, written to
+#: cover the variable from that track's angle without repeating each other.
+TRACKS_PER_REQUEST = 1
+#: The fast tier at low effort: queries are breadth, and the stages that judge what
+#: they find run later on what was found.
+TASK: ModelTask = "fast"
+EFFORT: Effort = "low"
 DEFAULT_MAX_TOKENS = 5000
 
 QUERY_FACET_INSTRUCTION = (
@@ -47,6 +57,318 @@ QUERY_FACET_INSTRUCTION = (
 )
 
 
+
+
+# --- Which era a track asks about -------------------------------------------
+# One rule per stance, named once. It was four inline copies that had already
+# drifted apart in wording, and a track's era is a choice worth seeing as a choice:
+# a builder picks a constant rather than restating the rule in its own prose.
+#
+# Neither is a filter. A retrieval index reads "recent" as a word to match, so era
+# is expressed through the SUBJECT asked about. A real date bound is a source
+# adapter's parameter, recorded in `SearchTrace.request_options`, never a query term.
+
+CURRENT_ERA = (
+    "Prefer current developments - recent readouts, the present standard of care, "
+    "live registrations - when the field admits them. Express that through the "
+    "SUBJECT you ask about, never through words like \"recent\" or \"latest\" and "
+    "never a calendar year: a retrieval index reads those as terms to match, not as a "
+    "date bound, so they narrow results to documents that happen to contain the word. "
+    "Any real date bound belongs to the source adapter, not to this query."
+)
+
+HISTORICAL_ERA = (
+    "Precedent is HISTORICAL - do NOT restrict to recent years. Prior attempts may be "
+    "old; include first-in-class, original-development, and historical framing. Do not "
+    "hardcode a specific calendar year in the query text."
+)
+
+
+@dataclass(frozen=True)
+class TrackSpec:
+    """What makes one coverage track different from the others, and nothing else.
+
+    The rest of a track's prompt - the variable, its scope rule, the stated query
+    parts, the output contract - is the same for every track and is written once in
+    `build_track_system_prompt`. Five builders held five copies of it, already worded apart.
+    """
+
+    #: The opening paragraph: what this track's queries are for.
+    role: str
+    #: Which era the track asks about.
+    era: str
+    #: The track's own emphasis, one paragraph each.
+    emphasis: tuple[str, ...]
+    #: How the configured institutions and languages are offered to this track.
+    institutions: str
+    languages: str
+
+
+_SCOPE_RULE = (
+    "SCOPE: Every query must remain about THIS variable. Do not pull in other variables "
+    "like efficacy, safety, dosing, duration, or cost unless this variable is that topic."
+)
+
+_GENERAL_SCOPE_RULE = (
+    "SCOPE\nEvery query must be about the specific field named above and "
+    "nothing else. This document has separate variables for efficacy, safety, "
+    "dosing, duration, cost, etc. - do NOT pull those topics into this variable's "
+    "queries unless THIS variable IS that topic. The domain guidance below tells you "
+    "HOW to search (which sources, recency, modalities); it does not widen the SUBJECT "
+    "beyond this one variable. Example: for the variable \"Indication\", search the "
+    "disease/target-population scope (e.g. which products are indicated for the "
+    "disease) - not efficacy percentages or dosing schedules."
+)
+
+_ADDITIVE_INSTITUTIONS = "Authoritative institutions to spread across: "
+_ADDITIVE_LANGUAGES = "Use native-language phrasing where it helps surface non-English evidence."
+
+TRACKS: dict[str, TrackSpec] = {
+    "general": TrackSpec(
+        role=(
+            "ROLE\nGenerate source-neutral retrieval intents for one canonical field and "
+            "its linked reviewed quantitative targets."
+        ),
+        era=CURRENT_ERA,
+        emphasis=(
+            "Generate a diverse query set across THREE axes: content, source, and language. "
+            "Content coverage should include standard of care and new scientific data when "
+            "those angles fit this variable. Source coverage should spread across regulators, "
+            "registries, literature, procurement/access bodies, and LMIC authorities rather "
+            "than repeatedly naming only FDA or EMA. Language coverage should include native "
+            "language phrasing for the configured languages, not translated English.",
+        ),
+        institutions=(
+            "When relevant, name authoritative institutions in the intent (regulators, "
+            "access bodies, or key companies): "
+        ),
+        languages=(
+            "Generate at least one query in each configured language when the query count "
+            "allows it. Use native-language search phrasing for non-English languages."
+        ),
+    ),
+    "geographic": TrackSpec(
+        role=(
+            "You generate ADDITIVE Global-South retrieval intents for ONE variable. "
+            "These queries are added to the general query set, never substituted for it."
+        ),
+        era=CURRENT_ERA,
+        emphasis=(
+            "Global-South emphasis: target national regulators and implementation/access "
+            "evidence from LMIC settings. Include regulators such as SAHPRA, NMPA, BPOM, "
+            "CDSCO, ANVISA; regional bodies such as Africa CDC and WHO regional offices; "
+            "and field evidence about access, equity, procurement, adoption, delivery, "
+            "deficiencies, unmet needs, and gaps not addressed by current standard of care.",
+            "Use native-language phrasing when using non-English configured languages. "
+            "Do not translate English queries word-for-word.",
+            "Return the Global-South queries only; the caller appends them after the "
+            "general queries.",
+        ),
+        institutions=_ADDITIVE_INSTITUTIONS,
+        languages="Include language diversity across this additive query group when possible.",
+    ),
+    "counterfactual": TrackSpec(
+        role=(
+            "You generate ADDITIVE COUNTERFACTUAL retrieval intents for ONE variable. "
+            "These actively seek evidence that DISPUTES, WEAKENS, or CONTRADICTS the "
+            "document's target for this variable. They are added to the general query set, "
+            "never substituted for it."
+        ),
+        era=CURRENT_ERA,
+        emphasis=(
+            "Counterfactual emphasis: search for DISCONFIRMING evidence - null or failed "
+            "results, efficacy waning or shortfalls, safety signals or adverse events, "
+            "feasibility / cost / cold-chain problems, limited generalizability across "
+            "regions or populations, regulatory setbacks, or evidence that the target is "
+            "unmet or unachievable. Seek the strongest genuine counter-evidence, not "
+            "strawmen.",
+            "Return the counterfactual queries only; the caller appends them after the "
+            "other tracks.",
+        ),
+        institutions=_ADDITIVE_INSTITUTIONS,
+        languages=_ADDITIVE_LANGUAGES,
+    ),
+    "precedent": TrackSpec(
+        role=(
+            "You generate ADDITIVE PRECEDENT retrieval intents for ONE variable. "
+            "These seek evidence of whether this variable's target/approach has been "
+            "ATTEMPTED BEFORE - so a downstream classifier can tell a genuinely novel "
+            "target apart from one that has prior precedent. They are added to the general "
+            "query set, never substituted for it."
+        ),
+        era=HISTORICAL_ERA,
+        emphasis=(
+            "Precedent emphasis: search for PRIOR or EXISTING attempts at THIS target/approach "
+            "FOR THIS INDICATION - earlier or current products pursuing the same target, past "
+            "programs or trials that pursued it (whether they succeeded, stalled, or were "
+            "abandoned). The goal is to establish whether this approach is new or has a track "
+            "record.",
+            "Do NOT seek disconfirming/failure evidence here (a separate track covers that); "
+            "seek the EXISTENCE of prior work, positive or negative.",
+            # Analogues used to be this track's job too, on this track's budget. A target
+            # with several direct hits filled the quota and returned none of them, which is
+            # the wrong way round: the more novel a target is, the more the nearest analogue
+            # is worth. They are a separate track now, so keep this one direct.
+            "Do NOT reach into other indications or other platforms for analogies here; the "
+            "adjacent track covers that. Queries that find nothing are an acceptable and "
+            "informative outcome for this track.",
+            "Return the precedent queries only; the caller appends them after the other tracks.",
+        ),
+        institutions=_ADDITIVE_INSTITUTIONS,
+        languages=_ADDITIVE_LANGUAGES,
+    ),
+    # Separate from precedent because the two answer different questions on different
+    # budgets. Precedent asks whether this exact target has been attempted for this
+    # indication; a novel product's honest answer is "no", and that is the moment the
+    # nearest analogue becomes the most useful evidence in the run.
+    "adjacent": TrackSpec(
+        role=(
+            "You generate ADDITIVE ADJACENT retrieval intents for ONE variable. "
+            "These seek the NEAREST COMPARABLE work when no direct precedent exists - so a "
+            "downstream reader assessing a novel target has something real to reason from "
+            "rather than an empty result. They are added to the general query set, never "
+            "substituted for it."
+        ),
+        era=HISTORICAL_ERA,
+        emphasis=(
+            "Adjacent emphasis: deliberately step ONE dimension away from the exact target and "
+            "search for the closest thing anyone has actually done. Cross exactly one of: the "
+            "same platform or mechanism used for a DIFFERENT indication; a different platform "
+            "solving the SAME problem this variable describes; the same target achieved in a "
+            "neighbouring disease area, population, or setting.",
+            # Named because the failure mode of an analogy track is drifting until the
+            # results are about something else entirely, which reads as retrieval noise.
+            "Stay close. One step away, not several: an analogue a reader would accept as "
+            "informative about this target. If a query would return work no one would compare "
+            "with this product, it is too far.",
+            "Do NOT repeat the direct-precedent search (a separate track covers this exact "
+            "target for this indication), and do NOT seek disconfirming evidence (another "
+            "track covers that). Seek the nearest real, comparable attempt.",
+            "Return the adjacent queries only; the caller appends them after the other tracks.",
+        ),
+        institutions=_ADDITIVE_INSTITUTIONS,
+        languages=_ADDITIVE_LANGUAGES,
+    ),
+}
+
+
+def track_budget(config: ScoutTypeConfig, track: str) -> int:
+    """How many queries a track writes for one variable, from the configuration."""
+    return {
+        "general": config.queries_per_variable,
+        "geographic": config.geographic_queries_per_variable if config.geographic_emphasis else 0,
+        "counterfactual": config.counterfactual_queries_per_variable,
+        "precedent": config.precedent_queries_per_variable,
+        "adjacent": config.adjacent_queries_per_variable,
+    }[track]
+
+
+def build_track_system_prompt(
+    track: str,
+    config: ScoutTypeConfig,
+    *,
+    indication: str,
+    attribute: Attribute,
+    count: int,
+    quantitative_targets: list[QuantitativeTarget] | None = None,
+    region: str = "",
+) -> str:
+    """The one prompt every track sends, with the parts its `TrackSpec` makes different.
+
+    Only the general track carries the configured guidance, platform modalities and
+    the field's reviewed numeric targets: it is the baseline that must cover them.
+    Only the geographic track carries ``region``, the document's own stated geography.
+    The other tracks are broad by design, and narrowing them to one geography would
+    answer a smaller question than the one asked.
+    """
+    spec = TRACKS[track]
+    general = track == "general"
+    parts = [
+        spec.role,
+        "INPUT AUTHORITY\n"
+        f"Variable: {attribute.name}\n"
+        f"Product class: {config.intervention_term}\n"
+        f"Indication: {indication}\n"
+        f"What this variable covers: {attribute.description.strip()}",
+        _GENERAL_SCOPE_RULE if general else _SCOPE_RULE,
+        spec.era,
+        *spec.emphasis,
+    ]
+    if general:
+        parts.append(config.query_extraction_guidance.strip())
+    if track == "geographic" and region:
+        # Two halves, and both are needed: the configured institutions and languages
+        # are the comparator set, stable across runs; the region is what the document
+        # itself states. Given only the first, this track asked about China and
+        # Indonesia for a sub-Saharan Africa programme.
+        parts.append(
+            "THE DOCUMENT'S OWN GEOGRAPHY\n"
+            f"This programme states its geography as: {region}. Spend most of this "
+            "track's queries there - that is the setting the document will be judged "
+            "in. Keep some for the comparator institutions listed below, because a "
+            "target has to be read against settings other than its own; a region "
+            "returning nothing on its own says little without one that returns "
+            "something.\n"
+            "Where the configured languages include ones spoken in that geography, "
+            "prefer those for the native-language queries. Do not use a configured "
+            "language that has no reach there, and do not introduce a language the "
+            "configuration does not list."
+        )
+    if track == "geographic" and config.geographic_emphasis:
+        parts.append("Configured geographic emphasis: " + ", ".join(config.geographic_emphasis) + ".")
+    if config.priority_institutions:
+        parts.append(spec.institutions + ", ".join(config.priority_institutions) + ".")
+    if config.languages:
+        parts.append("Configured languages: " + ", ".join(config.languages) + ". " + spec.languages)
+    if general and config.modalities:
+        parts.append(
+            "Relevant platform technologies to consider when they bear on "
+            "the variable topic: " + ", ".join(config.modalities) + "."
+        )
+    linked_targets = [
+        target for target in quantitative_targets or []
+        if attribute.name in target.analysis_attribute_refs
+    ] if general else []
+    if linked_targets:
+        parts.append(
+            "SHARED PRIMITIVES\n"
+            + SEMANTIC_DIMENSIONS_PRIMITIVE + "\n\n"
+            + COMPARATOR_POLICY_PRIMITIVE + "\n\n"
+            "THRESHOLD-NEUTRAL TARGET DESCRIPTORS\n"
+            + json.dumps(
+                [_target_retrieval_descriptor(target) for target in linked_targets],
+                ensure_ascii=False,
+                indent=2,
+            )
+            + "\nThe returned set must cover every listed target at least once. "
+            "For a target-specific query, copy its ID into target_ids. Do not attach "
+            "an ID when the query is only general field coverage. For each target-specific "
+            "query, search for reported numeric results matching its measure and endpoint; "
+            "apply its direct-comparator contract rather than requiring the document candidate's "
+            "exact name. A compatible scope is the retrieval boundary; an exact scope is an "
+            "identity requirement. Use result language appropriate to the statistic, such as estimate, "
+            "rate, confidence interval, or study result. NEVER include the document's target "
+            "value, comparator, threshold/optimal role, or pass/fail wording in a query: valid "
+            "comparators on either side of the target must remain retrievable."
+        )
+    parts.append(QUERY_FACET_INSTRUCTION)
+    parts.append(
+        "OUTPUT CONTRACT\n"
+        f"Return EXACTLY {count} quer{'y' if count == 1 else 'ies'} in the structured "
+        f"`queries` array. No markdown, no commentary. Each query 5-15 words, specific to "
+        f"the {attribute.name} variable."
+        + (
+            " The set must be diverse across content angles, authoritative institutions, "
+            "and configured languages."
+            if general else ""
+        )
+        + " doc_block_ids must contain the exact uploaded-document blocks whose claim "
+        "shaped that query; use [] only for a coverage query not tied to one document "
+        f"claim. {BLOCK_ID_JSON_INSTRUCTION} Return only the schema-bound response."
+    )
+    return "\n\n".join(parts)
+
+
 def extract_queries_for_variable(
     attribute: Attribute,
     quantitative_targets: list[QuantitativeTarget],
@@ -55,141 +377,51 @@ def extract_queries_for_variable(
     *,
     indication: str,
     scope: RetrievalScopeLedger,
-    queries_per_variable: int,
     document_context: str = "",
     max_tokens: int = DEFAULT_MAX_TOKENS,
 ) -> list[QueryIntent]:
     """Generate retrieval intents for one variable across additive tracks.
 
     Tracks are additive (each adds queries, never replaces another) and unioned
-    losslessly: general coverage, optional Global-South emphasis, and optional
-    counterfactual (disconfirming) evidence.
+    losslessly. The general track writes at least one query per linked numeric target,
+    so its budget grows to cover them.
     """
     if not attribute.target_resolved or not attribute.document_target:
         return []
     user_message = _user_message_for_variable(attribute, document_context)
+    allowed_block_ids = document_block_ids(document_context)
     target_blocks = {
         target.id: target.doc_block_ids for target in quantitative_targets
         if attribute.name in target.analysis_attribute_refs
     }
-    target_query_contexts = {
-        target.id: _target_retrieval_text(target)
-        for target in quantitative_targets
-        if attribute.name in target.analysis_attribute_refs
-    }
-    general_budget = max(queries_per_variable, len(target_blocks))
-
-    queries = _run_track(
-        build_system_prompt_for_variable(
-            config,
-            indication=indication,
-            attribute=attribute,
-            quantitative_targets=quantitative_targets,
-            queries_per_variable=general_budget,
-        ),
-        user_message,
-        llm_client,
-        max_tokens,
-        cap=general_budget,
-        attribute_name=attribute.name,
-        track="general",
-        allowed_block_ids=document_block_ids(document_context),
-        allowed_target_ids=set(target_blocks),
-        target_blocks=target_blocks,
-        target_query_contexts=target_query_contexts,
-        required_target_ids=set(target_blocks),
-        fallback_context=(indication, config.intervention_term, attribute.name),
-    )
-
-    if config.geographic_emphasis and config.geographic_queries_per_variable > 0:
+    queries: list[QueryIntent] = []
+    for track in TRACKS:
+        count = track_budget(config, track)
+        if track == "general":
+            count = max(count, len(target_blocks))
+        if count <= 0:
+            continue
         queries += _run_track(
-            build_system_prompt_for_geographic_variable(
+            build_track_system_prompt(
+                track,
                 config,
                 indication=indication,
                 attribute=attribute,
-                geographic_queries_per_variable=config.geographic_queries_per_variable,
+                count=count,
+                quantitative_targets=quantitative_targets,
                 region=scope.value("region"),
             ),
             user_message,
             llm_client,
             max_tokens,
-            cap=config.geographic_queries_per_variable,
+            count=count,
             attribute_name=attribute.name,
-            track="geographic",
-            allowed_block_ids=document_block_ids(document_context),
-            allowed_target_ids=set(target_blocks),
+            track=track,
+            allowed_block_ids=allowed_block_ids,
             target_blocks=target_blocks,
-            target_query_contexts=target_query_contexts,
+            required_target_ids=set(target_blocks) if track == "general" else set(),
         )
-
-    if config.counterfactual_queries_per_variable > 0:
-        queries += _run_track(
-            build_system_prompt_for_counterfactual_variable(
-                config,
-                indication=indication,
-                attribute=attribute,
-                counterfactual_queries_per_variable=config.counterfactual_queries_per_variable,
-            ),
-            user_message,
-            llm_client,
-            max_tokens,
-            cap=config.counterfactual_queries_per_variable,
-            attribute_name=attribute.name,
-            track="counterfactual",
-            allowed_block_ids=document_block_ids(document_context),
-            allowed_target_ids=set(target_blocks),
-            target_blocks=target_blocks,
-            target_query_contexts=target_query_contexts,
-        )
-
-    if config.precedent_queries_per_variable > 0:
-        queries += _run_track(
-            build_system_prompt_for_precedent_variable(
-                config,
-                indication=indication,
-                attribute=attribute,
-                precedent_queries_per_variable=config.precedent_queries_per_variable,
-            ),
-            user_message,
-            llm_client,
-            max_tokens,
-            cap=config.precedent_queries_per_variable,
-            attribute_name=attribute.name,
-            track="precedent",
-            allowed_block_ids=document_block_ids(document_context),
-            allowed_target_ids=set(target_blocks),
-            target_blocks=target_blocks,
-            target_query_contexts=target_query_contexts,
-        )
-
-    if config.adjacent_queries_per_variable > 0:
-        queries += _run_track(
-            build_system_prompt_for_adjacent_variable(
-                config,
-                indication=indication,
-                attribute=attribute,
-                adjacent_queries_per_variable=config.adjacent_queries_per_variable,
-            ),
-            user_message,
-            llm_client,
-            max_tokens,
-            cap=config.adjacent_queries_per_variable,
-            attribute_name=attribute.name,
-            track="adjacent",
-            allowed_block_ids=document_block_ids(document_context),
-            allowed_target_ids=set(target_blocks),
-            target_blocks=target_blocks,
-            target_query_contexts=target_query_contexts,
-        )
-
-    total = (
-        general_budget
-        + config.geographic_queries_per_variable
-        + config.counterfactual_queries_per_variable
-        + config.precedent_queries_per_variable
-        + config.adjacent_queries_per_variable
-    )
-    return _dedupe_queries(queries)[:total]
+    return _dedupe_queries(queries)
 
 
 def _run_track(
@@ -198,94 +430,73 @@ def _run_track(
     llm_client: LLMClientProtocol,
     max_tokens: int,
     *,
-    cap: int,
+    count: int,
     attribute_name: str,
     track: str,
     allowed_block_ids: set[str],
-    allowed_target_ids: set[str],
     target_blocks: dict[str, list[str]],
-    target_query_contexts: dict[str, str],
-    required_target_ids: set[str] | None = None,
-    fallback_context: tuple[str, str, str] | None = None,
+    required_target_ids: set[str],
 ) -> list[QueryIntent]:
-    """Run one query-generation track (call + parse, retry once on empty)."""
-    contract = query_batch(
-        sorted(allowed_block_ids),
-        sorted(allowed_target_ids),
-    )
-    raw = request_structured(
-        llm_client,
-        contract,
-        system_prompt,
-        user_message,
-        max_tokens=max_tokens,
-        task="fast",
-    )
-    queries = _parse_queries(
-        raw,
-        allowed_block_ids,
-        allowed_target_ids=allowed_target_ids,
-        target_blocks=target_blocks,
-    )
-    missing_targets = _missing_target_ids(queries, required_target_ids or set())
-    if not queries or missing_targets:
-        logger.warning(
-            "query_extractor produced incomplete %s query coverage for %r; retrying once",
-            track,
-            attribute_name,
-        )
-        raw = request_structured(
+    """Run one query-generation track, retrying once on an incomplete answer.
+
+    The schema states the count, so every query returned is kept: trimming a reply to
+    its budget could cut the one query that covered a target. Every query is the
+    model's: a target the retry still leaves uncovered keeps only its field's general
+    queries, which the search plan shows as no target lineage. A track that returns no
+    usable set at all fails the run, because an unsearched field would read exactly like
+    one the evidence was silent about.
+    """
+    complete: list[list[QueryIntent]] = []
+
+    def parse(raw: object) -> list[QueryIntent]:
+        queries = _parse_queries(raw, allowed_block_ids, target_blocks=target_blocks)
+        if len(queries) != count:
+            raise ValueError(f"return exactly {count} queries, each with its text")
+        complete.append(queries)
+        uncovered = required_target_ids - {
+            target_id for query in queries for target_id in query.target_ids
+        }
+        if uncovered:
+            raise ValueError(
+                "the set must cover every listed target at least once; uncovered: "
+                + ", ".join(sorted(uncovered))
+            )
+        return queries
+
+    try:
+        queries = request_validated(
             llm_client,
-            contract,
+            query_batch(sorted(allowed_block_ids), sorted(target_blocks), count),
             system_prompt,
             user_message,
             max_tokens=max_tokens,
-            task="fast",
+            parse=parse,
+            failure=f"Query generation for {attribute_name} ({track})",
+            task=TASK,
+            effort=EFFORT,
         )
-        queries = _parse_queries(
-            raw,
-            allowed_block_ids,
-            allowed_target_ids=allowed_target_ids,
-            target_blocks=target_blocks,
+    except ModelResponseError:
+        if not complete:
+            raise
+        logger.warning(
+            "query_extractor left %s targets of %r uncovered after one retry",
+            track,
+            attribute_name,
         )
+        queries = complete[-1]
     for query in queries:
         query.tracks = [track]
-    queries = queries[:cap]
-    if required_target_ids and fallback_context:
-        indication, intervention_class, attribute_name = fallback_context
-        for target_id in sorted(_missing_target_ids(queries, required_target_ids)):
-            queries.append(
-                QueryIntent(
-                    text=" ".join(
-                        (
-                            indication,
-                            intervention_class,
-                            searchable_attribute_phrase(attribute_name),
-                            target_query_contexts[target_id],
-                            "reported numeric results",
-                        )
-                    ),
-                    tracks=[track],
-                    doc_block_ids=list(target_blocks[target_id]),
-                    target_ids=[target_id],
-                )
-            )
-        while len(queries) > cap:
-            removable = next(
-                (index for index, query in enumerate(queries) if not query.target_ids),
-                None,
-            )
-            if removable is None:
-                break
-            queries.pop(removable)
     return queries
 
 
-def _missing_target_ids(
-    queries: list[QueryIntent], required: set[str]
-) -> set[str]:
-    covered = {target_id for query in queries for target_id in query.target_ids}
-    return required - covered
+def _user_message_for_variable(attribute: Attribute, document_context: str) -> str:
+    return (
+        f"variable: {attribute.name}\n"
+        f"What this variable covers: {attribute.description}\n\n"
+        "Canonical document binding (authoritative claims to test):\n"
+        f"{document_context or '(no relevant document text found)'}\n\n"
+        "Generate the queries for this variable now."
+    )
 
 
 def _target_retrieval_descriptor(target: QuantitativeTarget) -> dict[str, object]:
@@ -327,430 +538,21 @@ def _target_retrieval_dimensions(target: QuantitativeTarget) -> dict[str, str]:
     return dimensions
 
 
-def _target_retrieval_text(target: QuantitativeTarget) -> str:
-    phrases = [
-        *_target_retrieval_dimensions(target).values(),
-    ]
-    unique: list[str] = []
-    seen: set[str] = set()
-    for phrase in phrases:
-        normalized = " ".join(str(phrase).split())
-        if not normalized or normalized.casefold() in seen:
-            continue
-        seen.add(normalized.casefold())
-        unique.append(normalized)
-    if target.unit:
-        unique.append(f"reported in {target.unit}")
-    return " ".join(unique)
-
-
-# --- Which era a track asks about -------------------------------------------
-# One rule per stance, named once. It was four inline copies that had already
-# drifted apart in wording, and a track's era is a choice worth seeing as a choice:
-# a builder picks a constant rather than restating the rule in its own prose.
-#
-# Neither is a filter. A retrieval index reads "recent" as a word to match, so era
-# is expressed through the SUBJECT asked about. A real date bound is a source
-# adapter's parameter, recorded in `SearchTrace.request_options`, never a query term.
-
-CURRENT_ERA = (
-    "Prefer current developments - recent readouts, the present standard of care, "
-    "live registrations - when the field admits them. Express that through the "
-    "SUBJECT you ask about, never through words like \"recent\" or \"latest\" and "
-    "never a calendar year: a retrieval index reads those as terms to match, not as a "
-    "date bound, so they narrow results to documents that happen to contain the word. "
-    "Any real date bound belongs to the source adapter, not to this query."
-)
-
-HISTORICAL_ERA = (
-    "Precedent is HISTORICAL - do NOT restrict to recent years. Prior attempts may be "
-    "old; include first-in-class, original-development, and historical framing. Do not "
-    "hardcode a specific calendar year in the query text."
-)
-
-
-def build_system_prompt_for_variable(
-    config: ScoutTypeConfig,
-    *,
-    indication: str,
-    attribute: Attribute,
-    quantitative_targets: list[QuantitativeTarget],
-    queries_per_variable: int,
-) -> str:
-    parts = [
-        "ROLE\n"
-        "Generate source-neutral retrieval intents for one canonical field and its linked "
-        "reviewed quantitative targets.",
-        "INPUT AUTHORITY\n"
-        f"Field: {attribute.name}\n"
-        f"Product class: {config.intervention_term}\n"
-        f"Indication: {indication}\n"
-        f"Field definition: {attribute.description.strip()}",
-        "SCOPE\nEvery query must be about the specific field named above and "
-        "nothing else. This document has separate variables for efficacy, safety, "
-        "dosing, duration, cost, etc. - do NOT pull those topics into this variable's "
-        "queries unless THIS variable IS that topic. The domain guidance below tells you "
-        "HOW to search (which sources, recency, modalities); it does not widen the SUBJECT "
-        "beyond this one variable. Example: for the variable \"Indication\", search the "
-        "disease/target-population scope (e.g. which products are indicated for the "
-        "disease) - not efficacy percentages or dosing schedules.",
-        CURRENT_ERA,
-        "Generate a diverse query set across THREE axes: content, source, and language. "
-        "Content coverage should include standard of care and new scientific data when "
-        "those angles fit this variable. Source coverage should spread across regulators, "
-        "registries, literature, procurement/access bodies, and LMIC authorities rather "
-        "than repeatedly naming only FDA or EMA. Language coverage should include native "
-        "language phrasing for the configured languages, not translated English.",
-        config.query_extraction_guidance.strip(),
-    ]
-    if config.priority_institutions:
-        parts.append(
-            "When relevant, name authoritative institutions in the intent "
-            "(regulators, access bodies, or key companies): "
-            + ", ".join(config.priority_institutions)
-            + "."
-        )
-    if config.languages:
-        parts.append(
-            "Configured languages: "
-            + ", ".join(config.languages)
-            + ". Generate at least one query in each configured language when "
-            "queries_per_variable allows it. Use native-language search phrasing "
-            "for non-English languages."
-        )
-    if config.modalities:
-        parts.append(
-            "Relevant platform technologies to consider when they bear on "
-            "the variable topic: "
-            + ", ".join(config.modalities)
-            + "."
-        )
-    linked_targets = [
-        target for target in quantitative_targets
-        if attribute.name in target.analysis_attribute_refs
-    ]
-    if linked_targets:
-        parts.append(
-            "SHARED PRIMITIVES\n"
-            + SEMANTIC_DIMENSIONS_PRIMITIVE + "\n\n"
-            + COMPARATOR_POLICY_PRIMITIVE + "\n\n"
-            "THRESHOLD-NEUTRAL TARGET DESCRIPTORS\n"
-            + json.dumps(
-                [
-                    _target_retrieval_descriptor(target)
-                    for target in linked_targets
-                ],
-                ensure_ascii=False,
-                indent=2,
-            )
-            + "\nThe returned set must cover every listed target at least once. "
-            "For a target-specific query, copy its ID into target_ids. Do not attach "
-            "an ID when the query is only general field coverage. For each target-specific "
-            "query, search for reported numeric results matching its measure and endpoint; "
-            "apply its direct-comparator contract rather than requiring the document candidate's "
-            "exact name. A compatible scope is the retrieval boundary; an exact scope is an "
-            "identity requirement. Use result language appropriate to the statistic, such as estimate, "
-            "rate, confidence interval, or study result. NEVER include the document's target "
-            "value, comparator, threshold/optimal role, or pass/fail wording in a query: valid "
-            "comparators on either side of the target must remain retrievable."
-        )
-    parts.append(QUERY_FACET_INSTRUCTION)
-    parts.append(
-        "OUTPUT CONTRACT\n"
-        f"Return EXACTLY {queries_per_variable} quer"
-        f"{'y' if queries_per_variable == 1 else 'ies'} in the structured `queries` array. "
-        "No markdown, no commentary. Each query 5-15 words. The set must be diverse "
-        "across content angles, authoritative institutions, and configured languages. Each query "
-        f"must be specific to the {attribute.name} variable. doc_block_ids must contain "
-        "the exact uploaded-document blocks whose claim shaped that query; use [] only "
-        "for a general coverage query not tied to one document claim. "
-        f"{BLOCK_ID_JSON_INSTRUCTION} Return only the schema-bound response."
-    )
-    return "\n\n".join(parts)
-
-
-def _user_message_for_variable(attribute: Attribute, document_context: str) -> str:
-    return (
-        f"variable: {attribute.name}\n"
-        f"What this variable covers: {attribute.description}\n\n"
-        "Canonical document binding (authoritative claims to test):\n"
-        f"{document_context or '(no relevant document text found)'}\n\n"
-        "Generate the queries for this variable now."
-    )
-
-
-def build_system_prompt_for_geographic_variable(
-    config: ScoutTypeConfig,
-    *,
-    indication: str,
-    attribute: Attribute,
-    geographic_queries_per_variable: int,
-    region: str = "",
-) -> str:
-    """The one track that is about place, so the only one the run's region reaches.
-
-    Two halves, and both are needed. The config's institutions and languages are the
-    comparator set - a declared statement of which settings this programme is judged
-    against, stable across runs. `region` is what the document itself states, read from
-    the attribute declaring `supplies_scope` and cited to its blocks.
-
-    Given only the first half, this track asked about China and Indonesia for a
-    sub-Saharan Africa programme, because the config list is the same for every run. Given
-    only the second, it would lose the comparators, and a programme has to be judged
-    against settings other than its own. So the region is additive here exactly as this
-    track is additive to the general one.
-
-    The region is not passed to the other tracks on purpose. `general`, `counterfactual`
-    and `precedent` are broad by design, and narrowing them to one geography would answer
-    a smaller question than the one asked.
-    """
-    parts = [
-        "You generate ADDITIVE Global-South retrieval intents for ONE variable. "
-        "These queries are added to the general query set, never substituted for it.",
-        f"variable: {attribute.name}.",
-        f"Product class: {config.intervention_term}. Indication: {indication}.",
-        f"What this variable covers: {attribute.description.strip()}",
-        "SCOPE: Every query must remain about THIS variable. Do not pull in other "
-        "variables like efficacy, safety, dosing, duration, or cost unless this "
-        "variable is that topic.",
-        CURRENT_ERA,
-        "Global-South emphasis: target national regulators and implementation/access "
-        "evidence from LMIC settings. Include regulators such as SAHPRA, NMPA, BPOM, "
-        "CDSCO, ANVISA; regional bodies such as Africa CDC and WHO regional offices; "
-        "and field evidence about access, equity, procurement, adoption, delivery, "
-        "deficiencies, unmet needs, and gaps not addressed by current standard of care.",
-        "Use native-language phrasing when using non-English configured languages. "
-        "Do not translate English queries word-for-word.",
-        "Return the Global-South queries only; the caller appends them after the "
-        "general queries.",
-    ]
-    if region:
-        parts.append(
-            "THE DOCUMENT'S OWN GEOGRAPHY\n"
-            f"This programme states its geography as: {region}. Spend most of this "
-            "track's queries there - that is the setting the document will be judged "
-            "in. Keep some for the comparator institutions listed below, because a "
-            "target has to be read against settings other than its own; a region "
-            "returning nothing on its own says little without one that returns "
-            "something.\n"
-            "Where the configured languages include ones spoken in that geography, "
-            "prefer those for the native-language queries. Do not use a configured "
-            "language that has no reach there, and do not introduce a language the "
-            "configuration does not list."
-        )
-    if config.geographic_emphasis:
-        parts.append("Configured geographic emphasis: " + ", ".join(config.geographic_emphasis) + ".")
-    if config.priority_institutions:
-        parts.append(
-            "Authoritative institutions to spread across: "
-            + ", ".join(config.priority_institutions)
-            + "."
-        )
-    if config.languages:
-        parts.append(
-            "Configured languages: "
-            + ", ".join(config.languages)
-            + ". Include language diversity across this additive query group when possible."
-        )
-    parts.append(QUERY_FACET_INSTRUCTION)
-    parts.append(
-        f"Return EXACTLY {geographic_queries_per_variable} quer"
-        f"{'y' if geographic_queries_per_variable == 1 else 'ies'} in the structured `queries` array. "
-        "Return only the schema-bound response. "
-        f"{BLOCK_ID_JSON_INSTRUCTION} "
-        "Each query 5-15 words."
-    )
-    return "\n\n".join(parts)
-
-
-def build_system_prompt_for_counterfactual_variable(
-    config: ScoutTypeConfig,
-    *,
-    indication: str,
-    attribute: Attribute,
-    counterfactual_queries_per_variable: int,
-) -> str:
-    parts = [
-        "You generate ADDITIVE COUNTERFACTUAL retrieval intents for ONE variable. "
-        "These actively seek evidence that DISPUTES, WEAKENS, or CONTRADICTS the "
-        "document's target for this variable. They are added to the general query set, "
-        "never substituted for it.",
-        f"variable: {attribute.name}.",
-        f"Product class: {config.intervention_term}. Indication: {indication}.",
-        f"What this variable covers: {attribute.description.strip()}",
-        "SCOPE: Every query must remain about THIS variable. Do not pull in other "
-        "variables like efficacy, safety, dosing, duration, or cost unless this variable "
-        "is that topic.",
-        CURRENT_ERA,
-        "Counterfactual emphasis: search for DISCONFIRMING evidence - null or failed "
-        "results, efficacy waning or shortfalls, safety signals or adverse events, "
-        "feasibility / cost / cold-chain problems, limited generalizability across "
-        "regions or populations, regulatory setbacks, or evidence that the target is "
-        "unmet or unachievable. Seek the strongest genuine counter-evidence, not "
-        "strawmen.",
-        "Return the counterfactual queries only; the caller appends them after the "
-        "other tracks.",
-    ]
-    if config.priority_institutions:
-        parts.append(
-            "Authoritative institutions to spread across: "
-            + ", ".join(config.priority_institutions)
-            + "."
-        )
-    if config.languages:
-        parts.append(
-            "Configured languages: "
-            + ", ".join(config.languages)
-            + ". Use native-language phrasing where it helps surface non-English evidence."
-        )
-    parts.append(QUERY_FACET_INSTRUCTION)
-    parts.append(
-        f"Return EXACTLY {counterfactual_queries_per_variable} quer"
-        f"{'y' if counterfactual_queries_per_variable == 1 else 'ies'} in the structured `queries` array. "
-        "Return only the schema-bound response. "
-        f"{BLOCK_ID_JSON_INSTRUCTION} "
-        "Each query 5-15 words."
-    )
-    return "\n\n".join(parts)
-
-
-def build_system_prompt_for_precedent_variable(
-    config: ScoutTypeConfig,
-    *,
-    indication: str,
-    attribute: Attribute,
-    precedent_queries_per_variable: int,
-) -> str:
-    parts = [
-        "You generate ADDITIVE PRECEDENT retrieval intents for ONE variable. "
-        "These seek evidence of whether this variable's target/approach has been "
-        "ATTEMPTED BEFORE - so a downstream classifier can tell a genuinely novel "
-        "target apart from one that has prior precedent. They are added to the general "
-        "query set, never substituted for it.",
-        f"variable: {attribute.name}.",
-        f"Product class: {config.intervention_term}. Indication: {indication}.",
-        f"What this variable covers: {attribute.description.strip()}",
-        "SCOPE: Every query must remain about THIS variable. Do not pull in other "
-        "variables like efficacy, safety, dosing, duration, or cost unless this variable "
-        "is that topic.",
-        "Precedent emphasis: search for PRIOR or EXISTING attempts at THIS target/approach "
-        "FOR THIS INDICATION - earlier or current products pursuing the same target, past "
-        "programs or trials that pursued it (whether they succeeded, stalled, or were "
-        "abandoned). The goal is to establish whether this approach is new or has a track "
-        "record.",
-        HISTORICAL_ERA,
-        "Do NOT seek disconfirming/failure evidence here (a separate track covers that); "
-        "seek the EXISTENCE of prior work, positive or negative.",
-        # Analogues used to be this track's job too, on this track's budget. A target with
-        # several direct hits filled the quota and returned none of them, which is the
-        # wrong way round: the more novel a target is, the more the nearest analogue is
-        # worth. They are a separate track now, so keep this one direct.
-        "Do NOT reach into other indications or other platforms for analogies here; the "
-        "adjacent track covers that. Queries that find nothing are an acceptable and "
-        "informative outcome for this track.",
-        "Return the precedent queries only; the caller appends them after the other tracks.",
-    ]
-    if config.priority_institutions:
-        parts.append(
-            "Authoritative institutions to spread across: "
-            + ", ".join(config.priority_institutions)
-            + "."
-        )
-    if config.languages:
-        parts.append(
-            "Configured languages: "
-            + ", ".join(config.languages)
-            + ". Use native-language phrasing where it helps surface non-English evidence."
-        )
-    parts.append(QUERY_FACET_INSTRUCTION)
-    parts.append(
-        f"Return EXACTLY {precedent_queries_per_variable} quer"
-        f"{'y' if precedent_queries_per_variable == 1 else 'ies'} in the structured `queries` array. "
-        "Return only the schema-bound response. "
-        f"{BLOCK_ID_JSON_INSTRUCTION} "
-        "Each query 5-15 words."
-    )
-    return "\n\n".join(parts)
-
-
-def build_system_prompt_for_adjacent_variable(
-    config: ScoutTypeConfig,
-    *,
-    indication: str,
-    attribute: Attribute,
-    adjacent_queries_per_variable: int,
-) -> str:
-    """Plan queries for the nearest comparable work, when nothing direct exists.
-
-    Separate from precedent because the two answer different questions on different
-    budgets. Precedent asks whether this exact target has been attempted for this
-    indication; a novel product's honest answer is "no", and that is the moment the
-    nearest analogue becomes the most useful evidence in the run. Sharing one budget meant
-    a target with several direct hits returned no analogues at all - the case that needed
-    them least crowded out the case that needed them most.
-    """
-    parts = [
-        "You generate ADDITIVE ADJACENT retrieval intents for ONE variable. "
-        "These seek the NEAREST COMPARABLE work when no direct precedent exists - so a "
-        "downstream reader assessing a novel target has something real to reason from "
-        "rather than an empty result. They are added to the general query set, never "
-        "substituted for it.",
-        f"variable: {attribute.name}.",
-        f"Product class: {config.intervention_term}. Indication: {indication}.",
-        f"What this variable covers: {attribute.description.strip()}",
-        # The same scope rule the other tracks carry. Adjacency is licence to cross
-        # indication and platform, never licence to change the subject.
-        "SCOPE: Every query must remain about THIS variable. Do not pull in other "
-        "variables like efficacy, safety, dosing, duration, or cost unless this variable "
-        "is that topic.",
-        "Adjacent emphasis: deliberately step ONE dimension away from the exact target and "
-        "search for the closest thing anyone has actually done. Cross exactly one of: the "
-        "same platform or mechanism used for a DIFFERENT indication; a different platform "
-        "solving the SAME problem this variable describes; the same target achieved in a "
-        "neighbouring disease area, population, or setting.",
-        # Named because the failure mode of an analogy track is drifting until the results
-        # are about something else entirely, which reads as retrieval noise.
-        "Stay close. One step away, not several: an analogue a reader would accept as "
-        "informative about this target. If a query would return work no one would compare "
-        "with this product, it is too far.",
-        HISTORICAL_ERA,
-        "Do NOT repeat the direct-precedent search (a separate track covers this exact "
-        "target for this indication), and do NOT seek disconfirming evidence (another "
-        "track covers that). Seek the nearest real, comparable attempt.",
-        "Return the adjacent queries only; the caller appends them after the other tracks.",
-    ]
-    if config.priority_institutions:
-        parts.append(
-            "Authoritative institutions to spread across: "
-            + ", ".join(config.priority_institutions)
-            + "."
-        )
-    if config.languages:
-        parts.append(
-            "Configured languages: "
-            + ", ".join(config.languages)
-            + ". Use native-language phrasing where it helps surface non-English evidence."
-        )
-    parts.append(QUERY_FACET_INSTRUCTION)
-    parts.append(
-        f"Return EXACTLY {adjacent_queries_per_variable} quer"
-        f"{'y' if adjacent_queries_per_variable == 1 else 'ies'} in the structured `queries` array. "
-        "Return only the schema-bound response. "
-        f"{BLOCK_ID_JSON_INSTRUCTION} "
-        "Each query 5-15 words."
-    )
-    return "\n\n".join(parts)
-
-
 def _dedupe_queries(queries: list[QueryIntent]) -> list[QueryIntent]:
-    by_text: dict[str, QueryIntent] = {}
+    """Collapse queries the model wrote identically, keeping every lineage.
+
+    Identity is the exact text together with its stated facets. Two queries that
+    differ in case or facets are different requests: dropping one would lose the
+    fields a field-addressed source would have searched.
+    """
+    by_identity: dict[tuple[str, QueryFacets], QueryIntent] = {}
     out: list[QueryIntent] = []
     for query in queries:
-        normalized = " ".join(query.text.split()).strip()
-        if not normalized:
+        text = " ".join(query.text.split())
+        if not text:
             continue
-        key = normalized.lower()
-        existing = by_text.get(key)
+        key = (text, query.facets)
+        existing = by_identity.get(key)
         if existing is not None:
             existing.tracks = list(dict.fromkeys([*existing.tracks, *query.tracks]))
             existing.doc_block_ids = list(
@@ -761,13 +563,13 @@ def _dedupe_queries(queries: list[QueryIntent]) -> list[QueryIntent]:
             )
             continue
         intent = QueryIntent(
-            text=normalized,
+            text=text,
             tracks=list(dict.fromkeys(query.tracks)),
             doc_block_ids=list(dict.fromkeys(query.doc_block_ids)),
             target_ids=list(dict.fromkeys(query.target_ids)),
             facets=query.facets,
         )
-        by_text[key] = intent
+        by_identity[key] = intent
         out.append(intent)
     return out
 
@@ -776,53 +578,40 @@ def _parse_queries(
     raw: object,
     allowed_block_ids: set[str],
     *,
-    allowed_target_ids: set[str] | None = None,
     target_blocks: dict[str, list[str]] | None = None,
 ) -> list[QueryIntent]:
-    parsed = raw
-    if not isinstance(parsed, list):
-        return []
+    """Read each returned query with its facets and lineage; a blank query is dropped."""
+    target_blocks = target_blocks or {}
     out: list[QueryIntent] = []
-    for item in parsed:
-        if isinstance(item, str):
-            query = item.strip()
-            facets = QueryFacets()
-            block_ids: list[str] = []
-            target_ids: list[str] = []
-        elif isinstance(item, dict):
-            query = str(item.get("query", "")).strip()
-            facets = _parsed_facets(item.get("facets"))
-            block_ids = validated_block_ids(item.get("doc_block_ids"), allowed_block_ids)
-            target_ids = [
-                target_id
-                for target_id in item.get("target_ids", [])
-                if isinstance(target_id, str)
-                and target_id in (allowed_target_ids or set())
-            ] if isinstance(item.get("target_ids", []), list) else []
-            block_ids = list(
-                dict.fromkeys(
-                    [
-                        *block_ids,
-                        *(
-                            block_id
-                            for target_id in target_ids
-                            for block_id in (target_blocks or {}).get(target_id, [])
-                            if block_id in allowed_block_ids
-                        ),
-                    ]
-                )
-            )
-        else:
+    for item in raw if isinstance(raw, list) else []:
+        if not isinstance(item, dict):
             continue
-        if query:
-            out.append(
-                QueryIntent(
-                    text=query,
-                    doc_block_ids=block_ids,
-                    target_ids=list(dict.fromkeys(target_ids)),
-                    facets=facets,
-                )
+        query = str(item.get("query", "")).strip()
+        if not query:
+            continue
+        raw_targets = item.get("target_ids")
+        target_ids = list(dict.fromkeys(
+            target_id
+            for target_id in (raw_targets if isinstance(raw_targets, list) else [])
+            if isinstance(target_id, str) and target_id in target_blocks
+        ))
+        block_ids = list(dict.fromkeys([
+            *validated_block_ids(item.get("doc_block_ids"), allowed_block_ids),
+            *(
+                block_id
+                for target_id in target_ids
+                for block_id in target_blocks[target_id]
+                if block_id in allowed_block_ids
+            ),
+        ]))
+        out.append(
+            QueryIntent(
+                text=query,
+                doc_block_ids=block_ids,
+                target_ids=target_ids,
+                facets=_parsed_facets(item.get("facets")),
             )
+        )
     return out
 
 

@@ -1,30 +1,20 @@
-"use client";
+import type { ScoutResponse } from "./api";
+import { pendingQuantitativeReviewCount } from "./result-contracts.ts";
 
-import { create } from "zustand";
-
-export type ScoutReviewStatus = "idle" | "reviewing" | "ready" | "final";
-
-type ScoutReviewSession = {
-  status: ScoutReviewStatus;
-  initialize: (hasPendingReview: boolean) => void;
-  recordDecision: (hasPendingReview: boolean) => void;
-  finalize: () => void;
-  reset: () => void;
-};
+export type ScoutReviewStatus = "targets" | "reviewing" | "ready" | "final";
 
 /**
- * Client-held workflow state only. The analysis remains in useScoutSession;
- * this store records whether that analysis is a draft, ready to finalize, or
- * locked for presentation/export. No hidden server state is introduced.
+ * Where one run stands in Scout's review, read from that run alone.
+ *
+ * Derived rather than held: a single status kept for the whole tool outlived the run
+ * it described, so selecting another run from history rendered whichever checkpoint
+ * the previous one had reached, or nothing. Everything the status says is already on
+ * the result - its phase, and how many candidates still need a decision - so the
+ * result is the only authority. `ready` is still not `final`: finalizing is the
+ * reviewer's explicit act, recorded by setting the phase.
  */
-export const useScoutReviewSession = create<ScoutReviewSession>((set) => ({
-  status: "idle",
-  initialize: (hasPendingReview) => set({
-    status: hasPendingReview ? "reviewing" : "final",
-  }),
-  recordDecision: (hasPendingReview) => set({
-    status: hasPendingReview ? "reviewing" : "ready",
-  }),
-  finalize: () => set({ status: "final" }),
-  reset: () => set({ status: "idle" }),
-}));
+export function scoutReviewStatus(result: ScoutResponse): ScoutReviewStatus {
+  if (result.phase === "target_review") return "targets";
+  if (result.phase === "final") return "final";
+  return pendingQuantitativeReviewCount(result) > 0 ? "reviewing" : "ready";
+}

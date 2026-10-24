@@ -1,12 +1,11 @@
 "use client";
 
-import { useState } from "react";
 import { CircleHelp } from "lucide-react";
 
+import { Button } from "@/components/ui/button";
 import { Popover, PopoverTrigger } from "@/components/ui/popover";
 import { HelpHeading, HelpPopoverContent, HelpSection } from "./help-content";
 import { promptHref, type ToolKey } from "@/lib/prompt-reference";
-import { cn } from "@/lib/utils";
 
 /**
  * How a tool explains its own vocabulary.
@@ -41,46 +40,6 @@ export type SignalTopic = {
   promptRef?: { tool: ToolKey; stage: string };
 };
 
-/** A label with a question mark beside it, opening that topic's explanation. */
-export function SignalLabel({
-  topic,
-  children,
-  className,
-}: {
-  topic: SignalTopic;
-  children: React.ReactNode;
-  className?: string;
-}) {
-  const [open, setOpen] = useState(false);
-  return (
-    <span className={cn("inline-flex items-center gap-1", className)}>
-      {children}
-      <Popover open={open} onOpenChange={setOpen}>
-        <PopoverTrigger asChild>
-          <button
-            type="button"
-            aria-label={`About ${topic.title}`}
-            // The label often sits inside a row that is itself clickable.
-            onClick={(event) => event.stopPropagation()}
-            onPointerDown={(event) => event.stopPropagation()}
-            onKeyDown={(event) => event.stopPropagation()}
-            className="inline-flex h-5 w-5 shrink-0 items-center justify-center rounded-full text-muted-foreground/55 transition-colors hover:bg-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/20 motion-reduce:transition-none"
-          >
-            <CircleHelp className="h-3 w-3" />
-          </button>
-        </PopoverTrigger>
-        <HelpPopoverContent
-          align="start"
-          sideOffset={6}
-          onClick={(event) => event.stopPropagation()}
-        >
-          <SignalTopicBody topic={topic} withPromptLink />
-        </HelpPopoverContent>
-      </Popover>
-    </span>
-  );
-}
-
 /** A single "How to read" entry point listing every topic a tool publishes. */
 export function SignalHelp({
   title,
@@ -96,13 +55,10 @@ export function SignalHelp({
   return (
     <Popover>
       <PopoverTrigger asChild>
-        <button
-          type="button"
-          className="inline-flex h-8 items-center gap-1.5 rounded-md px-2 text-xs font-medium text-muted-foreground transition-colors hover:bg-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/20 motion-reduce:transition-none"
-        >
-          <CircleHelp className="h-3.5 w-3.5" />
+        <Button type="button" variant="quiet" size="toolbar">
+          <CircleHelp aria-hidden="true" />
           {label}
-        </button>
+        </Button>
       </PopoverTrigger>
       <HelpPopoverContent align="end" aria-label={title}>
         <div>

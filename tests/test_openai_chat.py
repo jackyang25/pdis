@@ -4,6 +4,7 @@ import unittest
 from types import SimpleNamespace
 from unittest.mock import Mock
 
+from shared.ai import ResponseTruncatedError
 from shared.openai_client import OpenAIClient
 
 
@@ -112,6 +113,20 @@ class OpenAIChatTests(unittest.TestCase):
                 with self.assertRaises(RuntimeError):
                     list(client.chat_stream([{"role": "user", "content": "Hi"}]))
                 self.assertTrue(stream.closed)
+
+    def test_a_turn_stopped_at_its_budget_is_a_typed_truncation(self):
+        final = SimpleNamespace(status="incomplete", output=[],
+                                incomplete_details=SimpleNamespace(reason="max_output_tokens"))
+        client, _, _ = self.client(final)
+        with self.assertRaises(ResponseTruncatedError):
+            list(client.chat_stream([{"role": "user", "content": "Hi"}]))
+
+    def test_a_stream_error_carries_the_provider_s_own_words(self):
+        client, _, _ = self.client(response(text_item("Hello")), [
+            SimpleNamespace(type="error", code="server_error", message="The upstream model failed."),
+        ])
+        with self.assertRaisesRegex(RuntimeError, "server_error The upstream model failed."):
+            list(client.chat_stream([{"role": "user", "content": "Hi"}]))
 
     def test_cancelling_the_iterator_closes_the_provider_stream(self):
         client, _, stream = self.client(response(text_item("Hello")), [

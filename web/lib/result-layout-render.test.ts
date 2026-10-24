@@ -11,7 +11,7 @@ const { FinalResultActions } = loadComponent(fileURLToPath(
 
 test("result download names the format without asserting completeness", () => {
   const html = renderToStaticMarkup(React.createElement(FinalResultActions, {
-    onNewAnalysis: () => {}, download: { filename: "result.json", data: {} },
+    onNewAnalysis: () => {}, download: { filename: "result.json", data: () => ({}) },
   }));
   assert.match(html, /Download JSON/);
   assert.doesNotMatch(html, /Download (final|partial) JSON/);

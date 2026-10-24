@@ -15,7 +15,6 @@ of that step is a design decision rather than an omission.
 from __future__ import annotations
 
 from pathlib import Path
-from threading import Lock
 from typing import Sequence
 
 from shared.batching import map_ordered
@@ -38,10 +37,9 @@ from .models import (
     ReviewDocument,
     resolve_questions,
 )
-from .stages.assessor import assess_question
-from .stages.selector import select_evidence
+from .stages.assessor import assess_question, check_selection
+from .stages.selector import check_document, select_evidence
 
-DEFAULT_MAX_OUTPUT_TOKENS = 16000
 SUPPORTED_DOCUMENT_SUFFIXES = TEXT_EXTRACTION_SUFFIXES
 
 # Documents are parsed concurrently but bounded: each parse is itself parallel
@@ -50,7 +48,12 @@ MAX_PARALLEL_DOCUMENTS = 3
 
 # Both model phases use this ceiling, sequentially. Pair selection has one flat
 # queue, never a document pool nested inside a question pool.
-MAX_PARALLEL_QUESTIONS = 6
+#
+# Twelve, measured through the gateway on 48 real selection calls (twelve documents):
+# 93 s at 6, 63 s at 12, 66 s at 24. Past twelve the gateway is the limit, so more
+# workers buy nothing; twelve also leaves two concurrent runs at a tested 24 in flight.
+# Concurrency changes only when calls are made, never which calls or what they say.
+MAX_PARALLEL_QUESTIONS = 12
 
 
 def run_pipeline(
@@ -61,7 +64,6 @@ def run_pipeline(
     indication: str,
     config: GateConfig,
     llm_client: LLMClientProtocol,
-    max_tokens: int = DEFAULT_MAX_OUTPUT_TOKENS,
     progress_callback=None,
 ) -> GateReview:
     """Triage one gate's questions against a set of documents."""
@@ -84,9 +86,6 @@ def run_pipeline(
         progress_callback("resolve")
     resolutions = resolve_questions(config, intervention_class=intervention_class)
 
-    if progress_callback:
-        progress_callback("parse")
-
     def parse(document: DocumentInput) -> list[ContentBlock]:
         blocks = chunker_run_pipeline(
             str(Path(document.file_path)),
@@ -100,7 +99,12 @@ def run_pipeline(
             raise ValueError(f"Document {document.doc_id!r} produced no readable content.")
         return blocks
 
-    parsed = map_ordered(list(documents), parse, workers=MAX_PARALLEL_DOCUMENTS)
+    # Counted, so a run abandoned while it parses stops at the next document rather
+    # than after every one: progress is where a closed stream is noticed.
+    parsed = map_ordered(
+        list(documents), parse, workers=MAX_PARALLEL_DOCUMENTS,
+        on_progress=_reporter(progress_callback, "parse", len(documents)),
+    )
     # Source order is independent of worker completion order.
     blocks = [block for document_blocks in parsed for block in document_blocks]
 
@@ -111,7 +115,6 @@ def run_pipeline(
         indication=indication,
         intervention_class=intervention_class,
         llm_client=llm_client,
-        max_tokens=max_tokens,
         progress_callback=progress_callback,
     )
 
@@ -140,7 +143,6 @@ def _assess(
     indication: str,
     intervention_class: str,
     llm_client: LLMClientProtocol,
-    max_tokens: int,
     progress_callback=None,
 ) -> dict[str, QuestionAssessment]:
     """Read every question/document pair, then assess combined source selections."""
@@ -155,46 +157,59 @@ def _assess(
         settled[item.question.id] = item.question.assessment(item.state)
 
     pairs = [(item, document_blocks) for item in queued for document_blocks in parsed]
-    completed = 0
-    progress_lock = Lock()
-    if progress_callback:
-        progress_callback("select", completed=0, total=len(pairs))
+    if queued:
+        for document_blocks in parsed:
+            check_document(document_blocks, indication=indication,
+                           intervention_class=intervention_class)
 
     def select_pair(pair: tuple[QuestionResolution, list[ContentBlock]]) -> list[ContentBlock]:
-        nonlocal completed
         item, document_blocks = pair
-        selected = select_evidence(
+        return select_evidence(
             item.question, document_blocks,
             indication=indication, intervention_class=intervention_class,
-            llm_client=llm_client, max_tokens=max_tokens,
+            llm_client=llm_client,
         )
-        if progress_callback:
-            with progress_lock:
-                completed += 1
-                progress_callback("select", completed=completed, total=len(pairs))
-        return selected
 
-    selections = map_ordered(pairs, select_pair, workers=MAX_PARALLEL_QUESTIONS)
+    selections = map_ordered(
+        pairs, select_pair, workers=MAX_PARALLEL_QUESTIONS,
+        on_progress=_reporter(progress_callback, "select", len(pairs)),
+    )
     selected_ids = {item.question.id: set() for item in queued}
     for (item, _), selected in zip(pairs, selections, strict=True):
         selected_ids[item.question.id].update(block.id for block in selected)
 
-    if progress_callback:
-        progress_callback("assess")
+    evidence = {
+        item.question.id: [block for block in blocks if block.id in selected_ids[item.question.id]]
+        for item in queued
+    }
+    for item in queued:
+        check_selection(item.question, evidence[item.question.id], indication=indication,
+                        intervention_class=intervention_class)
 
     def ask(resolution: QuestionResolution) -> QuestionAssessment:
         return assess_question(
             resolution.question,
-            blocks=[block for block in blocks if block.id in selected_ids[resolution.question.id]],
+            blocks=evidence[resolution.question.id],
             indication=indication,
             intervention_class=intervention_class,
             llm_client=llm_client,
-            max_tokens=max_tokens,
         )
 
-    for assessment in map_ordered(queued, ask, workers=MAX_PARALLEL_QUESTIONS):
+    assessed = map_ordered(
+        queued, ask, workers=MAX_PARALLEL_QUESTIONS,
+        on_progress=_reporter(progress_callback, "assess", len(queued)),
+    )
+    for assessment in assessed:
         settled[assessment.id] = assessment
     return settled
+
+
+def _reporter(progress_callback, stage: str, total: int):
+    """Announce a fan-out stage at zero and hand back its per-item counter."""
+    if not progress_callback:
+        return None
+    progress_callback(stage, completed=0, total=total)
+    return lambda completed, total: progress_callback(stage, completed=completed, total=total)
 
 
 def _group(

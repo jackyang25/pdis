@@ -14,7 +14,7 @@ import test from "node:test";
 
 const APP = path.resolve(import.meta.dirname, "..", "app");
 
-/** Pages that record a finished run into the session store. */
+/** Pages that record a finished run into the session store, through `lib/tool-run.ts`. */
 function pagesThatKeepRuns(): { tool: string; source: string }[] {
   return readdirSync(APP, { withFileTypes: true })
     .filter((entry) => entry.isDirectory())
@@ -28,8 +28,23 @@ function pagesThatKeepRuns(): { tool: string; source: string }[] {
         }
       })(),
     }))
-    .filter((page) => page.source.includes("addResult("));
+    .filter((page) => page.source.includes("runTool("));
 }
+
+test("every tool page runs through the shared handlers, never its own limit check", () => {
+  // Six copies of run-and-import drifted: one page asked about the limit before running
+  // and the rest spent the run first. The shared handlers ask; a page that counts runs
+  // or words the refusal itself has started a seventh copy.
+  const pages = pagesThatKeepRuns();
+  assert.ok(pages.length >= 7, `expected every run-keeping tool, found ${pages.length}`);
+  for (const page of pages) {
+    assert.doesNotMatch(
+      page.source,
+      /MAX_RESULTS_PER_TOOL|LIMIT_MESSAGE|\.addResult\(|\baddResult\(/,
+      `${page.tool} keeps a run without the shared handlers`,
+    );
+  }
+});
 
 test("a tool that keeps runs also offers the run picker", () => {
   const pages = pagesThatKeepRuns();

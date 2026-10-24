@@ -300,7 +300,7 @@ class DerivedValueTests(unittest.TestCase):
         self.assertGreaterEqual(checked, 2, "the derived set was not discovered")
 
     def test_serialization_publishes_every_derived_field(self) -> None:
-        from api.schemas import LegacyInspectionResultOut
+        from api.schemas import SectionAssessmentOut
         from services.inspector.models import inspection_result_to_dict
 
         config = _config()
@@ -309,11 +309,11 @@ class DerivedValueTests(unittest.TestCase):
 
         # Constructing the API model is the check: a missing derived value now has no
         # default to fall back on.
-        out = LegacyInspectionResultOut(**payload)
-        self.assertEqual(out.sections[0].units[0].verdict, "vague")
-        self.assertTrue(out.sections[0].is_present)
-        self.assertEqual(out.sections[0].verdict_counts["vague"], 1)
-        self.assertEqual(out.sections[0].verdict_counts["specified"], 1)
+        sections = [SectionAssessmentOut(**section) for section in payload["sections"]]
+        self.assertEqual(sections[0].units[0].verdict, "vague")
+        self.assertTrue(sections[0].is_present)
+        self.assertEqual(sections[0].verdict_counts["vague"], 1)
+        self.assertEqual(sections[0].verdict_counts["specified"], 1)
 
     def test_a_truncated_payload_raises_rather_than_publishing(self) -> None:
         from services.inspector.models import inspection_result_to_dict
@@ -338,6 +338,17 @@ class PresenceBindingTests(unittest.TestCase):
 
         with self.assertRaisesRegex(ValueError, "must report it missing"):
             validate_result_contract(result, config)
+
+    def test_an_absent_optional_prose_section_states_nothing(self) -> None:
+        """The rubric accepting absence is not a defect, so there is no sentence."""
+        from services.inspector.assembly import absent_unit_assessments
+        from services.inspector.models import SectionSpec
+
+        config = _config()
+        config.sections.append(SectionSpec(name="Annex", description="Extras.", optional=True))
+        [annex] = absent_unit_assessments(config, "Annex")
+
+        self.assertEqual((annex.verdict, annex.statement), ("not_applicable", ""))
 
     def test_an_absent_section_whose_units_all_report_it_passes(self) -> None:
         from services.inspector.assembly import absent_unit_assessments

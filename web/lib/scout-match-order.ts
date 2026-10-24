@@ -20,6 +20,8 @@ export const RELATION_ORDER: Record<Match["relation"], number> = {
   extends: 1,
   confirms: 2,
   unrelated: 3,
+  // Last: no relation was obtained, so it says nothing about the document.
+  not_assessed: 4,
 };
 
 /**

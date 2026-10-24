@@ -40,10 +40,14 @@ class ScriptedClient:
         self.requirements_per_document = requirements_per_document
         self.extractions: list[dict] = []
         self.verdicts: list[dict] = []
+        self.schema_names: list[str] = []
+        self.budgets: dict[str, list[int]] = {}
 
     def call_structured(
         self, system_prompt, user_message, max_tokens, *, schema_name, schema, **_
     ):
+        self.schema_names.append(schema_name)
+        self.budgets.setdefault(schema_name, []).append(max_tokens)
         if schema_name == "aligner_requirements":
             offered = schema["properties"]["requirements"]["items"]["properties"][
                 "spans"
@@ -75,17 +79,6 @@ class ScriptedClient:
                 "spans": [
                     {"block_id": offered[0], "start_line": 1, "end_line": 1}
                 ],
-            }
-        if schema_name == "chunker_section_labels":
-            ids = schema["properties"]["labels"]["items"]["properties"]["id"]["enum"]
-            taxonomy = schema["properties"]["labels"]["items"]["properties"][
-                "section_label"
-            ]["enum"]
-            return {
-                "labels": [
-                    {"id": block_id, "section_label": taxonomy[0], "confidence": "high"}
-                    for block_id in ids
-                ]
             }
         return {}
 
@@ -143,6 +136,27 @@ class PipelineTests(unittest.TestCase):
             ["itpp-to-ctpp/r-001", "itpp-to-ctpp/r-002"],
         )
         self.assertEqual(len(client.verdicts), len(result.findings))
+
+    def test_documents_are_parsed_without_a_model_call(self) -> None:
+        """No Aligner stage reads a section label, so no section is mapped."""
+        result, client = self.align("itpp", "ctpp")
+
+        self.assertEqual(set(client.schema_names), {"aligner_requirements", "aligner_requirement_verdict"})
+        self.assertTrue(all(block.source_type in {"itpp", "ctpp"} for block in result.blocks))
+        self.assertTrue(all(block.org == "bmgf" for block in result.blocks))
+
+    def test_a_longer_reference_document_is_given_more_room_to_list_what_it_requires(self) -> None:
+        from services.aligner.stages.requirements import (
+            BASE_MAX_TOKENS,
+            MAX_MAX_TOKENS,
+            extraction_budget,
+        )
+
+        self.assertEqual(extraction_budget(""), BASE_MAX_TOKENS)
+        self.assertLess(extraction_budget("x" * 4000), extraction_budget("x" * 40000))
+        self.assertEqual(extraction_budget("x" * 10_000_000), MAX_MAX_TOKENS)
+        _, client = self.align("itpp", "ctpp")
+        self.assertGreater(client.budgets["aligner_requirements"][0], BASE_MAX_TOKENS)
 
     def test_requirements_come_from_the_reference_and_verdicts_read_the_other(self) -> None:
         """The direction, proved by which document each call was actually given."""
@@ -230,6 +244,33 @@ class PipelineTests(unittest.TestCase):
             progress_callback=progress,
         )
         self.assertEqual(seen, ["parse", "requirements", "compare"])
+
+    def test_progress_on_a_three_document_run_only_rises_and_reaches_its_total(self) -> None:
+        """Counting per comparison restarted the bar at zero for the second edge."""
+        events: list[tuple[str, int, int]] = []
+        run_pipeline(
+            [
+                DocumentInput(
+                    file_path=str(self.paths[source_type]),
+                    source_type=source_type,
+                    doc_id=self.paths[source_type].stem,
+                )
+                for source_type in ("itpp", "ctpp", "ipdp")
+            ],
+            org="bmgf",
+            intervention_class="vaccine",
+            indication="malaria",
+            config=load_config(),
+            llm_client=ScriptedClient(requirements_per_document=3),
+            progress_callback=lambda stage, completed, total: events.append(
+                (stage, completed, total)
+            ),
+        )
+        for stage, expected_total in (("parse", 3), ("requirements", 2), ("compare", 6)):
+            with self.subTest(stage=stage):
+                counts = [(done, total) for name, done, total in events if name == stage]
+                self.assertEqual({total for _, total in counts}, {expected_total})
+                self.assertEqual([done for done, _ in counts], list(range(expected_total + 1)))
 
 
 if __name__ == "__main__":

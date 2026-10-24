@@ -5,8 +5,8 @@ each of them against the other document. The stages own their prompt text; this 
 owns the list and what each one produces.
 
 Neither prompt names a document type or a direction, and neither declares a framing
-slot: the role description and the comparison's question come from
-`configs/alignment.yaml` and travel in the user message, per requirement. So the text
+slot: the role description, how that kind of document honours a requirement, and the
+comparison's question come from `configs/alignment.yaml` and travel in the user message. So the text
 published here is the whole of what every edge is told, and adding a comparison never
 edits a prompt.
 """

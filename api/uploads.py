@@ -1,4 +1,4 @@
-"""One check that an uploaded file is a format the parser accepts.
+"""The checks every upload passes: a format the parser accepts, and a bounded size.
 
 The client already offers only the supported formats: `web/lib/document-formats.ts`
 derives every `accept` attribute from one list, and a test forbids a hand-rolled one.
@@ -16,16 +16,26 @@ not a zip archive. A guess about a format is exactly what the parser refuses to 
 Here rather than in `services/chunker` because it is an HTTP concern: what a route does
 with an unacceptable upload is a status code, and the service layer raises `ValueError`.
 The accepted set itself stays in the chunker, which owns it.
+
+Size is checked here too, for every route at once. Each route once read a whole upload
+into memory with no bound, and a queued run holds those bytes until it starts, so one
+oversized request could take the memory the run cap reserves.
 """
 
 from __future__ import annotations
 
 from pathlib import Path
-from collections.abc import Set
+from collections.abc import Sequence, Set
 
-from fastapi import HTTPException
+from fastapi import HTTPException, UploadFile
 
 from services.chunker import DOCUMENT_SUFFIXES
+
+#: Largest single file any route reads. A slide deck carrying its images is the large
+#: case; text-based PDFs have the parser's own, lower bound.
+MAX_UPLOAD_BYTES = 50 * 1024 * 1024
+#: Largest total one request may upload across its files.
+MAX_REQUEST_UPLOAD_BYTES = 150 * 1024 * 1024
 
 def document_upload_parts(
     filename: str | None, *, tool: str, accepted_suffixes: Set[str] = DOCUMENT_SUFFIXES,
@@ -53,3 +63,56 @@ def document_upload_parts(
             f"{filename or 'a file with no name'}",
         )
     return Path(filename or "").stem, suffix
+
+
+def require_distinct_doc_ids(doc_ids: Sequence[str]) -> None:
+    """Refuse two uploads that would share one `doc_id`.
+
+    A document's identity is its filename stem, and block IDs are built from it, so two
+    files with one name would cite each other's passages. Renaming one would invent an
+    identity no reader chose, so the request is refused before parsing.
+
+    Raises:
+        HTTPException: 400, before any file is read.
+    """
+    if len(set(doc_ids)) != len(doc_ids):
+        raise HTTPException(
+            status_code=400, detail="Each document must have a distinct filename."
+        )
+
+
+async def read_uploads(uploads: Sequence[tuple[UploadFile, str]]) -> list[bytes]:
+    """Read each `(upload, name)` within the size bounds, refusing an empty file.
+
+    Reads at most one byte past the limit, so an oversized file is refused without
+    being held whole. An empty file is refused rather than passed on: it would fail
+    mid-stream, or worse, read as a document that states nothing.
+
+    Raises:
+        HTTPException: 400 for an empty file, 413 for one over the per-file or
+            per-request limit, before the stream opens.
+    """
+    contents: list[bytes] = []
+    total = 0
+    for upload, name in uploads:
+        payload = await upload.read(MAX_UPLOAD_BYTES + 1)
+        if not payload:
+            raise HTTPException(status_code=400, detail=f"{name}: the file is empty.")
+        if len(payload) > MAX_UPLOAD_BYTES:
+            raise HTTPException(
+                status_code=413,
+                detail=f"{name}: the file exceeds the {_megabytes(MAX_UPLOAD_BYTES)} MB limit.",
+            )
+        total += len(payload)
+        if total > MAX_REQUEST_UPLOAD_BYTES:
+            raise HTTPException(
+                status_code=413,
+                detail="The files together exceed the "
+                f"{_megabytes(MAX_REQUEST_UPLOAD_BYTES)} MB limit for one request.",
+            )
+        contents.append(payload)
+    return contents
+
+
+def _megabytes(size: int) -> int:
+    return size // (1024 * 1024)

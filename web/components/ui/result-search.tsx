@@ -39,7 +39,7 @@ export function ResultSearch({
         value={value}
         onChange={(event) => onChange(event.target.value)}
         placeholder={placeholder}
-        className="h-8 w-full rounded-md border border-input bg-card pl-8 pr-3 text-xs outline-none transition-colors placeholder:text-muted-foreground focus:border-foreground/30 focus:ring-2 focus:ring-ring/10 motion-reduce:transition-none"
+        className="h-8 w-full rounded-md border border-input bg-card pl-8 pr-3 text-xs outline-none transition-colors placeholder:text-muted-foreground focus:border-ring/60 focus:ring-2 focus:ring-ring/15 motion-reduce:transition-none"
       />
     </label>
   );

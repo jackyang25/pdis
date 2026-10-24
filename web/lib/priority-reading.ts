@@ -3,8 +3,9 @@
 import { useEffect } from "react";
 import { create } from "zustand";
 
-import { fetchPriorityReading, type PriorityReading } from "./api";
+import { fetchPriorityReading, type PriorityReading } from "./api.ts";
 import { priorityRequest, type PriorityLens } from "./priorities.ts";
+import { onRunRemoved } from "./session.ts";
 
 /**
  * One reading per result, held for the session and nowhere else.
@@ -17,7 +18,10 @@ import { priorityRequest, type PriorityLens } from "./priorities.ts";
  * questions about the card while missing what a reader is looking at.
  *
  * Keyed by result id, so switching tabs or tools does not re-read, and re-opening a result
- * is free. One request per result per session, unless a reader retries a failure.
+ * is free. One request per result per session, unless a reader retries a failure. A key may
+ * qualify the id - Inspector reads per rubric as `<id>:<rubric>` - and every reading under a
+ * run is let go when the run is removed, so Ask is never handed a card for a run it no
+ * longer holds.
  */
 
 type Entry =
@@ -35,6 +39,8 @@ type ReadingStore = {
    * in flight is already the retry.
    */
   retry: (key: string) => void;
+  /** Drops every reading of one run, under its id or qualified by it. */
+  forget: (resultId: string) => void;
 };
 
 export const usePriorityReadingStore = create<ReadingStore>((set, get) => ({
@@ -42,20 +48,16 @@ export const usePriorityReadingStore = create<ReadingStore>((set, get) => ({
   read: (key, request) => {
     if (get().entries[key]) return;
     set((current) => ({ entries: { ...current.entries, [key]: { state: "loading" } } }));
+    // Settled only while still asked for: a run removed mid-read must not have its reading
+    // land afterwards and outlive it.
+    const settle = (entry: Entry) =>
+      set((current) => current.entries[key] ? { entries: { ...current.entries, [key]: entry } } : current);
     void request()
-      .then((reading) =>
-        set((current) => ({
-          entries: { ...current.entries, [key]: { state: "ready", reading } },
-        })),
-      )
+      .then((reading) => settle({ state: "ready", reading }))
       // The reason is kept: a skeleton followed by nothing is indistinguishable from a tool
       // that has no card. It is still not a banner — the result below is complete without a
       // reading, so a failure is reported quietly where the reading would have been.
-      .catch((error: Error) =>
-        set((current) => ({
-          entries: { ...current.entries, [key]: { state: "failed", reason: error.message } },
-        })),
-      );
+      .catch((error: Error) => settle({ state: "failed", reason: error.message }));
   },
   retry: (key) => {
     if (get().entries[key]?.state !== "failed") return;
@@ -64,7 +66,17 @@ export const usePriorityReadingStore = create<ReadingStore>((set, get) => ({
       return { entries };
     });
   },
+  forget: (resultId) => {
+    const held = Object.keys(get().entries);
+    const gone = new Set(held.filter((key) => key === resultId || key.startsWith(`${resultId}:`)));
+    if (gone.size === 0) return;
+    set((current) => ({
+      entries: Object.fromEntries(Object.entries(current.entries).filter(([key]) => !gone.has(key))),
+    }));
+  },
 }));
+
+onRunRemoved((id) => usePriorityReadingStore.getState().forget(id));
 
 /**
  * What a page reads: the stored entry, and on a failure the way to ask again.

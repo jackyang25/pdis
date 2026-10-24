@@ -75,7 +75,7 @@ export function ToolDetail({ toolId }: { toolId: string }) {
 
       {topics.length > 0 && (
         <details className="group/labels">
-          <summary className="flex cursor-pointer list-none items-center justify-between gap-4 rounded-sm text-sm font-semibold focus-visible:outline-offset-2 [&::-webkit-details-marker]:hidden">
+          <summary className="flex cursor-pointer list-none items-center justify-between gap-4 rounded-sm text-sm font-semibold rounded-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/60 [&::-webkit-details-marker]:hidden">
             What its labels mean
             <ChevronDown aria-hidden="true" className="h-4 w-4 shrink-0 text-muted-foreground transition-transform duration-base motion-reduce:transition-none group-open/labels:rotate-180" />
           </summary>
@@ -83,7 +83,7 @@ export function ToolDetail({ toolId }: { toolId: string }) {
             The same definitions shown by the question mark beside each label in
             the tool itself.
           </p>
-          <dl className="mt-4 divide-y divide-border border-y border-border">
+          <dl className="mt-4 divide-y divide-border/60 border-y border-border/60">
             {topics.map((topic) => (
               <div key={topic.title} className="py-3">
                 <dt className="text-xs font-medium text-foreground">

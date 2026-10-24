@@ -4,7 +4,7 @@ from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Any, Protocol
 
-from shared.openai_client import ModelTask
+from shared.ai import Effort, ModelTask, Verbosity
 
 
 CONFIGS_DIR = Path(__file__).resolve().parent / "configs"
@@ -36,12 +36,17 @@ def available_configs() -> list["DocumentTypeConfig"]:
 
 
 def find_config(org: str, source_type: str, intervention_class: str) -> "DocumentTypeConfig":
-    """Load the chunker config for the given (org, source_type, intervention)."""
-    path = CONFIGS_DIR / f"{org}_{source_type}_{intervention_class}.yaml"
-    if not path.exists():
+    """Load the chunker config for the given (org, source_type, intervention).
+
+    The keys arrive from a request, so the file is chosen from the configs that
+    exist rather than built into a path: a key holding `../` must name nothing.
+    The message names the keys, not where the server keeps its files.
+    """
+    name = f"{org}_{source_type}_{intervention_class}.yaml"
+    path = next((path for path in CONFIGS_DIR.glob("*.yaml") if path.name == name), None)
+    if path is None:
         raise LookupError(
-            f"No chunker config for ({org}, {source_type}, {intervention_class}). "
-            f"Expected: {path}"
+            f"No chunker config for ({org}, {source_type}, {intervention_class})."
         )
     return load_config(str(path))
 
@@ -61,7 +66,11 @@ class LLMClientProtocol(Protocol):
         schema_name: str,
         schema: dict[str, Any],
         images: list[dict[str, str]] | None = None,
+        trailing_text: str = "",
         task: ModelTask = "reasoning",
+        effort: Effort | None = None,
+        verbosity: Verbosity | None = None,
+        cache_key: str | None = None,
     ) -> dict[str, Any] | None:
         ...
 

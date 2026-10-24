@@ -20,17 +20,25 @@ from services.scout.stages.announcement_reader import (
     read_announcements,
 )
 from services.searcher import DevelopmentRecord, Finding
+from shared.ai import ResponseRefusedError
 
 
 class _Client:
-    def __init__(self, *payloads: dict | None) -> None:
+    """Replays readings under the contract's `reading` key; an exception is raised."""
+
+    def __init__(self, *payloads: dict | Exception | None) -> None:
         self.payloads = list(payloads)
         self.calls: list[str] = []
 
     def call_structured(self, system_prompt, user_message, max_tokens, **kwargs):
         self.calls.append(user_message)
         payload = self.payloads.pop(0) if self.payloads else None
-        return {} if payload is None else dict(payload)
+        if isinstance(payload, Exception):
+            raise payload
+        if payload is None:
+            return {}
+        # The schema has no reason field; a fixture's is dropped as the provider would.
+        return {"reading": {key: value for key, value in payload.items() if key != "reason"}}
 
 
 def _announcement(url: str = "https://news/1", excerpt: str = "Merck said V940 met its endpoint.") -> Finding:
@@ -121,19 +129,39 @@ class NoProgramTests(unittest.TestCase):
         self.assertEqual((reading.read, reading.named, reading.unnamed), (1, 0, 1))
         self.assertEqual(finding.development_records, [])
 
-    def test_a_claimed_program_with_no_name_is_refused(self) -> None:
+    def test_a_claimed_program_with_no_name_is_retried_then_counted_unread(self) -> None:
         finding = _announcement()
-        reading = read_announcements(
-            [finding],
-            _Client({"names_program": "yes", "program_name": "  ", "sponsor": "", "phase": "", "status": "", "reason": "x"}),
-        )
-        self.assertEqual((reading.read, reading.named), (1, 0))
+        nameless = {"names_program": "yes", "program_name": "  ", "sponsor": "", "phase": "", "status": "", "reason": "x"}
+        client = _Client(nameless, nameless)
+        reading = read_announcements([finding], client)
+        self.assertEqual(len(client.calls), 2)
+        self.assertEqual((reading.read, reading.named, reading.failed, reading.unnamed), (1, 0, 1, 0))
         self.assertEqual(finding.development_records, [])
 
-    def test_an_unreadable_reply_names_nothing(self) -> None:
+    def test_an_unreadable_reply_is_a_failed_reading_not_an_unnamed_one(self) -> None:
         finding = _announcement()
-        reading = read_announcements([finding], _Client(None))
-        self.assertEqual((reading.read, reading.named), (1, 0))
+        reading = read_announcements([finding], _Client(None, None))
+        self.assertEqual((reading.read, reading.named, reading.failed, reading.unnamed), (1, 0, 1, 0))
+        self.assertEqual(reading.failed_by_code, {"invalid_model_response": 1})
+
+    def test_a_refusal_is_a_recorded_failure_with_its_code(self) -> None:
+        """Recorded, not raised: one refused press release must not stop the run."""
+        client = _Client(ResponseRefusedError("declined"))
+        reading = read_announcements([_announcement()], client)
+        self.assertEqual(len(client.calls), 1)
+        self.assertEqual((reading.failed, reading.failed_by_code), (1, {"response_refused": 1}))
+
+    def test_a_programming_error_still_raises(self) -> None:
+        with self.assertRaises(RuntimeError):
+            read_announcements([_announcement()], _Client(RuntimeError("bug")))
+
+    def test_an_unreadable_reply_is_retried_once(self) -> None:
+        finding = _announcement()
+        reading = read_announcements([finding], _Client(None, {
+            "names_program": "yes", "program_name": "V940", "sponsor": "", "phase": "",
+            "status": "", "reason": "Names the candidate.",
+        }))
+        self.assertEqual((reading.named, reading.failed), (1, 0))
 
 
 class SkipTests(unittest.TestCase):
@@ -164,6 +192,7 @@ class SkipTests(unittest.TestCase):
 class ReadingTests(unittest.TestCase):
     def test_unnamed_never_goes_negative(self) -> None:
         self.assertEqual(AnnouncementReading(read=2, named=5).unnamed, 0)
+        self.assertEqual(AnnouncementReading(read=3, named=1, failed=2).unnamed, 0)
 
     def test_the_pair_distinguishes_a_weak_reading_from_a_quiet_week(self) -> None:
         """The reason both numbers are reported rather than only the useful one."""

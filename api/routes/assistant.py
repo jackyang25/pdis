@@ -34,6 +34,7 @@ from services.chunker import parse_context_file
 
 from api import streaming
 from api.deps import MissingCredentialError, get_openai_client
+from api.execution import CapacityExceeded, auxiliary_slot
 from api.schemas import (
     AskRequest,
     AssistantContextResponse,
@@ -42,22 +43,22 @@ from api.schemas import (
     PriorityReadingRequest,
     PriorityReadingResponse,
 )
+from api.uploads import read_uploads
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter()
-MAX_CONTEXT_FILE_BYTES = 25 * 1024 * 1024
+
+
+def _busy(exc: CapacityExceeded) -> HTTPException:
+    return HTTPException(status_code=503, detail=str(exc))
 
 
 @router.post("/context", response_model=AssistantContextResponse)
 async def add_context(file: UploadFile = File(...)) -> AssistantContextResponse:
     """Parse one transient conversation attachment without retaining server state."""
     filename = Path(file.filename or "attachment").name
-    contents = await file.read(MAX_CONTEXT_FILE_BYTES + 1)
-    if not contents:
-        raise HTTPException(status_code=400, detail="Attachment is empty")
-    if len(contents) > MAX_CONTEXT_FILE_BYTES:
-        raise HTTPException(status_code=413, detail="Attachment exceeds the 25 MB limit")
+    (contents,) = await read_uploads([(file, filename)])
 
     suffix = Path(filename).suffix.lower()
     stem = re.sub(r"[^a-z0-9]+", "-", Path(filename).stem.lower()).strip("-") or "file"
@@ -68,12 +69,15 @@ async def add_context(file: UploadFile = File(...)) -> AssistantContextResponse:
         with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as temp_file:
             temp_file.write(contents)
             temp_path = temp_file.name
-        blocks = await run_in_threadpool(
-            parse_context_file,
-            temp_path,
-            doc_id,
-            source_media_type=file.content_type,
-        )
+        with auxiliary_slot():
+            blocks = await run_in_threadpool(
+                parse_context_file,
+                temp_path,
+                doc_id,
+                source_media_type=file.content_type,
+            )
+    except CapacityExceeded as exc:
+        raise _busy(exc) from exc
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     finally:
@@ -157,7 +161,10 @@ async def priorities(request: PriorityReadingRequest) -> PriorityReadingResponse
         indication=request.indication,
     )
     try:
-        result = await run_in_threadpool(read_priorities, read, llm_client=llm_client)
+        with auxiliary_slot():
+            result = await run_in_threadpool(read_priorities, read, llm_client=llm_client)
+    except CapacityExceeded as exc:
+        raise _busy(exc) from exc
     except PriorityRequestTooLarge as exc:
         raise HTTPException(status_code=413, detail=str(exc)) from exc
     except Exception as exc:  # noqa: BLE001

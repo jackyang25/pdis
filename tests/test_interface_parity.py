@@ -52,7 +52,6 @@ OPERATIONAL = {
     "runtime": "injected provider capability",
     "llm_client": "injected provider capability",
     "max_tokens": "token budget, a deployment concern",
-    "max_uses": "tool-call budget, a deployment concern",
     "raise_source_errors": "the standalone tool always prefers partial results",
     "progress_callback": "streaming plumbing",
     "accepted_suffixes": "server-owned document input capability, never a browser override",

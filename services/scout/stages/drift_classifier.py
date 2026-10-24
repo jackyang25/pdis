@@ -1,9 +1,9 @@
-"""Stage: classify each Insight against the uploaded document(s).
+"""Stage: classify one Insight against the document claim it was retrieved for.
 
 One request per Insight, because the answer is a per-item relation and an
-unrelated Insight in the same prompt can sway it. Input: doc excerpts + one
-Insight. Output: one Match (relation + reason) per input Insight, in input
-order. Throughput comes from pipeline-level fan-out.
+unrelated Insight in the same prompt can sway it. Input: the variable's canonical
+binding and one Insight with the records it rests on. Output: one Match.
+Throughput comes from pipeline-level fan-out.
 
 Relations (closed enum):
   - contradicts : external finding disagrees with what the doc says
@@ -11,149 +11,93 @@ Relations (closed enum):
   - confirms    : external finding supports what the doc says
   - unrelated   : external finding doesn't speak to anything in the doc
 
-If parsing fails, every Insight is wrapped as Match(insight, "unrelated",
-"classifier failed"). The pipeline never raises here - drift is a quality
-layer over Insights, not a load-bearing stage.
+An answer that stays invalid after one retry, is cut off twice, is refused, or
+whose provider fails keeps its Insight as a ``not_assessed`` Match with the
+failure's code, never as ``unrelated``: no relation was obtained, and "off-topic"
+is a claim about the evidence.
 """
 
 from __future__ import annotations
 
-import logging
+from shared.ai import RECORDABLE_FAILURES, Effort, ModelTask, failure_code
 
-from ..ai import request_structured
-from shared.batching import fixed_batches
-from ..ai_contracts import drift_batch
-from ..context import (
-    BLOCK_ID_JSON_INSTRUCTION,
-    document_block_ids,
-    limit_document_context,
-    validated_block_ids,
-)
-from ..models import Insight, LLMClientProtocol, Match, VALID_RELATIONS
+from ..ai import request_validated
+from ..ai_contracts import drift_relation
+from ..context import BLOCK_ID_JSON_INSTRUCTION, document_block_ids, validated_block_ids
+from ..insight_evidence import binding_message, render_insight_evidence
+from ..models import NOT_ASSESSED, Insight, LLMClientProtocol, Match, VALID_RELATIONS
 from ..prompt_primitives import RELATIONSHIP_PRIMITIVE
 
-logger = logging.getLogger(__name__)
-
-DEFAULT_MAX_TOKENS = 24000
 # Per-item scope: one relation per insight, so an unrelated insight can never
 # sit in this decision's prompt. Speed comes from pipeline-level fan-out.
 INSIGHTS_PER_REQUEST = 1
+#: The reasoning tier at low effort, by measurement (README, Call policy). On 30 real
+#: RSV insights the fast tier filed three comparator shortfalls as `contradicts`, which
+#: question 2 forbids, and nine comparator results as `confirms` for an unnamed product;
+#: the reasoning tier at low and at medium effort agreed on all 30, at a median 2.8 s per
+#: call against 2.3 s. Medium effort changed nothing and spent twenty times the reasoning.
+TASK: ModelTask = "reasoning"
+EFFORT: Effort = "low"
+#: The answer is one relation, one sentence and a few block IDs; the rest is room
+#: for reasoning. A cut-off reply is asked again as `shared.ai.after_truncation` says.
+MAX_TOKENS = 8000
 
 
 def classify_drift(
-    doc_excerpts: list[str],
-    insights: list[Insight],
+    binding: str,
+    insight: Insight,
     llm_client: LLMClientProtocol,
     *,
     indication: str,
     intervention_class: str,
     framing: str = "",
     images: list[dict[str, str]] | None = None,
-    max_tokens: int = DEFAULT_MAX_TOKENS,
-) -> list[Match]:
-    if not insights:
-        return []
-    if len(insights) > INSIGHTS_PER_REQUEST:
-        matches: list[Match] = []
-        for batch in fixed_batches(insights, INSIGHTS_PER_REQUEST):
-            matches.extend(
-                classify_drift(
-                    doc_excerpts,
-                    batch,
-                    llm_client,
-                    indication=indication,
-                    intervention_class=intervention_class,
-                    framing=framing,
-                    images=images,
-                    max_tokens=max_tokens,
-                )
-            )
-        return matches
+    max_tokens: int = MAX_TOKENS,
+) -> Match:
+    """One Match for one Insight, from its own request.
 
-    system_prompt = build_system_prompt(
-        indication=indication,
-        intervention_class=intervention_class,
-        framing=framing,
-    )
-    user_message = _user_message(doc_excerpts, insights)
-    allowed_block_ids = document_block_ids("\n".join(doc_excerpts))
-    contract = drift_batch(len(insights), sorted(allowed_block_ids))
+    ``binding`` is the variable's canonical binding, the same for every insight of
+    the variable, so it leads the request; the insight follows the images.
+    """
+    allowed_block_ids = document_block_ids(binding)
 
-    parsed = _validated_matches(request_structured(
-        llm_client,
-        contract,
-        system_prompt,
-        user_message,
-        max_tokens=max_tokens,
-        images=images,
-        task="fast",
-    ))
-    if not _has_complete_lineage(parsed, len(insights), allowed_block_ids):
-        logger.warning(
-            "drift_classifier expected %d complete traced entries, got %d; retrying once",
-            len(insights), len(parsed),
-        )
-        parsed = _validated_matches(request_structured(
-            llm_client,
-            contract,
-            system_prompt,
-            user_message,
-            max_tokens=max_tokens,
-            images=images,
-            task="fast",
-        ))
-
-    by_index: dict[int, dict] = {
-        p["index"]: p for p in parsed if isinstance(p.get("index"), int)
-    }
-    matches: list[Match] = []
-    for i, insight in enumerate(insights):
-        entry = by_index.get(i, {})
-        relation = str(entry.get("relation", "")).strip().lower()
-        reason = str(entry.get("reason", "")).strip()
-        block_ids = validated_block_ids(
-            entry.get("doc_block_ids"), allowed_block_ids
-        )
+    def parse(parsed: object) -> Match:
+        if not isinstance(parsed, dict):
+            raise ValueError("no structured relation was returned")
+        relation = str(parsed.get("relation", "")).strip().lower()
+        reason = str(parsed.get("reason", "")).strip()
         if relation not in VALID_RELATIONS or not reason:
-            relation = "unrelated"
-            reason = reason or "Classifier returned no validated relation rationale."
-        elif relation != "unrelated" and allowed_block_ids and not block_ids:
-            relation = "unrelated"
-            reason = "Relation rejected because it lacked valid document-block lineage."
-        matches.append(
-            Match(
-                insight=insight,
-                relation=relation,
-                reason=reason,
-                doc_block_ids=block_ids,
-            )
+            raise ValueError("a relation from the closed list and a reason are required")
+        block_ids = validated_block_ids(parsed.get("doc_block_ids"), allowed_block_ids)
+        if relation != "unrelated" and allowed_block_ids and not block_ids:
+            raise ValueError("a relation other than unrelated must cite document blocks")
+        return Match(insight=insight, relation=relation, reason=reason, doc_block_ids=block_ids)
+
+    try:
+        return request_validated(
+            llm_client,
+            drift_relation(sorted(allowed_block_ids)),
+            build_system_prompt(
+                indication=indication,
+                intervention_class=intervention_class,
+                framing=framing,
+            ),
+            binding_message(binding),
+            max_tokens=max_tokens,
+            parse=parse,
+            failure=f"Drift classification failed for {insight.id}",
+            images=images,
+            trailing_text=_insight_message(insight),
+            task=TASK,
+            effort=EFFORT,
         )
-    return matches
-
-
-def _has_complete_lineage(
-    parsed: list[dict],
-    insight_count: int,
-    allowed_block_ids: set[str],
-) -> bool:
-    indices = [entry.get("index") for entry in parsed]
-    if sorted(
-        index
-        for index in indices
-        if isinstance(index, int) and not isinstance(index, bool)
-    ) != list(range(insight_count)):
-        return False
-    for entry in parsed:
-        relation = str(entry.get("relation", "")).strip().lower()
-        if relation not in VALID_RELATIONS or not str(entry.get("reason", "")).strip():
-            return False
-        if (
-            relation != "unrelated"
-            and allowed_block_ids
-            and not validated_block_ids(entry.get("doc_block_ids"), allowed_block_ids)
-        ):
-            return False
-    return True
+    except RECORDABLE_FAILURES as exc:
+        return Match(
+            insight=insight,
+            relation=NOT_ASSESSED,
+            reason=str(exc),
+            failure_code=failure_code(exc),
+        )
 
 
 # Generic, doc-agnostic fallback. The real interpretive stance is supplied per
@@ -236,28 +180,22 @@ def build_system_prompt(
         "relevance to the specific claim. An external fact that informs its feasibility "
         "or provides a relevant alternative or benchmark is on-topic even if not "
         "mentioned in the document; continue to question 2.\n"
-        "- Do not invent doc content not present in the excerpts.\n\n"
+        "- Each supporting record shows its source, evidence class, publication date and "
+        "the opening of its excerpt. Establish the time and subject at question 2 from "
+        "them, not from the Insight's wording alone; a date stated only to the year "
+        "covers the whole year. An excerpt marked as a search engine's summary describes "
+        "the source rather than quoting it.\n"
+        "- Do not invent document content not present in the binding.\n\n"
         "- Discovery-track labels are retrieval provenance only; they never determine the relation.\n\n"
         "OUTPUT CONTRACT\n"
-        "Return every decision in the schema-bound `matches` array. "
-        "Every Insight index from the input MUST appear exactly once in the output."
+        "Return one decision for the one Insight supplied, in the schema-bound `match` "
+        "object."
     )
 
 
-def _user_message(doc_excerpts: list[str], insights: list[Insight]) -> str:
-    doc_text = limit_document_context("\n\n=== DOC ===\n".join(doc_excerpts))
-    lines = ["Document excerpts:", doc_text, "", "Insights:"]
-    for i, ins in enumerate(insights):
-        lines.append(
-            f"[{i}] ({ins.id}; variable={ins.attribute_ref or 'unknown'}) {ins.statement}"
-        )
-        if ins.query_tracks:
-            lines.append(f"    discovery tracks: {', '.join(ins.query_tracks)}")
-    lines.append("\nClassify each Insight now.")
-    return "\n".join(lines)
-
-
-def _validated_matches(parsed: object) -> list[dict]:
-    if not isinstance(parsed, list):
-        return []
-    return [p for p in parsed if isinstance(p, dict)]
+def _insight_message(insight: Insight) -> str:
+    return (
+        "\n\nInsight to classify, with the records it rests on:\n"
+        + render_insight_evidence(insight, label=f"({insight.id})")
+        + "\n\nClassify this Insight now."
+    )

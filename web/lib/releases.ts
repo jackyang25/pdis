@@ -16,6 +16,37 @@ type Release = {
 
 export const RELEASES: readonly Release[] = [
   {
+    version: "0.8.0",
+    title: "More reliable results, clearer pages",
+    sections: [
+      {
+        title: "Results",
+        changes: [
+          "A check that could not run now says “Not assessed” instead of looking like an answer, and a field with no evidence says so.",
+          "Scout’s judgements read each source’s title, date and opening words, and Drafter checks every number against the words that state it.",
+          "Searches find much more: PubMed and Europe PMC queries return many more relevant records, and repeated records from different sources are merged.",
+          "Word form fields and PowerPoint decks with hidden slides are read in full.",
+        ],
+      },
+      {
+        title: "Scout",
+        changes: [
+          "At the review checkpoint, choose which fields to search. Fewer fields make a faster run.",
+          "Review explanations are written in plain words.",
+        ],
+      },
+      {
+        title: "Everywhere",
+        changes: [
+          "Report a problem with any finding: the report is copied, ready to paste into Teams.",
+          "Clicking a highlighted passage in a PDF opens its details, and each tool’s Documents view opens on a layer with marks.",
+          "Clearer error messages, a visible keyboard focus, and one consistent look for buttons, counts and lists.",
+          "Closing a tab now stops its run, and a dropped connection no longer leaves a run waiting.",
+        ],
+      },
+    ],
+  },
+  {
     version: "0.7.0",
     title: "Drafter, and smoother Screener and Scout runs",
     sections: [

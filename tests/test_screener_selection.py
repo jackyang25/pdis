@@ -83,7 +83,7 @@ class SelectionTests(unittest.TestCase):
         return select_evidence(
             QuestionSpec("Q1", "What is the study plan and timeline?", requirement="anticipatory"),
             blocks, indication="tuberculosis", intervention_class="monoclonal_antibody",
-            llm_client=client, max_tokens=16000,
+            llm_client=client,
         )
 
     def test_selection_returns_original_blocks_in_source_order(self):
@@ -125,12 +125,29 @@ class SelectionTests(unittest.TestCase):
         self.assertIn("Study context", message)
         self.assertIn("Unrelated content", message)
         self.assertIn("pdf_text_layout", message)
-        self.assertIn("What is the study plan and timeline?", message)
+        # The question follows the images, so the document prefix is shared across questions.
+        self.assertNotIn("What is the study plan and timeline?", message)
+        self.assertEqual(kwargs["trailing_text"], "Question (Q1):\nWhat is the study plan and timeline?")
         self.assertIn("monoclonal antibody", message)
-        self.assertNotIn("anticipatory", system + message)
-        self.assertEqual(kwargs["images"], [{"block_id": "image", "data_url": "data:image/png;base64,aW1hZ2U="}])
+        self.assertNotIn("anticipatory", system + message + kwargs["trailing_text"])
+        # Every page image travels with every question, so selection looks at them at low
+        # detail; the assessment reads the selected ones at high detail.
+        self.assertEqual(kwargs["images"], [{"block_id": "image", "data_url": "data:image/png;base64,aW1hZ2U=",
+                                             "detail": "low"}])
         self.assertEqual([b.id for b in selected], ["text", "image"])
         self.assertIs(selected[1].image, asset)
+        # Selection decides nothing, so it runs on the fast tier; the assessment does not.
+        self.assertEqual(kwargs["task"], "fast")
+        self.assertEqual(kwargs["effort"], "low")
+
+    def test_a_document_over_the_request_budget_is_refused_before_any_selection(self):
+        from services.screener.stages.selector import check_document
+        from shared.request_budget import RequestTooLargeError
+
+        with self.assertRaises(RequestTooLargeError) as raised:
+            check_document([block("a", "x" * 700_000)], indication="hiv", intervention_class="drug")
+        self.assertIn("report", str(raised.exception))
+        self.assertEqual(raised.exception.code, "request_too_large")
 
     def test_empty_selection_is_success_not_a_retry(self):
         client = SelectionClient({"block_ids": []})
@@ -151,7 +168,7 @@ class SelectionTests(unittest.TestCase):
         client = SelectionClient({"block_ids": ["foreign"]}, {"block_ids": ["a"]})
         source = block("a")
         self.assertEqual(self.select(client, [source]), [source])
-        self.assertIn("prior", client.calls[1][1].lower())
+        self.assertIn("prior", client.calls[1][2]["trailing_text"].lower())
 
     def test_provider_failure_propagates_without_becoming_selection(self):
         client = SelectionClient(RuntimeError("gateway unavailable"))

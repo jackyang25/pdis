@@ -31,7 +31,9 @@ class FixtureClient:
         if schema_name == "scout_unit_batch":
             return {"units": deepcopy(self.units)}
         if schema_name == "scout_unit_reconciliation":
-            self.identity_inputs.append((json.loads(user), kwargs.get("images")))
+            # A retry appends its repair note after the payload.
+            payload = user.split("\n\nYour prior answer failed validation")[0]
+            self.identity_inputs.append((json.loads(payload), kwargs.get("images")))
             value = next(self.partitions)
             if isinstance(value, Exception):
                 raise value
@@ -39,9 +41,14 @@ class FixtureClient:
         raise AssertionError(schema_name)
 
 
-def extract(client, text="[block:doc/b1]\nProduct A submission is planned for 2030.", **kwargs):
+def extract_with_record(client, text="[block:doc/b1]\nProduct A submission is planned for 2030.",
+                        **kwargs):
     return extract_units(text, intervention_class="vaccine", source_type="ipdp",
                          indication="malaria", llm_client=client, **kwargs)
+
+
+def extract(client, text="[block:doc/b1]\nProduct A submission is planned for 2030.", **kwargs):
+    return extract_with_record(client, text, **kwargs)[0]
 
 
 class UnitReconciliationTests(unittest.TestCase):
@@ -79,8 +86,10 @@ class UnitReconciliationTests(unittest.TestCase):
         ], evidence_domain="regulatory", definition_mode="dynamic", target_resolved=True)
         before = deepcopy([first, second])
         client = FixtureClient([], [[group("unit-1", "unit-1", "unit-0")]])
-        result = reconcile_units([first, second], client)
+        result, record = reconcile_units([first, second], client)
         self.assertEqual([first, second], before)
+        self.assertEqual((record.layer, record.status, record.items, record.merged),
+                         ("document_units", "reconciled", 2, 1))
         self.assertEqual(result[0].block_ids, ["doc/b1", "doc/b2"])
         self.assertEqual(result[0].document_target,
                          "Product A filing is planned in 2030. Product A submission is planned for 2030.")
@@ -106,7 +115,8 @@ class UnitReconciliationTests(unittest.TestCase):
         self.assertEqual(result[0].block_ids, ["doc/b1", "doc/b2"])
         self.assertEqual(len(client.identity_inputs), 1)
 
-    def test_invalid_partition_is_retried_then_stops_without_partial_results(self):
+    def test_invalid_partition_is_retried_then_recorded_without_partial_merges(self):
+        """Identity failure is recorded, not fatal: every unit stays as extracted."""
         invalid = [
             [], [group("unit-0", "unit-0")],
             [group("unit-0", "unit-0", "unit-0", "unit-1")],
@@ -115,15 +125,17 @@ class UnitReconciliationTests(unittest.TestCase):
             [group("unit-9", "unit-0", "unit-1")],
             [group("unit-0", "unit-0", "unit-1", "unit-9")],
             [group("unit-0"), group("unit-1", "unit-1")],
-            [group("unit-0", "unit-0", "unit-1") | {"rewritten_claim": "Invented"}],
+            # An extra key such as a rewritten claim is refused by the schema
+            # (additionalProperties: false) and never read by the merge, which keeps
+            # only the representative's authored fields, so it is not a case here.
         ]
         for partition in invalid:
             with self.subTest(partition=partition):
                 client = FixtureClient([unit("a", "A"), unit("b", "B")], [partition, partition])
-                from shared.errors import ModelResponseError
-
-                with self.assertRaisesRegex(ModelResponseError, "unit reconciliation"):
-                    extract(client)
+                units, record = extract_with_record(client)
+                self.assertEqual([u.name for u in units], ["a", "b"])
+                self.assertEqual((record.status, record.failure_code),
+                                 ("not_reconciled", "invalid_model_response"))
                 self.assertEqual(len(client.identity_inputs), 2)
 
     def test_complete_retry_is_accepted(self):
@@ -147,8 +159,8 @@ class UnitReconciliationTests(unittest.TestCase):
         client = FixtureClient([unit("a", "Submission timing."), unit("b", "Approval timing.")], [
             [group("unit-0", "unit-0"), group("unit-1", "unit-1")],
         ])
-        extract(client, images_by_block_id={"doc/b1": "data:image/png;base64,AA==",
-                                           "unused": "data:image/png;base64,BB=="})
+        extract(client, images=[{"block_id": "doc/b1", "data_url": "data:image/png;base64,AA=="},
+                                {"block_id": "unused", "data_url": "data:image/png;base64,BB=="}])
         payload, images = client.identity_inputs[0]
         self.assertEqual(payload[0]["description"], "Submission timing.")
         self.assertEqual(payload[1]["description"], "Approval timing.")
@@ -176,7 +188,8 @@ class UnitReconciliationTests(unittest.TestCase):
         config = find_config("bmgf", "itpp", "vaccine")
         with patch("services.scout.stages.unit_extractor.reconcile_units",
                    side_effect=AssertionError("Fixed fields must not be reconciled")):
-            fields = _resolve_units(config, "", [], FixtureClient([], []), indication="malaria")
+            fields = _resolve_units(config, "", FixtureClient([], []), indication="malaria",
+                                    images=None, reconciliations=[])
         self.assertTrue(fields)
         self.assertTrue(all(field.definition_mode == "fixed" for field in fields))
 

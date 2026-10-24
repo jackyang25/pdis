@@ -5,6 +5,7 @@ from unittest.mock import Mock, patch
 
 import pytest
 
+from shared.ai import ResponseTruncatedError
 from shared.openai_client import OpenAIClient
 from tests.test_scout_unit_reconciliation import FixtureClient, extract, group, unit
 from tests.test_streaming import drain
@@ -18,8 +19,9 @@ def test_output_limit_never_returns_a_partial_or_empty_conclusion(content):
         choices=[SimpleNamespace(finish_reason="length", message=SimpleNamespace(
             content=content, refusal=None))], usage=None,
     )
-    with pytest.raises(RuntimeError, match="response limit"):
+    with pytest.raises(ResponseTruncatedError, match="response limit") as raised:
         client.call_structured("system", "user", 8000, schema_name="test", schema={})
+    assert raised.value.code == "response_truncated"
 
 
 @pytest.mark.parametrize("payload", [

@@ -8,15 +8,19 @@ from pydantic import ValidationError
 
 from services.scout.ai import request_structured
 from services.scout.ai_contracts import (
+    announcement_record,
     context_validation,
-    drift_batch,
+    drift_relation,
     document_quantitative_ledger_batch,
-    evidence_review_batch,
+    evidence_review,
     evidence_assessment,
     insight_batch,
+    insight_reconciliation,
     precedent_assessment,
+    projection_reconciliation,
     quantitative_claim_reconciliation,
     query_batch,
+    run_scope_value,
     source_measurement_batch,
     target_binding_batch,
     target_review_batch,
@@ -29,6 +33,14 @@ from services.scout.ai_wire import (
     inline_json_schema,
 )
 from shared.openai_client import OpenAIClient
+
+
+def branch(schema: dict, key: str, value: str) -> dict:
+    """The properties of the variant whose ``key`` takes ``value``."""
+    for option in schema["anyOf"]:
+        if value in option["properties"][key]["enum"]:
+            return option["properties"]
+    raise AssertionError(f"no branch with {key}={value}")
 
 
 class _StructuredFixtureClient:
@@ -58,16 +70,11 @@ class _ChatCompletions:
 class ScoutAIContractTests(unittest.TestCase):
     def test_numeric_provider_schema_is_generated_from_runtime_wire_model(self) -> None:
         contract = source_measurement_batch({"measure"}, ["source-1"])
-        expression_schema = (
-            contract.schema["properties"]["sources"]["items"]["properties"]
-            ["measurements"]["items"]["properties"]["expression"]
-        )
+        source = branch(contract.schema["properties"]["sources"]["items"], "status", "measurements_found")
+        expression_schema = source["measurements"]["items"]["properties"]["expression"]
 
         self.assertEqual(expression_schema, inline_json_schema(NumericExpressionWire))
-        partition_schema = (
-            contract.schema["properties"]["sources"]["items"]["properties"]
-            ["evidence_unit_partition"]
-        )
+        partition_schema = source["evidence_unit_partition"]
         self.assertEqual(
             partition_schema,
             inline_json_schema(EvidenceUnitPartitionWire),
@@ -87,7 +94,7 @@ class ScoutAIContractTests(unittest.TestCase):
         allowed = ["DRAFT AIV iTPP v1 13July2016/b-0084"]
         contract = target_binding_batch(allowed)
         block_id_schema = (
-            contract.schema["properties"]["bindings"]["items"]["properties"]
+            branch(contract.schema["properties"]["bindings"]["items"], "status", "present")
             ["spans"]["items"]["properties"]["block_id"]
         )
 
@@ -97,7 +104,9 @@ class ScoutAIContractTests(unittest.TestCase):
     def test_context_schema_allows_only_visible_canonical_block_ids(self) -> None:
         allowed = ["DRAFT AIV iTPP v1 13July2016/b-0001"]
         contract = context_validation(allowed)
-        block_id_schema = contract.schema["properties"]["block_ids"]["items"]
+        block_id_schema = branch(
+            contract.schema["properties"]["validation"], "status", "match",
+        )["block_ids"]["items"]
 
         self.assertEqual(block_id_schema["enum"], allowed)
         self.assertNotIn("b-0001", block_id_schema["enum"])
@@ -122,11 +131,11 @@ class ScoutAIContractTests(unittest.TestCase):
         self.assertEqual(item["member_target_ids"]["items"]["enum"], allowed)
 
     def test_evidence_review_schema_can_only_select_existing_candidates(self) -> None:
-        contract = evidence_review_batch(["group-one"], ["candidate-one"])
-        item = contract.schema["properties"]["reviews"]["items"]["properties"]
+        contract = evidence_review(["candidate-one"])
+        decisions = contract.schema["properties"]["decisions"]
 
-        self.assertEqual(item["group_id"]["enum"], ["group-one"])
-        decision = item["decisions"]["items"]["properties"]
+        self.assertEqual((decisions["minItems"], decisions["maxItems"]), (1, 1))
+        decision = decisions["items"]["properties"]
         self.assertEqual(decision["candidate_id"]["enum"], ["candidate-one"])
         self.assertEqual(decision["decision"]["enum"], ["admit", "reject", "flag"])
 
@@ -147,9 +156,9 @@ class ScoutAIContractTests(unittest.TestCase):
             ["unit-0001"],
             ["field.one"],
         )
+        review = branch(contract.schema["properties"]["reviews"]["items"], "classification", "target")
         source_ref_schema = (
-            contract.schema["properties"]["reviews"]["items"]["properties"]
-            ["targets"]["items"]["properties"]["semantic_profile"]
+            review["targets"]["items"]["properties"]["semantic_profile"]
             ["properties"]["population"]["anyOf"][0]["properties"]["source_refs"]["items"]
         )
 
@@ -159,7 +168,12 @@ class ScoutAIContractTests(unittest.TestCase):
         )
         self.assertNotIn("binding-9999", source_ref_schema["enum"])
 
-        review = contract.schema["properties"]["reviews"]["items"]["properties"]
+        self.assertEqual(review["targets"]["minItems"], 1)
+        self.assertEqual(
+            branch(contract.schema["properties"]["reviews"]["items"], "classification", "uncertain")
+            ["targets"]["maxItems"],
+            0,
+        )
         self.assertEqual(review["unit_id"]["enum"], ["unit-0001"])
         self.assertEqual(
             review["attribute_refs"]["items"]["enum"],
@@ -190,59 +204,92 @@ class ScoutAIContractTests(unittest.TestCase):
         )
         for rule in comparison_contract["properties"].values():
             self.assertEqual(
-                [branch["properties"]["mode"]["enum"][0] for branch in rule["anyOf"]],
+                [option["properties"]["mode"]["enum"][0] for option in rule["anyOf"]],
                 ["compatible", "exact", "unconstrained", "unknown"],
             )
-            for branch in rule["anyOf"]:
-                self.assertEqual(set(branch["required"]), {"mode", "scope", "reason"})
+            for option in rule["anyOf"]:
+                self.assertEqual(set(option["required"]), {"mode", "scope", "reason"})
         self.assertNotIn("source_syntax", target_properties)
 
-        measurement_properties = (
+        measurement_properties = branch(
             source_measurement_batch({"measure"}, ["source-1"])
-            .schema["properties"]["sources"]["items"]["properties"]
-            ["measurements"]["items"]["properties"]
-        )
+            .schema["properties"]["sources"]["items"],
+            "status", "measurements_found",
+        )["measurements"]["items"]["properties"]
         self.assertNotIn("source_syntax", measurement_properties)
 
     def test_request_local_lineage_is_closed_in_every_stage(self) -> None:
-        query = query_batch(["doc/b-0001"], ["target-1"])
-        query_item = query.schema["properties"]["queries"]["items"]["properties"]
+        query = query_batch(["doc/b-0001"], ["target-1"], 3)
+        queries = query.schema["properties"]["queries"]
+        query_item = queries["items"]["properties"]
         self.assertEqual(query_item["doc_block_ids"]["items"]["enum"], ["doc/b-0001"])
         self.assertEqual(query_item["target_ids"]["items"]["enum"], ["target-1"])
+        # The track's budget is the array's length, so no reply is trimmed afterwards.
+        self.assertEqual((queries["minItems"], queries["maxItems"]), (3, 3))
 
-        insight = insight_batch(["https://example.test/source"])
-        urls = (
+        insight = insight_batch(["pubmed:123"])
+        keys = (
             insight.schema["properties"]["insights"]["items"]["properties"]
-            ["supporting_finding_urls"]["items"]["enum"]
+            ["supporting_record_keys"]
         )
-        self.assertEqual(urls, ["https://example.test/source"])
+        self.assertEqual(keys["items"]["enum"], ["pubmed:123"])
+        self.assertEqual(keys["minItems"], 1)
 
-        drift = drift_batch(2, ["doc/b-0001"])
-        drift_item = drift.schema["properties"]["matches"]["items"]["properties"]
-        self.assertEqual(drift_item["index"]["maximum"], 1)
-        self.assertEqual(drift_item["doc_block_ids"]["items"]["enum"], ["doc/b-0001"])
+        drift = drift_relation(["doc/b-0001"])
+        bearing = branch(drift.schema["properties"]["match"], "relation", "confirms")
+        self.assertEqual(bearing["doc_block_ids"]["items"]["enum"], ["doc/b-0001"])
+        self.assertEqual(bearing["doc_block_ids"]["minItems"], 1)
+        self.assertNotIn(
+            "minItems",
+            branch(drift.schema["properties"]["match"], "relation", "unrelated")["doc_block_ids"],
+        )
 
         source = source_measurement_batch({"endpoint"}, ["source-1"])
-        source_id = source.schema["properties"]["sources"]["items"]["properties"]["source_id"]
+        source_id = branch(
+            source.schema["properties"]["sources"]["items"], "status", "uncertain",
+        )["source_id"]
         self.assertEqual(source_id["enum"], ["source-1"])
 
-    def test_terminal_judgments_do_not_echo_canonical_document_facts(self) -> None:
-        evidence = evidence_assessment(2).schema["properties"]
-        precedent = precedent_assessment(2).schema["properties"]
+    def test_conditional_requirements_are_stated_in_the_schema(self) -> None:
+        """A validator never refuses what its schema permits (AGENTS)."""
+        scope = run_scope_value(["doc/b-0001"]).schema["properties"]["reading"]
+        self.assertEqual(branch(scope, "found", "yes")["block_ids"]["minItems"], 1)
+        self.assertEqual(branch(scope, "found", "yes")["value"]["pattern"], "\\S")
+        self.assertEqual(branch(scope, "found", "no")["value"]["enum"], [""])
+        self.assertNotIn("reason", branch(scope, "found", "yes"))
 
-        self.assertNotIn("doc_target", evidence)
-        self.assertNotIn("doc_block_ids", evidence)
-        self.assertNotIn("doc_block_ids", precedent)
+        announcement = announcement_record().schema["properties"]["reading"]
+        self.assertEqual(branch(announcement, "names_program", "yes")["program_name"]["pattern"], "\\S")
+        self.assertEqual(branch(announcement, "names_program", "no")["program_name"]["enum"], [""])
+
+        evidence = evidence_assessment(3).schema["properties"]["assessment"]
+        self.assertEqual(branch(evidence, "strength", "partial")["supporting_insight_indices"]["minItems"], 1)
+        self.assertNotIn("minItems", branch(evidence, "strength", "unknown")["supporting_insight_indices"])
+
+        precedent = precedent_assessment(3).schema["properties"]["assessment"]
+        self.assertEqual(len(precedent["anyOf"]), 4)
+
+        for contract, key in (
+            (quantitative_claim_reconciliation(["a", "b"]), "member_target_ids"),
+            (insight_reconciliation(["a", "b"]), "member_insight_ids"),
+            (projection_reconciliation(["a", "b"]), "member_name_ids"),
+        ):
+            group = contract.schema["properties"]["groups"]["items"]["properties"]
+            self.assertEqual(group[key]["minItems"], 1)
+            self.assertNotIn("reason", group)
 
     def test_all_schema_objects_are_closed_and_fully_required(self) -> None:
         contracts = [
             context_validation(["document/b-0001"]),
-            drift_batch(1, ["document/b-0001"]),
+            drift_relation(["document/b-0001"]),
             evidence_assessment(1),
-            evidence_review_batch(["group-1"], ["candidate-1"]),
-            insight_batch(["https://example.test/source"]),
+            evidence_review(["candidate-1"]),
+            insight_batch(["pubmed:1"]),
             precedent_assessment(1),
-            query_batch(["document/b-0001"], ["target-1"]),
+            query_batch(["document/b-0001"], ["target-1"], 2),
+            run_scope_value(["document/b-0001"]),
+            announcement_record(),
+            projection_reconciliation(["name-0", "name-1"]),
             document_quantitative_ledger_batch(
                 ["binding-0001"], ["unit-1"], ["field.one"]
             ),
@@ -277,8 +324,8 @@ class ScoutAIContractTests(unittest.TestCase):
             assert_closed(contract.schema)
 
     def test_structured_gateway_unwraps_stage_payload(self) -> None:
-        contract = drift_batch(1, ["document/b-0001"])
-        client = _StructuredFixtureClient({"matches": [{"index": 0}]})
+        contract = drift_relation(["document/b-0001"])
+        client = _StructuredFixtureClient({"match": {"relation": "unrelated"}})
         result = request_structured(
             client,
             contract,
@@ -286,22 +333,22 @@ class ScoutAIContractTests(unittest.TestCase):
             "user",
             max_tokens=100,
         )
-        self.assertEqual(result, [{"index": 0}])
+        self.assertEqual(result, {"relation": "unrelated"})
         self.assertEqual(client.schema_name, contract.name)
 
     def test_openai_wrapper_sends_strict_json_schema(self) -> None:
         completions = _ChatCompletions(
             json.dumps(
-                {
+                {"validation": {
                     "status": "match",
                     "document_indication": "malaria",
                     "reason": "The document names malaria.",
                     "block_ids": ["doc/b-0001"],
-                }
+                }}
             )
         )
         client = OpenAIClient.__new__(OpenAIClient)
-        client.model = "test-model"
+        client.models = {"fast": "test-model", "reasoning": "test-model"}
         client.client = SimpleNamespace(
             chat=SimpleNamespace(completions=completions)
         )
@@ -315,7 +362,7 @@ class ScoutAIContractTests(unittest.TestCase):
             schema=contract.schema,
         )
 
-        self.assertEqual(result["status"], "match")
+        self.assertEqual(result["validation"]["status"], "match")
         response_format = completions.kwargs["response_format"]
         self.assertEqual(response_format["type"], "json_schema")
         self.assertTrue(response_format["json_schema"]["strict"])

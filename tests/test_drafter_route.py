@@ -12,7 +12,7 @@ from fastapi.testclient import TestClient
 
 from api.deps import MissingCredentialError
 from api.main import app
-from services.drafter.models import DraftResult
+from services.drafter.models import DraftResult, Failure, VariableDraft
 from tests.test_drafter_contract import result as draft_result, suggested
 
 FORM = {"org": "bmgf", "intervention_class": "vaccine", "indication": "malaria"}
@@ -47,6 +47,24 @@ class RunRouteTests(unittest.TestCase):
         complete = [event for event in events if event["event"] == "complete"]
         self.assertEqual(complete[0]["result"]["result"]["indication"], "malaria")
         self.assertEqual(run.call_args.kwargs["indication"], "malaria")
+
+    def test_a_failure_cause_and_set_aside_quotes_reach_the_wire(self):
+        failed = VariableDraft(
+            name="vaccine.efficacy", label="Efficacy", description="", evidence_domain="clinical", status="failed",
+            failure=Failure("suggestion_failed", "Cut off.", "response_truncated"), observations=(), statistics=(),
+            suggestion=None, unread_findings=1, unverified_quotes=2,
+        )
+        fake = DraftResult(org="bmgf", source_type="itpp", intervention_class="vaccine", indication="malaria",
+                           display_name="Vaccine", sources=("pubmed",), failed_sources=(), unconfigured_sources=(),
+                           source_errors=(), variables=(failed,))
+        with patch("api.routes.drafter.get_openai_client", return_value=object()), \
+             patch("api.routes.drafter.get_search_runtime", return_value=object()), \
+             patch("api.routes.drafter.run_pipeline", return_value=fake):
+            response = self.client.post("/api/drafter/run", data=FORM)
+        events = [json.loads(line) for line in response.text.splitlines() if line.strip()]
+        variable = next(event for event in events if event["event"] == "complete")["result"]["result"]["variables"][0]
+        self.assertEqual(variable["failure"]["cause"], "response_truncated")
+        self.assertEqual(variable["unverified_quotes"], 2)
 
 
 class ExportRouteTests(unittest.TestCase):

@@ -89,14 +89,14 @@ export function SearchableSelect({
           activeOption.current?.scrollIntoView({ block: "nearest" });
         }}
       >
-        <div className="shrink-0 border-b border-border p-2">
+        <div className="shrink-0 border-b border-border/60 p-2">
           <label htmlFor={inputId} className="mb-1.5 block text-xs font-medium">{searchLabel}</label>
           <input
             ref={input} id={inputId} role="combobox" autoComplete="off" spellCheck={false}
             aria-autocomplete="list" aria-expanded={true} aria-controls={listId}
             aria-activedescendant={active >= 0 ? `${uid}-option-${active}` : undefined}
             value={query} placeholder="Type to filter"
-            className="h-9 w-full rounded-sm border border-input bg-card px-2 text-base focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring sm:text-xs"
+            className="h-9 w-full rounded-sm border border-input bg-card px-2 text-base focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/60 sm:text-xs"
             onChange={(event) => { setQuery(event.target.value); setActiveIndex(0); }}
             onKeyDown={(event) => {
               if (event.nativeEvent.isComposing) return;

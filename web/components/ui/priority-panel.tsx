@@ -59,7 +59,7 @@ export function PriorityPanel({
           onClick={() => setOpen((current) => !current)}
           aria-expanded={open}
           aria-label={open ? `Hide ${title.toLowerCase()}` : `Show ${title.toLowerCase()}`}
-          className="shrink-0 rounded-md p-1 text-muted-foreground transition-colors hover:bg-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/20 motion-reduce:transition-none"
+          className="shrink-0 rounded-md p-1 text-muted-foreground transition-colors hover:bg-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/60 motion-reduce:transition-none"
         >
           <ChevronUp
             className={cn(
@@ -70,7 +70,7 @@ export function PriorityPanel({
         </button>
       </div>
       {open && (
-        <div className="border-t border-border px-5 py-4 sm:px-6">
+        <div className="border-t border-border/60 px-5 py-4 sm:px-6">
           {findings.length === 0 ? (
             <p className="text-sm text-muted-foreground">This result holds no findings to read.</p>
           ) : !reading || reading.state === "loading" ? (
@@ -111,7 +111,7 @@ export function PriorityPanel({
               )}
             </>
           )}
-          <p className="mt-4 border-t border-border pt-2.5 text-xs leading-5 text-muted-foreground">
+          <p className="mt-4 border-t border-border/60 pt-2.5 text-xs leading-5 text-muted-foreground">
             Read by AI from every finding in this result, so the selection and order are the
             AI&apos;s. Each point names the findings it rests on; the result below is unchanged.
           </p>

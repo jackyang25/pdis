@@ -14,7 +14,7 @@ from services.aligner.stages.assessor import (
 )
 from services.aligner.contract import validate_result_contract
 from services.aligner.models import AlignmentFinding, load_config
-from tests.test_aligner import block, result
+from tests.test_aligner import CONFIG, ROLE, block, result, write_config
 
 
 def visual(block_id, doc_id):
@@ -40,6 +40,7 @@ class RetryClient:
             "schema_name": schema_name,
             "schema": schema,
             "images": kwargs.get("images"),
+            "trailing_text": kwargs.get("trailing_text", ""),
         })
         return self.payloads[len(self.calls) - 1]
 
@@ -59,8 +60,8 @@ class AlignerVisualCitationTests(unittest.TestCase):
         )
 
         requirements = extract_requirements(
-            edge_id="a-b", role="A profile.", question="?", blocks=[source],
-            llm_client=client, max_tokens=1000,
+            edge_id="a-b", role=ROLE, question="?", blocks=[source],
+            llm_client=client,
         )
 
         self.assertEqual(requirements[0].visual_block_ids, (source.id,))
@@ -84,32 +85,33 @@ class AlignerVisualCitationTests(unittest.TestCase):
         )
 
         finding = assess_requirement(
-            requirement, edge_id="a-b", role="A candidate.", question="?",
-            blocks=[comparison], llm_client=client, max_tokens=1000,
+            requirement, edge_id="a-b", role=ROLE, question="?",
+            blocks=[comparison], llm_client=client,
         )
 
         self.assertEqual(finding.reference_visual_block_ids, [reference.id])
         self.assertEqual(finding.comparison_visual_block_ids, [comparison.id])
-        retry = client.calls[1]["user"]
+        retry = client.calls[1]["trailing_text"]
         self.assertIn("exact [line:N] ranges in `spans`", retry)
         self.assertIn("retained visual IDs in `visual_block_ids`", retry)
 
     def test_contract_checks_visual_asset_and_document_side(self):
         reference = visual("itpp_file/visual", "itpp_file")
         comparison = visual("ctpp_file/visual", "ctpp_file")
-        finding = AlignmentFinding(requirement_id="requirement", edge_id="itpp-to-ctpp",
+        config = load_config(write_config(CONFIG))
+        finding = AlignmentFinding(requirement_id="itpp-to-ctpp/r-001", edge_id="itpp-to-ctpp",
             requirement="Milestone in 2027.", reference_spans=[], verdict="meets",
             statement="The milestone is scheduled in 2027.",
             reference_visual_block_ids=[reference.id], comparison_visual_block_ids=[comparison.id])
         held = result(blocks=[reference, comparison], findings=[finding])
-        self.assertIs(validate_result_contract(held, load_config()), held)
+        self.assertIs(validate_result_contract(held, config), held)
         finding.comparison_visual_block_ids = [reference.id]
         with self.assertRaises(ValueError):
-            validate_result_contract(held, load_config())
+            validate_result_contract(held, config)
         finding.comparison_visual_block_ids = [comparison.id]
         comparison.image = None
         with self.assertRaises(ValueError):
-            validate_result_contract(held, load_config())
+            validate_result_contract(held, config)
 
     def test_visual_only_requirement_and_assessment_keep_separate_lineage(self):
         reference = visual("a/visual", "a")

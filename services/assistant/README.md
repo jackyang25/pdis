@@ -73,5 +73,5 @@ shows failures outside the answer text; provider diagnostics remain server-side.
 - `knowledge.py` — Read-only navigation over the canonical public PDIS documentation.
 - `skills.py` — Procedures the assistant can follow, declared as files rather than prompt text.
 - `legends.py` — Per-result-type semantic legends for the Ask assistant.
-- `priorities.py` — One read over a finished result's findings: a summary, and points that name findings by ID.
+- `priorities.py` — One read over a finished result's findings: a summary, and points that name findings by ID. One validated request (`shared.ai.request_validated`) on the reasoning tier at low effort with an 8000-token budget, repaired once when it breaks the contract.
 - `agent.py` — Ask: a read-only, grounded agent loop over one request's workspace.

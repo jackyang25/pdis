@@ -1,7 +1,5 @@
 import type { Conformity, Measurement } from "./api";
 
-export type QuantitativeReviewDecision = "approve" | "reject";
-
 // Kept in lockstep with the server's calibration and equality contracts.
 const CALIBRATION_LIMITED_MIN_COUNT = 2;
 const CALIBRATION_SUFFICIENT_MIN_COUNT = 5;
@@ -53,23 +51,10 @@ export function applyEvidenceReviewRecommendations(
 }
 
 /**
- * Apply one explicit human admission decision and deterministically rebuild the
- * descriptive cohort. No retrieval or AI call occurs; the returned object is
- * portable and becomes the value exported in the result envelope.
+ * Resolve every alternative estimate for one target/evidence-unit decision, and
+ * deterministically rebuild the descriptive cohort. No retrieval or AI call occurs; the
+ * returned object is portable and becomes the value exported in the result envelope.
  */
-export function reviewQuantitativeCandidate(
-  score: Conformity,
-  candidateId: string,
-  decision: QuantitativeReviewDecision,
-): Conformity {
-  return reviewQuantitativeCandidateGroup(
-    score,
-    [candidateId],
-    decision === "approve" ? candidateId : null,
-  );
-}
-
-/** Resolve every alternative estimate for one target/evidence-unit decision. */
 export function reviewQuantitativeCandidateGroup(
   score: Conformity,
   candidateIds: string[],
@@ -181,7 +166,8 @@ function calculateCohort(
     measurements: deduplicated,
     excluded_measurements: retainedExcluded,
     target_meeting_count: meetingCount,
-    target_meeting_rate: count ? round(meetingCount / count) : 0,
+    // No cohort, so no share: zero would read as "none of them met the target".
+    target_meeting_rate: count ? round(meetingCount / count) : null,
     verdict: count
       ? `${meetingCount} of ${count} admitted comparators meet the document target`
       : "No admitted comparators",

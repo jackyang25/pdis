@@ -104,7 +104,9 @@ test("target review keeps document qualifiers visible and future comparison rule
     onNewAnalysis: () => {}, onTargetDecision: () => {}, onStatementDecision: () => {},
     onAcceptRecommendations: () => {}, onContinue: () => {},
   }));
-  const disclosure = html.match(/<details[^>]*>[\s\S]*?How evidence will be compared[\s\S]*?<\/details>/)?.[0] ?? "";
+  // The innermost disclosure holding the phrase, so an earlier one on the page (the fields
+  // to search) is not swallowed into it.
+  const disclosure = html.match(/<details[^>]*>(?:(?!<details)[\s\S])*?How evidence will be compared[\s\S]*?<\/details>/)?.[0] ?? "";
   assert.ok(disclosure);
   assert.doesNotMatch(disclosure.match(/^<details[^>]*>/)?.[0] ?? "", /\bopen\b/);
   assert.match(disclosure, /The year is the value being compared/);
@@ -283,4 +285,33 @@ test("review rows preserve shared status tones independently of selection", () =
       assert.equal(html.includes('aria-current="true"'), selected);
     }
   }
+});
+
+test("the fields to search are one closed line until the reviewer opens them", () => {
+  const result = reviewFixture("target_review");
+  for (const target of result.quantitative_ledger.targets) target.review_status = "approved";
+  for (const statement of result.quantitative_ledger.reviews) statement.review_status = "accepted_exclusion";
+  const render = () => renderToStaticMarkup(React.createElement(DocumentTargetReviewCheckpoint, {
+    result, busy: false, stage: null, progress: null,
+    onNewAnalysis: () => {}, onTargetDecision: () => {}, onStatementDecision: () => {},
+    onAcceptRecommendations: () => {}, onFieldSearchChange: () => {}, onContinue: () => {},
+  }));
+  const total = result.variables.filter((item) => item.document_target && item.document_spans.length).length;
+  const html = render();
+  const selection = html.match(/<details[^>]*>(?:(?!<details)[\s\S])*?Fields to search[\s\S]*?<\/details>/)?.[0] ?? "";
+  assert.ok(selection, "the checkpoint offers no field selection");
+  assert.doesNotMatch(selection.match(/^<details[^>]*>/)?.[0] ?? "", /\bopen\b/);
+  assert.match(selection, new RegExp(`${total} of ${total}`));
+  // Each field is a pressed toggle, so the selection is reachable and stated by keyboard.
+  assert.equal((selection.match(/aria-pressed="true"/g) ?? []).length, total);
+  assert.doesNotMatch(html, /Select at least one field/);
+
+  // Nothing selected: the action is disabled, and says why beside itself.
+  result.not_searched_fields = result.variables.map((item) => item.name);
+  const blocked = render();
+  const button = blocked.match(/<button[^>]*>Search for evidence<\/button>/)?.[0] ?? "";
+  assert.match(button, /\sdisabled=""/);
+  const reason = blocked.match(/<span id="([^"]+)"[^>]*>Select at least one field to search\.<\/span>/);
+  assert.ok(reason, "the disabled action gives no reason");
+  assert.match(button, new RegExp(`aria-describedby="${reason[1]}"`));
 });

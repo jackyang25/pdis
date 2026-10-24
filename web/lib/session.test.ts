@@ -13,6 +13,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import {
+  IMPORT_LIMIT_MESSAGE,
   MAX_RESULTS_PER_TOOL,
   RESULT_LIMIT_MESSAGE,
   useScoutSession,
@@ -174,4 +175,35 @@ test("re-importing a file already held is not an error", () => {
   assert.equal(again.added, false);
   assert.equal(get().error, null);
   assert.equal(get().selectedId, first.id);
+});
+
+test("a page can ask before running, and the refusal is still the store's", () => {
+  // Asking first saves a run that would only be refused once it finished. The answer
+  // carries the store's own message, so no page writes its own.
+  const get = store();
+  assert.equal(get().canAddResult(), true);
+  assert.equal(get().error, null);
+  for (let index = 0; index < MAX_RESULTS_PER_TOOL; index += 1) {
+    get().addResult({ doc_id: `run-${index}` } as never);
+  }
+  assert.equal(get().canAddResult(), false);
+  assert.equal(get().error, RESULT_LIMIT_MESSAGE);
+});
+
+test("an import at the limit says import, and a file already held still opens", () => {
+  const get = store();
+  get().importResult({ doc_id: "held" } as never, { id: "fixed" });
+  for (let index = 1; index < MAX_RESULTS_PER_TOOL; index += 1) {
+    get().addResult({ doc_id: `run-${index}` } as never);
+  }
+
+  const refused = get().importResult({ doc_id: "new file" } as never, {});
+  assert.equal(refused.added, false);
+  assert.equal(get().error, IMPORT_LIMIT_MESSAGE);
+
+  get().setError(null);
+  const again = get().importResult({ doc_id: "held" } as never, { id: "fixed" });
+  assert.deepEqual(again, { added: false, reason: "duplicate", id: "fixed" });
+  assert.equal(get().error, null);
+  assert.equal(get().selectedId, "fixed");
 });

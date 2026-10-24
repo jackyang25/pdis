@@ -6,12 +6,14 @@ import { AlertTriangle, ChevronDown, Telescope } from "lucide-react";
 import { ProvenancePanel } from "@/components/ui/provenance-panel";
 import { Popover, PopoverTrigger } from "@/components/ui/popover";
 import { InterfaceNote, Literal } from "@/components/ui/evidence-text";
+import { DisclosureSummary } from "@/components/ui/disclosure-summary";
 import { ProvenanceTrigger, stopRowToggle } from "@/components/ui/provenance";
 import type { ScoutResponse } from "@/lib/api";
 import { DISCLOSURE_MOTION } from "@/lib/motion";
 import { sourceDisplayLabel } from "@/lib/scout-labels";
 import { fieldSearchRecord, searchRecordSummary, type SearchLaneGroup } from "@/lib/scout-search-record";
 import { cn } from "@/lib/utils";
+import { countLabel } from "@/lib/count-label";
 
 /**
  * What was searched for one field.
@@ -52,7 +54,7 @@ export function FieldSearches({
             icon={Telescope}
             label="Searches"
             count={record.total}
-            ariaLabel={`Searches: the ${record.total} search${record.total === 1 ? "" : "es"} planned for this field, and what each returned`}
+            ariaLabel={`Searches: the ${countLabel(record.total, "search", "searches")} planned for this field, and what each returned`}
           />
         </button>
       </PopoverTrigger>
@@ -96,11 +98,11 @@ function LaneGroup({ group }: { group: SearchLaneGroup }) {
       ? `${failed.length} failed`
       : group.findingCount === 0
         ? "nothing returned"
-        : `${group.findingCount} source${group.findingCount === 1 ? "" : "s"}`;
+        : countLabel(group.findingCount, "source");
 
   return (
     <details className="group/row">
-      <summary className="flex cursor-pointer select-none flex-wrap items-center gap-x-2 gap-y-1 py-2 outline-none focus-visible:ring-2 focus-visible:ring-ring/20 [&::-webkit-details-marker]:hidden">
+      <summary className="flex cursor-pointer select-none flex-wrap items-center gap-x-2 gap-y-1 py-2 outline-none focus-visible:ring-2 focus-visible:ring-ring/60 [&::-webkit-details-marker]:hidden">
         <ChevronDown className="h-3.5 w-3.5 shrink-0 text-muted-foreground transition-transform group-open/row:rotate-180 motion-reduce:transition-none" />
         <span className="text-xs font-medium text-foreground">
           {sourceDisplayLabel(group.lane)}
@@ -125,6 +127,24 @@ function LaneGroup({ group }: { group: SearchLaneGroup }) {
               <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0 text-[hsl(var(--tone-warning))]" aria-hidden="true" />
               <span className="min-w-0 break-words">{trace.error || "This search failed."}</span>
             </div>}
+            {/* What the provider made of the request, where it says, as Searcher's lanes
+                show it: folded, because PubMed's translation runs to a dozen lines and is
+                opened only to ask why a search found what it found. */}
+            {trace.provider_query && trace.provider_query !== trace.query && (
+              <details className="mt-1 text-[11px] text-muted-foreground">
+                <DisclosureSummary className="w-fit rounded-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/60">
+                  How {sourceDisplayLabel(group.lane)} read it
+                </DisclosureSummary>
+                <Literal className="mt-1 block">{trace.provider_query}</Literal>
+              </details>
+            )}
+            {/* The provider's words beside its records: a phrase it ignored, content it
+                could not return. A complete search can still carry them. */}
+            {(trace.warnings ?? []).map((warning, warningIndex) => (
+              <p key={warningIndex} className="mt-1 break-words text-[11px] leading-relaxed text-muted-foreground">
+                {warning.detail}
+              </p>
+            ))}
           </li>
         ))}
       </ul>

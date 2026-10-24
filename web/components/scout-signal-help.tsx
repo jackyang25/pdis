@@ -33,7 +33,7 @@ const TOPICS: Record<ScoutSignalTopic, SignalTopic> = {
     summary:
       "One insight at a time, and what each does to the target. Counts are insights, not sources.",
     detail:
-      "Conflicts contradicts the target. Supports reinforces it. Adds context bears on it without settling it. Unrelated does not speak to it.",
+      "Conflicts contradicts the target. Supports reinforces it. Adds context bears on it without settling it. Unrelated does not speak to it. Not assessed means the check could not be completed, so nothing was concluded.",
     promptRef: { tool: "scout", stage: "drift_classifier" },
   },
   grounding: {
@@ -41,7 +41,7 @@ const TOPICS: Record<ScoutSignalTopic, SignalTopic> = {
     summary:
       "One verdict for the whole field: how well outside evidence justifies the target.",
     detail:
-      "Well grounded, Partly grounded, Thinly grounded, Unsupported, or Grounding unknown. Justification counts the insights this verdict rests on, and it need not match the relation counts.",
+      "Well grounded, Partly grounded, Thinly grounded, Unsupported, or Grounding unknown. Grounding not assessed means the check could not be completed. No evidence to ground means nothing the run retrieved bore on the field, so no verdict was asked for. Not searched means the field was excluded at review, so Scout did not search for it. Justification counts the insights this verdict rests on, and it need not match the relation counts.",
     promptRef: { tool: "scout", stage: "evidence_assessor" },
   },
   measurable: {
@@ -57,7 +57,7 @@ const TOPICS: Record<ScoutSignalTopic, SignalTopic> = {
     summary:
       "Whether anyone has done this before, and how it went. Two separate readings.",
     detail:
-      "Coverage is Direct precedent, Adjacent precedent, No precedent found, or Precedent unknown. Outcome is Favorable outcome, Mixed outcome, Unfavorable outcome, or Outcome unknown. A close match can still have gone badly, so neither implies the other.",
+      "Coverage is Direct precedent, Adjacent precedent, No precedent found, or Precedent unknown. Outcome is Favorable outcome, Mixed outcome, Unfavorable outcome, or Outcome unknown. Precedent not assessed and Outcome not assessed mean the check could not be completed, so neither reading was made. No evidence on precedent and No evidence on outcome mean nothing the run retrieved bore on the field, so neither reading was asked for. Not searched means the field was excluded at review. A close match can still have gone badly, so neither implies the other.",
     promptRef: { tool: "scout", stage: "precedent_classifier" },
   },
   targetRelationship: {
@@ -65,7 +65,7 @@ const TOPICS: Record<ScoutSignalTopic, SignalTopic> = {
     summary:
       "How close a retrieved record's subject is to your product. What the record is about, not what it does to a claim.",
     detail:
-      "Direct concerns the same product as the document. Analogous concerns a different named candidate in the same class. Adjacent is relevant contextual work or another class. Unrelated has no meaningful relationship to it. A different axis from the relation on a field, and the two share the word Unrelated while meaning different things by it.",
+      "Direct concerns the same product as the document. Analogous concerns a different named candidate in the same class. Adjacent is relevant contextual work or another class. Unrelated has no meaningful relationship to it. Product relation not assessed means the check could not be completed. A different axis from the relation on a field, and the two share the word Unrelated while meaning different things by it.",
     promptRef: { tool: "scout", stage: "projection_classifier" },
   },
 };

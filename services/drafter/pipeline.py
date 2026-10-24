@@ -4,22 +4,30 @@
 variables → search planning → retrieval → evidence reading → figures → suggestion
 ```
 
-Every fan-out is one flat, bounded queue. A variable that cannot be planned, read or
-suggested is recorded as failed, with its code, and the rest of the run carries on; a context
-that does not exist stops the run before any search is spent.
+Every fan-out is one flat, bounded queue reporting completed/total. A variable that cannot be
+planned, read or suggested is recorded as failed, with its code and the call's cause, and the
+rest of the run carries on; a context that does not exist, or a programming error, stops the
+run.
 """
 
 from __future__ import annotations
 
 import logging
-import threading
 from collections.abc import Callable, Sequence
 from dataclasses import replace
+from typing import TypeVar
 
 from services.searcher import Finding, RetrievalIntent, SearchRuntime
+from shared.ai import RECORDABLE_FAILURES, failure_code
 from shared.batching import map_ordered
 from shared.errors import ModelResponseError
-from shared.vocabulary import AttributeDefinition, attribute_definitions, indications_for, search_term
+from shared.vocabulary import (
+    AttributeDefinition,
+    attribute_definitions,
+    attribute_label,
+    indications_for,
+    search_term,
+)
 
 from .assembly import summarise
 from .configuration import SOURCE_TYPE, find_config
@@ -34,7 +42,7 @@ from .models import (
     VariableDraft,
 )
 from .retrieval import RetrievalReport, retrieve
-from .stages.evidence_reader import ReadObservation, eligible_findings, read_finding
+from .stages.evidence_reader import Reading, eligible_findings, read_finding
 from .stages.search_planner import plan_searches
 from .stages.suggester import suggest
 
@@ -44,7 +52,10 @@ PLANNING_WORKERS = 6
 READING_WORKERS = 8
 SUGGESTION_WORKERS = 6
 
+
 ProgressFn = Callable[..., None]
+_T = TypeVar("_T")
+_R = TypeVar("_R")
 
 
 def run_pipeline(
@@ -63,43 +74,33 @@ def run_pipeline(
     intervention_term, indication_term = search_term(intervention_class), search_term(indication)
     progress = progress_callback or (lambda *args, **kwargs: None)
 
-    open_variables = variables
     failures: dict[str, Failure] = {}
-    intents: dict[str, RetrievalIntent] = {}
-    if open_variables:
-        intents = _plan(open_variables, config, llm_client, indication_term, intervention_term, failures, progress)
+    intents = _plan(variables, config, llm_client, indication_term, intervention_term, failures, progress)
 
-    report = RetrievalReport(found={}, failed_sources=(), unconfigured_sources=(), failed_for={}, source_errors={})
+    report = RetrievalReport(found={}, failed_sources=(), unconfigured_sources=(), failed_for={},
+                             source_errors={}, asked={})
     if intents:
         progress("search")
         report = retrieve(
             list(intents.values()), sources=config.sources, runtime=runtime,
             progress=lambda done, total: progress("search", completed=done, total=total),
         )
-    found = report.found
 
-    planned = [variable for variable in open_variables if variable.name in intents]
-    observations, unread = _read(planned, found, llm_client, indication_term, intervention_term, progress)
+    planned = [variable for variable in variables if variable.name in intents]
+    observations, unread, unverified = _read(planned, report.found, llm_client, indication_term, intervention_term, progress)
     for variable in planned:
-        observations.setdefault(variable.name, [])
-        # Nothing to suggest from because the sources could not be read is a failure of the
-        # run, not a reading of the evidence; "not enough evidence" would claim the latter.
-        unreachable = [*report.failed_for.get(variable.name, ())]
-        if not observations[variable.name] and (unreachable or unread.get(variable.name, 0)):
-            reasons = []
-            if unreachable:
-                reasons.append(f"these sources failed: {', '.join(unreachable)}")
-            if unread.get(variable.name, 0):
-                reasons.append(f"{unread[variable.name]} retrieved sources could not be read")
-            failures[variable.name] = Failure(
-                "evidence_unavailable", f"No evidence could be read for this variable; {'; '.join(reasons)}.",
-            )
+        failure = _evidence_failure(
+            variable.name, observations.get(variable.name, []), report,
+            unread.get(variable.name, 0), unverified.get(variable.name, 0),
+        )
+        if failure is not None:
+            failures[variable.name] = failure
     planned = [variable for variable in planned if variable.name not in failures]
     suggestions = _suggest(planned, observations, llm_client, indication_term, intervention_term, failures, progress)
 
     drafts = [
         _variable(variable, observations.get(variable.name, []), suggestions.get(variable.name),
-                  failures.get(variable.name), unread.get(variable.name, 0))
+                  failures.get(variable.name), unread.get(variable.name, 0), unverified.get(variable.name, 0))
         for variable in variables
     ]
     result = DraftResult(
@@ -113,75 +114,102 @@ def run_pipeline(
     return result
 
 
-def _counter(progress: ProgressFn, stage: str, total: int) -> Callable[[], None]:
-    lock, done = threading.Lock(), [0]
-    progress(stage, completed=0, total=total)
+def _evidence_failure(
+    name: str, observations: Sequence[Observation], report: RetrievalReport, unread: int, unverified: int,
+) -> Failure | None:
+    """Why a variable has nothing to suggest from, when the reason is the run rather than the evidence.
 
-    def tick() -> None:
-        with lock:
-            done[0] += 1
-            progress(stage, completed=done[0], total=total)
+    "Not enough evidence" is a reading of evidence. A variable no request was sent for, or
+    whose sources failed, could not be read, or quoted words they do not contain, had none
+    read - saying it was insufficient would report a pipeline failure as a finding.
+    """
+    if not report.asked.get(name):
+        unconfigured = ", ".join(report.unconfigured_sources)
+        reason = (f"these sources are not configured in this deployment: {unconfigured}" if unconfigured
+                  else "none of the configured sources applies to it")
+        return Failure("evidence_unavailable", f"No source was searched for this variable; {reason}.")
+    if observations:
+        return None
+    reasons = []
+    unreachable = report.failed_for.get(name, ())
+    if unreachable:
+        reasons.append(f"these sources failed: {', '.join(unreachable)}")
+    if unread:
+        reasons.append(f"{unread} retrieved sources could not be read")
+    if unverified:
+        reasons.append(f"{unverified} quotes could not be found in their sources")
+    if not reasons:
+        return None
+    return Failure("evidence_unavailable", f"No evidence could be read for this variable; {'; '.join(reasons)}.")
 
-    return tick
+
+def _fan_out(stage: str, items: Sequence[_T], run: Callable[[_T], _R], workers: int, progress: ProgressFn) -> list[_R]:
+    progress(stage, completed=0, total=len(items))
+    return map_ordered(
+        list(items), run, workers=workers,
+        on_progress=lambda done, total: progress(stage, completed=done, total=total),
+    )
 
 
 def _plan(variables, config, llm_client, indication, intervention_term, failures, progress) -> dict[str, RetrievalIntent]:
-    tick = _counter(progress, "plan", len(variables))
-
-    def plan(variable: AttributeDefinition) -> RetrievalIntent | None:
+    def plan(variable: AttributeDefinition) -> RetrievalIntent | Failure:
         try:
             return plan_searches(variable, config, llm_client, indication=indication, intervention_term=intervention_term)
-        except Exception as exc:  # noqa: BLE001 - a provider error costs this variable, never the run
-            failures[variable.name] = Failure("search_planning_failed", _failure_message(exc))
-            return None
-        finally:
-            tick()
+        except RECORDABLE_FAILURES as exc:  # a model or provider failure costs this variable, never the run
+            return _failure("search_planning_failed", exc)
 
-    planned = map_ordered(list(variables), plan, workers=PLANNING_WORKERS)
-    return {variable.name: intent for variable, intent in zip(variables, planned, strict=True) if intent is not None}
+    planned = _fan_out("plan", variables, plan, PLANNING_WORKERS, progress)
+    intents: dict[str, RetrievalIntent] = {}
+    for variable, outcome in zip(variables, planned, strict=True):
+        if isinstance(outcome, Failure):
+            failures[variable.name] = outcome
+        else:
+            intents[variable.name] = outcome
+    return intents
 
 
 def _read(variables, found, llm_client, indication, intervention_term, progress):
     pairs = [(variable, finding) for variable in variables for finding in eligible_findings(found.get(variable.name, []))]
-    tick = _counter(progress, "evidence", len(pairs))
 
-    def read(pair: tuple[AttributeDefinition, Finding]) -> list[ReadObservation] | None:
+    def read(pair: tuple[AttributeDefinition, Finding]) -> Reading | None:
         try:
             return read_finding(pair[0], pair[1], llm_client, indication=indication, intervention_term=intervention_term)
-        except Exception:  # noqa: BLE001 - one unreadable source is set aside and counted
+        except RECORDABLE_FAILURES:  # one unreadable source is set aside and counted
             logger.warning("Evidence reading failed for %s from %s", pair[0].name, pair[1].url, exc_info=True)
             return None
-        finally:
-            tick()
 
-    readings = map_ordered(pairs, read, workers=READING_WORKERS)
+    readings = _fan_out("evidence", pairs, read, READING_WORKERS, progress)
     observations: dict[str, list[Observation]] = {}
     unread: dict[str, int] = {}
+    unverified: dict[str, int] = {}
     for (variable, _), reading in zip(pairs, readings, strict=True):
         if reading is None:
             unread[variable.name] = unread.get(variable.name, 0) + 1
             continue
+        if reading.unverified_quotes:
+            unverified[variable.name] = unverified.get(variable.name, 0) + reading.unverified_quotes
         held = observations.setdefault(variable.name, [])
-        for item in reading:
+        for item in reading.observations:
             held.append(Observation(id=f"{variable.name}:o{len(held) + 1}", **vars(item)))
-    return observations, unread
+    return observations, unread, unverified
 
 
 def _suggest(variables, observations, llm_client, indication, intervention_term, failures, progress) -> dict[str, Suggestion]:
-    tick = _counter(progress, "suggest", len(variables))
-
-    def run(variable: AttributeDefinition) -> Suggestion | None:
+    def run(variable: AttributeDefinition) -> Suggestion | Failure:
         held = observations.get(variable.name, [])
         try:
             return suggest(variable, held, summarise(held), llm_client, indication=indication, intervention_term=intervention_term)
-        except Exception as exc:  # noqa: BLE001 - a provider error costs this variable, never the run
-            failures[variable.name] = Failure("suggestion_failed", _failure_message(exc))
-            return None
-        finally:
-            tick()
+        except RECORDABLE_FAILURES as exc:  # a model or provider failure costs this variable, never the run
+            return _failure("suggestion_failed", exc)
 
-    made = map_ordered(list(variables), run, workers=SUGGESTION_WORKERS)
-    return {variable.name: suggestion for variable, suggestion in zip(variables, made, strict=True) if suggestion is not None}
+    made = _fan_out("suggest", variables, run, SUGGESTION_WORKERS, progress)
+    suggestions: dict[str, Suggestion] = {}
+    for variable, outcome in zip(variables, made, strict=True):
+        if isinstance(outcome, Failure):
+            failures[variable.name] = outcome
+        else:
+            suggestions[variable.name] = outcome
+    return suggestions
 
 
 def _variable(
@@ -190,26 +218,24 @@ def _variable(
     suggestion: Suggestion | None,
     failure: Failure | None,
     unread: int,
+    unverified: int,
 ) -> VariableDraft:
     base = VariableDraft(
-        name=variable.name, label=_label(variable.name), description=variable.description.strip(),
+        name=variable.name, label=attribute_label(variable.name), description=variable.description.strip(),
         evidence_domain=variable.evidence_domain, status="complete", failure=None,
         observations=tuple(observations), statistics=tuple(summarise(observations)),
-        suggestion=suggestion, unread_findings=unread,
+        suggestion=suggestion, unread_findings=unread, unverified_quotes=unverified,
     )
     if failure is not None:
         return replace(base, status="failed", failure=failure, suggestion=None)
     return base
 
 
-def _failure_message(exc: Exception) -> str:
-    """The reason, readable on the result: the stage's own words, or the provider's."""
+def _failure(code: str, exc: Exception) -> Failure:
+    """The stage's code, the call's cause, and the reason in the stage's or provider's words."""
     if isinstance(exc, ModelResponseError):
-        return str(exc)
-    logger.warning("Drafter stage failed", exc_info=exc)
-    return f"The model service failed: {exc}" if str(exc) else f"The model service failed ({type(exc).__name__})."
-
-
-def _label(name: str) -> str:
-    words = name.split(".", 1)[-1].replace("_", " ")
-    return words[:1].upper() + words[1:]
+        message = str(exc)
+    else:
+        logger.warning("Drafter stage failed", exc_info=exc)
+        message = f"The model service failed: {exc}" if str(exc) else f"The model service failed ({type(exc).__name__})."
+    return Failure(code, message, failure_code(exc))

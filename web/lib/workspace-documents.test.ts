@@ -69,3 +69,21 @@ test("versionTags keeps the short low-digit tag when nothing collides", () => {
   assert.equal(tags.get(a), "abc123");
   assert.equal(tags.get(b), "ef4567");
 });
+
+test("a run's document is fingerprinted once, not again every time the bundle is rebuilt", () => {
+  // The bundle is rebuilt whenever any tool's history or a priority reading changes, and
+  // every rebuild used to hash every block of every held run again.
+  let reads = 0;
+  const counted = (doc: string, n: number, content: string): ContentBlock => {
+    const value = block(doc, n, content);
+    return Object.defineProperty(value, "content", { get: () => { reads += 1; return content; } });
+  };
+  const blocks = Array.from({ length: 50 }, (_, n) => counted("cTPP", n + 1, `passage ${n}`));
+  const held = { id: "a", blocks, analysis: {} };
+  resolveDocumentVersions([held]);
+  const first = reads;
+  assert.ok(first > 0);
+  resolveDocumentVersions([held]);
+  resolveDocumentVersions([held, { id: "b", blocks: [block("iTPP", 1, "other")], analysis: {} }]);
+  assert.equal(reads, first, "the same blocks were hashed again");
+});

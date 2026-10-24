@@ -147,6 +147,11 @@ class WindowSurvivesTheReviewRoundTripTests(unittest.TestCase):
                 "status": "not_applicable", "reason": "", "block_ids": [],
                 "reviews": [], "targets": [],
             },
+            "retrieval_scope": {"entries": [
+                {"dimension": "condition", "value": "polio", "provenance": "header", "block_ids": []},
+                {"dimension": "intervention", "value": "", "provenance": "unset", "block_ids": []},
+                {"dimension": "region", "value": "", "provenance": "unset", "block_ids": []},
+            ]},
             "variables": [],
             "blocks": [],
         }

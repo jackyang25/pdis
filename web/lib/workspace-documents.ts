@@ -15,11 +15,7 @@ import type { ContentBlock } from "./api";
 export type WorkspaceRun = { id: string; blocks: ContentBlock[]; analysis: unknown };
 
 export function resolveDocumentVersions<T extends WorkspaceRun>(runs: T[]): T[] {
-  const fingerprints = runs.map((run) => {
-    const byDoc = new Map<string, ContentBlock[]>();
-    for (const block of run.blocks) byDoc.set(block.doc_id, [...(byDoc.get(block.doc_id) ?? []), block]);
-    return new Map([...byDoc].map(([doc, blocks]) => [doc, fingerprint(blocks)]));
-  });
+  const fingerprints = runs.map((run) => documentFingerprints(run.blocks));
   const versions = new Map<string, Set<string>>();
   for (const prints of fingerprints) {
     for (const [doc, print] of prints) versions.set(doc, (versions.get(doc) ?? new Set()).add(print));
@@ -84,6 +80,29 @@ function rewrite(value: unknown, blocks: Map<string, string>, docs: Map<string, 
     return Object.fromEntries(Object.entries(value).map(([child, item]) => [child, rewrite(item, blocks, docs, child)]));
   }
   return value;
+}
+
+/**
+ * Each document's fingerprint in one run's blocks, computed once per block list.
+ *
+ * Keyed by the list itself: a held run's blocks are never edited in place, so the same list
+ * is the same text, and the bundle - rebuilt whenever any tool's history or a priority
+ * reading changes - no longer hashes every block of every held run again each time.
+ */
+const FINGERPRINTS = new WeakMap<ContentBlock[], Map<string, string>>();
+
+function documentFingerprints(blocks: ContentBlock[]): Map<string, string> {
+  const cached = FINGERPRINTS.get(blocks);
+  if (cached) return cached;
+  const byDoc = new Map<string, ContentBlock[]>();
+  for (const block of blocks) {
+    const existing = byDoc.get(block.doc_id);
+    if (existing) existing.push(block);
+    else byDoc.set(block.doc_id, [block]);
+  }
+  const prints = new Map([...byDoc].map(([doc, documentBlocks]) => [doc, fingerprint(documentBlocks)]));
+  FINGERPRINTS.set(blocks, prints);
+  return prints;
 }
 
 /** A stable 53-bit hash (cyrb53) of a document's block IDs, text and image hashes. */

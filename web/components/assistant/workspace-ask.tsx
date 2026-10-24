@@ -1,8 +1,9 @@
 "use client";
 
-import { useMemo } from "react";
+import { useMemo, useRef, useState } from "react";
+import dynamic from "next/dynamic";
 import { usePathname } from "next/navigation";
-import { Ask } from "./ask";
+import { AskLauncher } from "./ask-launcher";
 import {
   isInspectorResultFinal,
   isScoutResultFinal,
@@ -22,6 +23,10 @@ import type { ContentBlock, PriorityReading } from "@/lib/api";
 import { usePriorityReadingStore } from "@/lib/priority-reading";
 import { reviewContextForAssistant, useAssistantReviewContext } from "@/lib/assistant-review-context";
 import { resolveDocumentVersions } from "@/lib/workspace-documents";
+
+/** Fetched the first time a reader is about to open the assistant, not with every page. */
+const loadAsk = () => import("./ask").then((module) => module.Ask);
+const Ask = dynamic(loadAsk);
 
 type WorkspaceResult = {
   id: string;
@@ -55,19 +60,38 @@ type WorkspaceResult = {
  */
 export function WorkspaceAsk() {
   const pathname = usePathname();
+  const pageDisplay = pathname === "/ask";
+  const [open, setOpen] = useState(false);
+  // Once opened the chat stays mounted, closed or not, so a conversation survives the panel
+  // being closed - as it did when the chat was part of every page.
+  const [opened, setOpened] = useState(false);
   const chunker = useChunkerSession((state) => state.results);
-  const inspector = useInspectorSession((state) => state.results);
+  const allInspector = useInspectorSession((state) => state.results);
   const aligner = useAlignerSession((state) => state.results);
   const screener = useScreenerSession((state) => state.results);
   const drafter = useDrafterSession((state) => state.results);
-  const scout = useScoutSession((state) => state.results);
+  const allScout = useScoutSession((state) => state.results);
   const searcher = useSearcherSession((state) => state.results);
   const activeReview = useAssistantReviewContext(state => state.active);
+  // Only final runs are results the assistant may read. Filtered once here, so the count on
+  // the closed launcher and the bundle the open panel submits cannot disagree.
+  const inspector = useMemo(
+    () => allInspector.filter((entry) => isInspectorResultFinal(entry.result)),
+    [allInspector],
+  );
+  const scout = useMemo(
+    () => allScout.filter((entry) => isScoutResultFinal(entry.result)),
+    [allScout],
+  );
+  const resultCount = chunker.length + inspector.length + aligner.length + screener.length
+    + drafter.length + scout.length + searcher.length;
 
   // Subscribed rather than read once: a reading lands after the result does, and the
   // bundle has to pick it up when it arrives.
   const readings = usePriorityReadingStore((state) => state.entries);
-  const bundle = useMemo(() => {
+  // Deferred rather than built: resolving document versions hashes every held block, which
+  // a closed panel has no use for. Built on first read and then kept for these inputs.
+  const build = useMemo(() => once(() => {
     const results: WorkspaceResult[] = [];
     const blocks = new Map<string, ContentBlock>();
 
@@ -113,7 +137,6 @@ export function WorkspaceAsk() {
     }
 
     for (const entry of inspector) {
-      if (!isInspectorResultFinal(entry.result)) continue;
       addResult(
         entry.id,
         "inspector",
@@ -174,7 +197,6 @@ export function WorkspaceAsk() {
 
     for (const entry of scout) {
       const scout = entry.result;
-      if (!isScoutResultFinal(scout)) continue;
       const documentIds = Array.from(
         new Set(scout.blocks.map((block) => block.doc_id).filter(Boolean)),
       );
@@ -237,22 +259,52 @@ export function WorkspaceAsk() {
     }));
 
     return {
-      result: {
-        catalog,
-        results,
-        active_review,
-        blocks: Array.from(blocks.values()),
-      },
-      resultCount: results.length,
+      catalog,
+      results,
+      active_review,
+      blocks: Array.from(blocks.values()),
     };
-  }, [aligner, chunker, drafter, readings, screener, inspector, scout, searcher, activeReview]);
+  }), [aligner, chunker, drafter, readings, screener, inspector, scout, searcher, activeReview]);
+
+  // The bundle the panel last saw stays with it while closed, so reopening an unchanged
+  // workspace hands back the same object and the conversation does not report a context
+  // change that never happened.
+  // Kept in a ref rather than state: it is a cache of a value derived from this render's
+  // inputs, and setting state from it would re-render for a value the render already has.
+  const shown = useRef<ReturnType<typeof build> | null>(null);
+  if (pageDisplay || open) shown.current = build();
+  const bundle = shown.current;
+
+  function openAsk() {
+    setOpened(true);
+    setOpen(true);
+  }
+
+  if (!pageDisplay && !opened) {
+    return <AskLauncher resultCount={resultCount} onOpen={openAsk} onIntent={() => void loadAsk()} />;
+  }
 
   return (
     <Ask
-      result={bundle.result}
-      availableResultCount={bundle.resultCount}
+      result={bundle}
+      availableResultCount={resultCount}
       reviewPhase={activeReview?.draft.phase}
-      display={pathname === "/ask" ? "page" : "floating"}
+      display={pageDisplay ? "page" : "floating"}
+      open={open}
+      onOpenChange={setOpen}
     />
   );
+}
+
+/** A value computed on first read and then remembered. */
+function once<T>(compute: () => T): () => T {
+  let done = false;
+  let value: T;
+  return () => {
+    if (!done) {
+      value = compute();
+      done = true;
+    }
+    return value;
+  };
 }

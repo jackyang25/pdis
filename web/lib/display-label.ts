@@ -1,6 +1,9 @@
 /**
  * The one acronym set for user-facing labels. `scout-labels.ts` imports this so
  * a field ref and a config key never disagree about the same word.
+ *
+ * Mirrors `shared/display_labels.json`, which the server reads for labels it writes
+ * itself - the Drafter Word export - and `display-label.test.ts` fails if they differ.
  */
 export const ACRONYMS = new Set([
   // Organizations and document types
@@ -19,7 +22,8 @@ export const ACRONYMS = new Set([
   "hpv",
   "cmv",
   "covid19",
-  // Study and quality vocabulary
+  // Study, quality and cost vocabulary
+  "cogs",
   "gcp",
   "glp",
   "gmp",
@@ -27,7 +31,7 @@ export const ACRONYMS = new Set([
   "rct",
 ]);
 
-const SPECIAL_LABELS: Record<string, string> = {
+export const SPECIAL_LABELS: Record<string, string> = {
   itpp: "iTPP",
   ctpp: "cTPP",
 };

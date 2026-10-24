@@ -119,9 +119,53 @@ class ReferenceEncoding:
                 if not isinstance(value, list):
                     raise ReferenceDecodeError("Expected an array in reference-bearing response")
                 return [resolve(schema["items"], item) for item in value]
+            if "anyOf" in schema:
+                # A discriminated union: the branch is the one whose fixed values the
+                # reply states (see `_discriminated`), never a guess between domains.
+                for branch in schema["anyOf"]:
+                    if _branch_matches(branch, value):
+                        return resolve(branch, value)
+                raise ReferenceDecodeError("The response matches no branch of its schema")
             return value
 
         return resolve(self.canonical_schema, payload)
+
+
+def _discriminators(branch: Any) -> dict[str, list[Any]]:
+    """An object branch's properties fixed to plain (non-reference) enumerations."""
+    if not isinstance(branch, dict) or branch.get("type") != "object":
+        return {}
+    return {
+        key: child["enum"]
+        for key, child in branch.get("properties", {}).items()
+        if isinstance(child, dict) and not isinstance(child, _ReferenceSchema) and "enum" in child
+    }
+
+
+def _discriminated(branches: Any) -> bool:
+    """Whether a reply names exactly one of these branches by its fixed values.
+
+    The shape a stage uses to state a conditional requirement - "a citation is required
+    unless the verdict is X" - as branches keyed by a closed field. Any two branches must
+    disagree on some fixed field, so a reply can only ever match one of them.
+    """
+    if not isinstance(branches, list) or not branches:
+        return False
+    keyed = [_discriminators(branch) for branch in branches]
+    if not all(keyed):
+        return False
+    for index, first in enumerate(keyed):
+        for second in keyed[index + 1:]:
+            shared = set(first) & set(second)
+            if not any(not set(first[key]) & set(second[key]) for key in shared):
+                return False
+    return True
+
+
+def _branch_matches(branch: Any, value: Any) -> bool:
+    return isinstance(value, dict) and all(
+        value.get(key) in allowed for key, allowed in _discriminators(branch).items()
+    )
 
 
 def prepare_references(schema: dict[str, Any]) -> ReferenceEncoding:
@@ -145,10 +189,13 @@ def prepare_references(schema: dict[str, Any]) -> ReferenceEncoding:
             return {"type": "integer", "minimum": 0, "maximum": len(ids) - 1,
                     "description": f"Reference table: {table_names[ids]}. {description}".strip()}
         if isinstance(value, dict):
-            # Current reference-bearing contracts use only objects and arrays.
-            # Do not guess a branch or dereference a schema with a different domain.
+            # Reference-bearing contracts use objects, arrays, and discriminated
+            # unions whose branch a reply names by a closed field. Do not guess a
+            # branch or dereference a schema with a different domain.
             if compact:
                 for keyword in ("anyOf", "oneOf", "allOf", "$defs", "definitions"):
+                    if keyword == "anyOf" and _discriminated(value.get(keyword)):
+                        continue
                     if any(isinstance(node, _ReferenceSchema) for node in _nodes(value.get(keyword))):
                         raise ValueError("Compact references require explicit object/array paths")
             return {key: compile_node(child) for key, child in value.items()}

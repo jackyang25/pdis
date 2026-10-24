@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { formatMeasure, formatMeasurePair } from "./scout-result-view.ts";
+import { formatMeasure, formatMeasurePair } from "./measure-format.ts";
 
 test("explicit presentation formats years and quantities without guessing from magnitude", () => {
   const year = { kind: "calendar_year" as const, unit_singular: "", unit_plural: "" };

@@ -43,7 +43,8 @@ def test_screener_large_set_retains_every_document_and_resolves_exact_image_cita
             for block in evidence:
                 assert block.id in message
                 assert block.content in message
-            assert images == [{"block_id": "document-0/b-2292", "data_url": "data:image/png;base64,AA=="}]
+            assert images == [{"block_id": "document-0/b-2292", "data_url": "data:image/png;base64,AA==",
+                               "detail": "high"}]
             assert schema["properties"]["block_ids"]["items"]["maximum"] == 2292
             return {"decision": "partly_answered", "statement": "The target is stated.",
                     "missing": "Supporting study results", "block_ids": [0, 2292]}
@@ -51,7 +52,7 @@ def test_screener_large_set_retains_every_document_and_resolves_exact_image_cita
     client = Client()
     result = assess_question(QuestionSpec(id="Q1", text="Is the target supported?", requirement="required"),
                              blocks=evidence, indication="hiv", intervention_class="drug",
-                             llm_client=client, max_tokens=1000)
+                             llm_client=client)
     assert client.calls == 1
     assert result.state == "partly_answered"
     assert result.statement == "The target is stated."
@@ -183,9 +184,13 @@ def test_other_document_consumers_restore_their_canonical_contracts():
         (cross_section_schema({"a": blocks(1100)}),
          {"findings": [{"statement": "Conflict", "block_ids": [0, 1099]}]},
          {"findings": [{"statement": "Conflict", "block_ids": [ids[0], ids[-1]]}]}),
+        # A discriminated union (a match must cite) resolves through the branch its
+        # status names, under compact encoding as under canonical IDs.
         (context_validation(ids).schema,
-         {"status": "match", "document_indication": "hiv", "reason": "Stated", "block_ids": [1099]},
-         {"status": "match", "document_indication": "hiv", "reason": "Stated", "block_ids": [ids[-1]]}),
+         {"validation": {"status": "match", "document_indication": "hiv", "reason": "Stated",
+                         "block_ids": [1099]}},
+         {"validation": {"status": "match", "document_indication": "hiv", "reason": "Stated",
+                         "block_ids": [ids[-1]]}}),
         (unit_batch(ids).schema,
          {"units": [{"name": "Target", "description": "A target", "evidence_domain": "clinical",
                      "spans": [{"block_id": 1099, "start_line": 2, "end_line": 3}], "entities": []}]},
@@ -223,3 +228,36 @@ def test_concurrent_requests_do_not_share_reference_tables():
     with ThreadPoolExecutor(max_workers=4) as pool:
         results = list(pool.map(run, ["a", "b", "c", "d"]))
     assert results == [[f"{prefix}/0", f"{prefix}/1099"] for prefix in ["a", "b", "c", "d"]]
+
+
+def test_a_discriminated_union_is_compiled_and_resolved_by_its_branch():
+    from shared.references import ReferenceDecodeError, prepare_references, reference_array
+
+    ids = [block.id for block in blocks(1100)]
+    cited = {**reference_array(ids), "minItems": 1}
+
+    def branch(status, block_ids):
+        return {"type": "object", "additionalProperties": False, "required": ["status", "block_ids"],
+                "properties": {"status": {"type": "string", "enum": status}, "block_ids": block_ids}}
+
+    schema = {"type": "object", "additionalProperties": False, "required": ["answer"],
+              "properties": {"answer": {"anyOf": [branch(["match"], cited),
+                                                  branch(["uncertain"], reference_array(ids))]}}}
+    encoding = prepare_references(schema)
+    assert encoding.tables
+    assert encoding.decode({"answer": {"status": "match", "block_ids": [1099]}}) == {
+        "answer": {"status": "match", "block_ids": [ids[-1]]}}
+    with pytest.raises(ReferenceDecodeError):
+        encoding.decode({"answer": {"status": "other", "block_ids": [0]}})
+
+
+def test_a_union_no_closed_field_tells_apart_still_refuses_compact_references():
+    from shared.references import prepare_references, reference_array
+
+    ids = [block.id for block in blocks(1100)]
+    item = {"type": "object", "additionalProperties": False, "required": ["block_ids"],
+            "properties": {"block_ids": reference_array(ids)}}
+    schema = {"type": "object", "additionalProperties": False, "required": ["answer"],
+              "properties": {"answer": {"anyOf": [item, item]}}}
+    with pytest.raises(ValueError, match="explicit object/array paths"):
+        prepare_references(schema)

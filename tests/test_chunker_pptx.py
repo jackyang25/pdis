@@ -100,6 +100,10 @@ class ChunkerPptxTests(unittest.TestCase):
         )
         self.assertEqual(blocks[0].block_type, "heading")
         self.assertEqual(blocks[0].content, "Malaria vaccine profile")
+        self.assertEqual(
+            [block.content for block in blocks].count("Malaria vaccine profile"), 1
+        )
+        self.assertIn("x", blocks[0].structural_meta)
         self.assertTrue(
             any(block.content == "Target population: children" for block in blocks)
         )
@@ -201,6 +205,89 @@ class ChunkerPptxTests(unittest.TestCase):
                 "chart-only.*presentation_renderer_unavailable.*no retained content",
             ):
                 run_pipeline(str(path), "chart-only")
+
+
+    def test_hidden_slide_is_rendered_and_marked(self) -> None:
+        presentation = Presentation()
+        for title in ("Shown", "Hidden backup", "Also shown"):
+            slide = presentation.slides.add_slide(presentation.slide_layouts[5])
+            slide.shapes.title.text = title
+        presentation.slides[1]._element.set("show", "0")
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "hidden.pptx"
+            presentation.save(path)
+            with patch(
+                "services.chunker.stages.parser_pptx.render_presentation_slides",
+                return_value={1: PNG_1X1, 2: PNG_1X1, 3: PNG_1X1},
+            ):
+                blocks = run_pipeline(str(path), "hidden")
+
+        renders = [block for block in blocks if block.block_type == "image"]
+        self.assertEqual([block.structural_meta["slide"] for block in renders], [1, 2, 3])
+        self.assertEqual(
+            {block.structural_meta["slide"] for block in blocks
+             if block.structural_meta.get("slide_hidden")},
+            {2},
+        )
+        self.assertTrue(all("extraction_warnings" not in block.structural_meta for block in blocks))
+
+    def test_unrendered_chart_is_flagged_like_a_docx_visual(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "chart.pptx"
+            build_chart_only_presentation(path)
+            presentation = Presentation(path)
+            presentation.slides[0].shapes.add_textbox(
+                Inches(1), Inches(6), Inches(4), Inches(1)
+            ).text_frame.text = "Efficacy by age group"
+            presentation.save(path)
+            with patch(
+                "services.chunker.stages.parser_pptx.render_presentation_slides",
+                side_effect=RendererUnavailableError("LibreOffice is unavailable"),
+            ):
+                blocks = run_pipeline(str(path), "chart")
+
+        flagged = [
+            block for block in blocks
+            if "unsupported_document_visual" in block.structural_meta["extraction_warnings"]
+        ]
+        self.assertEqual(len(flagged), 1)
+        self.assertEqual(flagged[0].block_type, "image")
+        self.assertIsNone(flagged[0].image)
+        self.assertEqual(flagged[0].structural_meta["unsupported_visual_kind"], "chart")
+        self.assertEqual(flagged[0].structural_meta["slide"], 1)
+        self.assertIn("shape_path", flagged[0].structural_meta)
+        self.assertIn(
+            "presentation_renderer_unavailable",
+            flagged[0].structural_meta["extraction_warnings"],
+        )
+
+    def test_grouped_shape_positions_are_slide_relative(self) -> None:
+        presentation = Presentation()
+        slide = presentation.slides.add_slide(presentation.slide_layouts[6])
+        group = slide.shapes.add_group_shape()
+        box = group.shapes.add_textbox(0, 0, Inches(2), Inches(1))
+        box.text_frame.text = "Grouped label"
+        xfrm = group._element.grpSpPr.get_or_add_xfrm()
+        # The group is drawn at (5in, 3in) at half its children's size.
+        xfrm.get_or_add_off().x, xfrm.get_or_add_off().y = Inches(5), Inches(3)
+        xfrm.get_or_add_ext().cx, xfrm.get_or_add_ext().cy = Inches(1), Inches(0.5)
+        xfrm.get_or_add_chOff().x, xfrm.get_or_add_chOff().y = 0, 0
+        xfrm.get_or_add_chExt().cx, xfrm.get_or_add_chExt().cy = Inches(2), Inches(1)
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "group.pptx"
+            presentation.save(path)
+            with patch(
+                "services.chunker.stages.parser_pptx.render_presentation_slides",
+                return_value={1: PNG_1X1},
+            ):
+                blocks = run_pipeline(str(path), "group")
+
+        label = next(block for block in blocks if block.content == "Grouped label")
+        meta = label.structural_meta
+        self.assertAlmostEqual(meta["x"], Inches(5) / presentation.slide_width, places=3)
+        self.assertAlmostEqual(meta["y"], Inches(3) / presentation.slide_height, places=3)
+        self.assertAlmostEqual(meta["width"], Inches(1) / presentation.slide_width, places=3)
+        self.assertAlmostEqual(meta["height"], Inches(0.5) / presentation.slide_height, places=3)
 
 
 if __name__ == "__main__":

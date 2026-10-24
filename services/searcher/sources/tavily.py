@@ -27,6 +27,8 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from typing import Any
 
+from ..calls import provider_call
+from ..errors import RetrievalError
 from ..models import (
     Finding,
     RetrievalIntent,
@@ -68,6 +70,7 @@ class TavilySource:
         jurisdiction="global",
         reads=("text",),
         feeds=("insights",),
+        max_results=MAX_RESULTS,
     )
 
     def plan(self, intent: RetrievalIntent) -> list[SearchRequest]:
@@ -95,16 +98,23 @@ class TavilySource:
         runtime: SearchRuntime,
         *,
         max_tokens: int,
-        max_uses: int,
     ) -> list[Finding]:
-        # `max_tokens` and `max_uses` bound a model's generation and mean nothing to a search
-        # API. Accepted because the adapter contract passes them to every lane, ignored here
+        # `max_tokens` bounds a model's generation and means nothing to a search API.
+        # Accepted because the adapter contract passes it to every lane, ignored here
         # rather than reinterpreted into a result limit that would silently differ from the
         # cap the spec declares.
         connector = runtime.integrations.get(TAVILY_INTEGRATION)
         if connector is None or not callable(getattr(connector, "search", None)):
-            raise RuntimeError("Tavily connector is not configured")
-        result = connector.search(request.query, max_results=MAX_RESULTS)
+            raise RetrievalError("Tavily", "not_configured", "Tavily connector is not configured")
+        limit = self.spec.max_results
+        result = provider_call(
+            runtime,
+            rate_group=self.spec.rate_group,
+            interval_seconds=self.spec.request_interval_seconds,
+            operation="search",
+            arguments={"query": request.query, "max_results": limit},
+            load=lambda: connector.search(request.query, max_results=limit),
+        )
         retrieved_at = datetime.now(timezone.utc)
         findings: list[Finding] = []
         for record in _records(result):
@@ -133,33 +143,28 @@ def _records(result: Any) -> list[dict[str, Any]]:
     and found nothing, which is a different fact.
     """
     if not isinstance(result, dict):
-        raise RuntimeError("Tavily returned an unexpected result shape")
+        raise RetrievalError("Tavily", "invalid_response", "unexpected result shape")
     if error := result.get("error"):
-        raise RuntimeError(f"Tavily failed: {error}")
+        raise RetrievalError("Tavily", "tool_error", f"Tavily failed: {error}")
     records = result.get("results")
     if not isinstance(records, list):
-        raise RuntimeError("Tavily returned no results list")
+        raise RetrievalError("Tavily", "invalid_response", "no results list")
     return [record for record in records if isinstance(record, dict)]
 
 
 def _excerpt(record: dict[str, Any]) -> str | None:
-    """The page's own words.
-
-    `content` is Tavily's extract of the page. `raw_content` is the fuller text and is only
-    present when asked for; preferred when it is there, because a longer passage is likelier to
-    contain the sentence a number sits in.
+    """The page's own words: `content`, Tavily's extract of the passage the query matched.
 
     `None` rather than an empty string when there is nothing: `Finding.excerpt` is documented
     as absent-or-a-passage, and an empty passage downstream reads as a source that stated
     nothing rather than as one whose text could not be extracted.
     """
-    for key in ("raw_content", "content"):
-        text = _text(record.get(key))
-        if text:
-            if len(text) > MAX_EXCERPT_CHARS:
-                return text[:MAX_EXCERPT_CHARS].rstrip() + "..."
-            return text
-    return None
+    text = _text(record.get("content"))
+    if not text:
+        return None
+    if len(text) > MAX_EXCERPT_CHARS:
+        return text[:MAX_EXCERPT_CHARS].rstrip() + "..."
+    return text
 
 
 def _text(value: Any) -> str:

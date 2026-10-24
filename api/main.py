@@ -27,7 +27,7 @@ except ImportError:
 
 import os
 
-from api.deps import validate_configuration
+from api.deps import ConfigurationError, validate_configuration
 from api.logging_config import RequestIdMiddleware, configure_logging
 
 # Both run before the routers are imported, so a malformed setting stops the
@@ -90,11 +90,21 @@ def _cors_origins() -> list[str]:
     assumed https existed to consume a hostname a platform injected; a
     deployment that sets both gets whichever this function reads first, which is
     not a thing a reader can see from either value.
+
+    Never `*`. Credentials are allowed, and Starlette answers a credentialed request
+    under `*` by echoing whatever origin asked, so every site on the web could call
+    this gateway as the signed-in reader.
     """
     explicit = os.getenv("CORS_ALLOW_ORIGINS", "").strip()
-    if explicit:
-        return [origin.strip() for origin in explicit.split(",") if origin.strip()]
-    return ["http://localhost:3000"]
+    if not explicit:
+        return ["http://localhost:3000"]
+    origins = [origin.strip() for origin in explicit.split(",") if origin.strip()]
+    if "*" in origins:
+        raise ConfigurationError(
+            "CORS_ALLOW_ORIGINS must list explicit origins; '*' would admit any site "
+            "with the reader's credentials."
+        )
+    return origins
 
 
 allow_origins = _cors_origins()

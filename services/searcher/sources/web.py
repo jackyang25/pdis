@@ -39,10 +39,9 @@ class WebSource:
             )
         return requests
 
-    def search(self, request, runtime: SearchRuntime, *, max_tokens: int, max_uses: int):
+    def search(self, request, runtime: SearchRuntime, *, max_tokens: int):
         return search(
             request.query,
             runtime.llm_client,
             max_tokens=max_tokens,
-            max_uses=max_uses,
         )

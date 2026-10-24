@@ -143,7 +143,8 @@ function edgeColor(edge: EvidenceMapEdge): string {
     edge.kind === "contradicts" ||
     edge.kind === "extends" ||
     edge.kind === "confirms" ||
-    edge.kind === "unrelated"
+    edge.kind === "unrelated" ||
+    edge.kind === "not_assessed"
   ) {
     return TONE_STROKE[RELATIONSHIP_TONE[edge.kind]];
   }
@@ -185,7 +186,7 @@ function layoutGraph(nodes: EvidenceMapNode[], edges: EvidenceMapEdge[]) {
       style: {
         stroke: color,
         strokeWidth: edge.kind === "supported_by" || edge.kind === "has_target" ? 1 : 1.35,
-        opacity: edge.kind === "unrelated" ? 0.55 : 0.82,
+        opacity: edge.kind === "unrelated" || edge.kind === "not_assessed" ? 0.55 : 0.82,
       },
       markerEnd: {
         type: MarkerType.ArrowClosed,
@@ -264,7 +265,7 @@ function Inspector({ node }: { node: EvidenceMapNode }) {
       )}
 
       {node.signals && node.signals.length > 0 && (
-        <dl className="mt-4 space-y-2.5 border-t border-border/70 pt-4">
+        <dl className="mt-4 space-y-2.5 border-t border-border/60 pt-4">
           {node.signals.map((signal) => (
             <div key={signal.label} className="grid grid-cols-[minmax(0,1fr)_minmax(0,1.2fr)] items-start gap-3 text-xs leading-relaxed">
               <dt className="text-muted-foreground">{signal.label}</dt>
@@ -281,7 +282,7 @@ function Inspector({ node }: { node: EvidenceMapNode }) {
       )}
 
       {node.blockIds && node.blockIds.length > 0 && (
-        <div className="mt-4 border-t border-border/70 pt-4">
+        <div className="mt-4 border-t border-border/60 pt-4">
           <div className={TRIGGER_AT_LINE_START}>
             <DocumentSourceTrace blockIds={node.blockIds} />
           </div>
@@ -289,7 +290,7 @@ function Inspector({ node }: { node: EvidenceMapNode }) {
       )}
 
       {node.sources && node.sources.length > 0 && (
-        <div className="mt-4 border-t border-border/70 pt-4">
+        <div className="mt-4 border-t border-border/60 pt-4">
           <div className="flex items-center gap-2">
             <p className={EYEBROW}>
               All cited sources
@@ -306,7 +307,7 @@ function Inspector({ node }: { node: EvidenceMapNode }) {
                   target="_blank"
                   rel="noreferrer"
                   title={source.title}
-                  className="block min-w-0 text-xs leading-relaxed text-foreground underline decoration-border underline-offset-2 hover:decoration-current focus-visible:outline-offset-2"
+                  className="block min-w-0 text-xs leading-relaxed text-foreground underline decoration-border underline-offset-2 hover:decoration-current rounded-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/60"
                 >
                   {source.title}
                 </a>
@@ -318,7 +319,7 @@ function Inspector({ node }: { node: EvidenceMapNode }) {
       )}
 
       {node.queries && node.queries.length > 0 && (
-        <div className="mt-4 border-t border-border/70 pt-4">
+        <div className="mt-4 border-t border-border/60 pt-4">
           <DisclosureRow label="Retrieval queries" count={node.queries.length}>
             <ul className="space-y-2">
               {node.queries.map((query, index) => (

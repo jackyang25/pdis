@@ -809,9 +809,11 @@ test("one meaning takes one tone, and every tool draws from the same four", () =
     }
   }
 
-  // "The thing asked for is there" is success everywhere it appears.
+  // "The thing asked for is there" is success everywhere it appears. Screener's trace reads
+  // the coverage strip's own map, so the two views of one result cannot disagree.
   const [screener, aligner] = sources;
-  assert.match(screener, /question\.state === "answered"\s*\n?\s*\? \{ tone: "success"/);
+  assert.match(screener, /tone: QUESTION_STATE_TONE\[question\.state\]/);
+  assert.match(readFileSync(path.join(WEB_ROOT, "lib", "api.ts"), "utf8"), /answered: "success"/);
   // Aligner's verdict tones live in `ALIGNMENT_VERDICT_TONE`, read by both the count row
   // and this trace, so the judgement is made once. The trace used to *translate* it,
   // because the trace layer called the middle tone `caution` while the tone system called

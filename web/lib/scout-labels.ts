@@ -18,18 +18,37 @@ import type { Tone } from "./tone.ts";
 import type {
   Conformity,
   EvidenceAssessment,
+  FailureCode,
   Match,
   Measurement,
   PrecedentSignal,
+  QuantitativeLedgerReview,
   QuantitativeStatementDisposition,
+  TargetMappingIssueCode,
 } from "./api.ts";
 import { ACRONYMS } from "./display-label.ts";
 
+/**
+ * `not_assessed` on every axis below is not a reading. It is what the pipeline records when
+ * the stage obtained no verdict - a model call failed - so its label says that and its tone
+ * is neutral. Filed as "Unrelated" or "unknown" it would claim the evidence was read and
+ * was silent, which is the one thing nobody observed.
+ *
+ * `no_evidence`, on grounding and both precedent axes, is the other state only code records:
+ * nothing retrieved reached the field, so no model was asked. Nothing failed and nothing was
+ * judged, so it is neutral and named apart from both `unknown` and `not_assessed`; its
+ * reason is empty and the interface explains it in its own voice (`verdictNote`).
+ *
+ * `not_searched` is the third: the reviewer left the field out of evidence search at target
+ * review, so no search ran. It is a choice rather than an observation, and it is the same
+ * fact on every axis, so it reads the same on each and is named once.
+ */
 export const RELATIONSHIP_LABEL: Record<Match["relation"], string> = {
   contradicts: "Conflicts",
   extends: "Adds context",
   confirms: "Supports",
   unrelated: "Unrelated",
+  not_assessed: "Not assessed",
 };
 
 /**
@@ -53,6 +72,9 @@ export const GROUNDING_LABEL: Record<EvidenceAssessment["strength"], string> = {
   thin: "Thinly grounded",
   unsupported: "Unsupported",
   unknown: "Grounding unknown",
+  no_evidence: "No evidence to ground",
+  not_searched: "Not searched",
+  not_assessed: "Grounding not assessed",
 };
 
 /** Whether prior work resembling this target exists. Never the outcome of it. */
@@ -71,6 +93,9 @@ export const GROUNDING_TONE: Record<EvidenceAssessment["strength"], Tone> = {
   thin: "warning",
   unsupported: "danger",
   unknown: "neutral",
+  no_evidence: "neutral",
+  not_searched: "neutral",
+  not_assessed: "neutral",
 };
 
 export const PRECEDENT_LABEL: Record<PrecedentSignal["precedent"], string> = {
@@ -78,6 +103,9 @@ export const PRECEDENT_LABEL: Record<PrecedentSignal["precedent"], string> = {
   adjacent: "Adjacent precedent",
   none: "No precedent found",
   unknown: "Precedent unknown",
+  no_evidence: "No evidence on precedent",
+  not_searched: "Not searched",
+  not_assessed: "Precedent not assessed",
 };
 
 /**
@@ -91,7 +119,91 @@ export const OUTCOME_LABEL: Record<PrecedentSignal["outcome"], string> = {
   mixed: "Mixed outcome",
   unfavorable: "Unfavorable outcome",
   unknown: "Outcome unknown",
+  no_evidence: "No evidence on outcome",
+  not_searched: "Not searched",
+  not_assessed: "Outcome not assessed",
 };
+
+/**
+ * Both precedent axes as one status: "Direct precedent · Mixed outcome".
+ *
+ * One classification decides both, so a failure leaves both `not_assessed` and is named
+ * once - the pair would say one fact twice. The same holds for `no_evidence` and
+ * `not_searched`.
+ */
+export function precedentStatusLabel(
+  signal: Pick<PrecedentSignal, "precedent" | "outcome">,
+): string {
+  if (!outcomeIsSeparate(signal)) return PRECEDENT_LABEL[signal.precedent];
+  return `${PRECEDENT_LABEL[signal.precedent]} · ${OUTCOME_LABEL[signal.outcome]}`;
+}
+
+/**
+ * Whether the outcome is a reading of its own, to name beside coverage.
+ *
+ * Not when code recorded both axes at once - a failure, no evidence, or a field left out at
+ * review - because then the pair would say one fact twice.
+ */
+export function outcomeIsSeparate(signal: Pick<PrecedentSignal, "precedent">): boolean {
+  return !isCodeRecorded(signal.precedent);
+}
+
+/** A state only code records: no model call, so no model reason. */
+function isCodeRecorded(verdict: string): boolean {
+  return verdict === "not_assessed" || verdict === "no_evidence" || verdict === "not_searched";
+}
+
+/**
+ * The model's reason for a verdict, or nothing when no verdict was obtained.
+ *
+ * On `not_assessed` the reason field holds the pipeline's diagnostic - the failed call's
+ * message - not a model's sentence. Rendered where a reading goes it would put code's words
+ * in a model's voice; the label already says what happened, and the message stays in the
+ * saved result for diagnosis.
+ */
+export function verdictReason(verdict: string, reason: string): string {
+  return isCodeRecorded(verdict) ? "" : reason;
+}
+
+/**
+ * What the interface says in place of a reason, where code recorded the state and no model
+ * wrote one. Rendered as the interface's note, never as a reading.
+ *
+ * `no_evidence` and `not_searched`: a failure's label already says what happened.
+ */
+export function verdictNote(verdict: string): string {
+  if (verdict === "no_evidence") {
+    return "Nothing this run retrieved bore on this field, so there was no evidence to judge.";
+  }
+  return verdict === "not_searched"
+    ? "Excluded at review, so Scout did not search for evidence on this field."
+    : "";
+}
+
+/**
+ * Why an independent review gave no recommendation, by its failure code.
+ *
+ * The recorded reason on an `unavailable` review is the failed call's message, a diagnostic
+ * kept in the saved result; worded from the code, the page never shows it as a sentence.
+ */
+export const REVIEW_FAILURE_LABEL: Record<FailureCode, string> = {
+  response_truncated: "The reviewer's answer was cut off before it finished.",
+  response_refused: "The reviewer declined to answer.",
+  invalid_model_response: "The reviewer's answer could not be used, even after a retry.",
+  provider_error: "The model provider failed before the reviewer answered.",
+};
+
+/** The explanation under an independent recommendation: the model's reason, or its failure in words. */
+export function reviewRecommendationReason(review: {
+  ai_recommendation: string;
+  ai_review_failure_code: FailureCode | "";
+  ai_review_reason: string;
+}): string {
+  if (review.ai_recommendation !== "unavailable") return review.ai_review_reason;
+  return review.ai_review_failure_code
+    ? REVIEW_FAILURE_LABEL[review.ai_review_failure_code]
+    : "The independent review returned no recommendation.";
+}
 
 /** Present one field ref, dropping its namespace and titling each word. */
 /**
@@ -122,6 +234,7 @@ export const RELATIONSHIP_TONE: Record<Match["relation"], Tone> = {
   extends: "warning",
   confirms: "success",
   unrelated: "neutral",
+  not_assessed: "neutral",
 };
 
 /**
@@ -135,6 +248,9 @@ export const OUTCOME_TONE: Record<PrecedentSignal["outcome"], Tone> = {
   mixed: "warning",
   unfavorable: "danger",
   unknown: "neutral",
+  no_evidence: "neutral",
+  not_searched: "neutral",
+  not_assessed: "neutral",
 };
 
 export const DISPOSITION_LABEL: Record<
@@ -149,6 +265,59 @@ export const DISPOSITION_LABEL: Record<
 };
 
 /**
+ * Each structural check a proposed target can fail, in a reviewer's words.
+ *
+ * Keyed by the code the stage records, so the page chooses its wording from the code
+ * rather than from the reason's prose - the reason is a sentence, and rewording it once
+ * silently changed what a reviewer was told.
+ */
+export const TARGET_MAPPING_ISSUE_LABEL: Record<TargetMappingIssueCode, string> = {
+  invalid_target_list: "the proposed targets were not a list",
+  invalid_target_object: "a proposed target was malformed",
+  missing_field_links: "no field link",
+  invalid_field_links: "no resolved field it defines or constrains",
+  invalid_target_expression: "the number could not be normalized",
+  target_expression_must_be_bound: "not an exact value or a directional bound",
+  invalid_target_role: "no valid target role",
+  invalid_target_semantic_profile: "an incomplete description of what is measured",
+  invalid_target_comparison_contract: "incomplete comparison rules",
+  invalid_target_quote: "the excerpt is not exact source text",
+  invalid_semantic_provenance: "qualifiers not tied to the source passage",
+  missing_target_provenance: "no source excerpt",
+  invalid_target_provenance: "the excerpt is not tied to its source passage",
+  duplicate_atomic_target: "the same target was proposed twice",
+  missing_target_mapping: "no target was proposed",
+};
+
+/**
+ * Why a document statement's numeric review did not finish, for the reviewer deciding it.
+ *
+ * Decided by the classification and the recorded codes alone. A statement with no failure
+ * code was classified by the model, so its reason is the model's and is returned as it is.
+ */
+export function statementReviewReason(
+  review: Pick<QuantitativeLedgerReview, "failure_code" | "issue_codes" | "reason"> & {
+    /** A ledger review's classification, or a field disposition's `disposition`. */
+    classification: QuantitativeLedgerReview["classification"] | QuantitativeStatementDisposition["disposition"];
+  },
+): string {
+  const kept = review.classification === "partial_target";
+  const checks = review.issue_codes.map((code) => TARGET_MAPPING_ISSUE_LABEL[code]);
+  const failed = checks.length ? ` Failed checks: ${checks.join("; ")}.` : "";
+  if (review.failure_code === "invalid_target_mapping") {
+    return kept
+      ? `Validated targets from this passage were kept. A separate proposed mapping could not be verified and remains outside retrieval and statistics.${failed}`
+      : `Scout could not create a complete, source-verifiable target from this statement. It remains outside retrieval and statistics.${failed}`;
+  }
+  if (review.failure_code === "invalid_model_response") {
+    return kept
+      ? "Validated targets from this passage were kept. Scout could not resolve the rest of it into one reliable review decision, so that part remains outside retrieval and statistics."
+      : "Scout could not resolve this statement into one reliable review decision. It remains outside retrieval and statistics.";
+  }
+  return review.reason;
+}
+
+/**
  * Whether one measurement can be compared with the document's target.
  *
  * Only `unknown` spells the axis out; the other three carry it in the word itself. It is
@@ -158,15 +327,13 @@ export const DISPOSITION_LABEL: Record<
 /**
  * How a cited source was matched, when it was not matched to a record.
  *
- * Only the fallbacks, because `canonical` is the strong case and naming it would put a line
- * on a source that has nothing wrong with it. Not a frequency argument: on a real run 40 of
- * 64 measurements were matched by title and only 24 canonically, so the fallback is the
- * common case. It is tagged because it is the weaker one, and because it is load-bearing:
+ * Only the fallback, because `canonical` is the strong case and naming it would put a line
+ * on a source that has nothing wrong with it. It is tagged because it is the weaker one,
+ * and because it is load-bearing:
  * `calibrationStatus` cannot report a verified basis unless every measurement is canonical,
  * so this is the thing that caps a cohort at "Limited".
  */
-export const SOURCE_IDENTITY_CAVEAT: Record<"title_fallback" | "url_fallback", string> = {
-  title_fallback: "Matched by title only",
+export const SOURCE_IDENTITY_CAVEAT: Record<Exclude<Measurement["source_identity_status"], "canonical">, string> = {
   url_fallback: "Matched by link only",
 };
 
@@ -245,6 +412,13 @@ export function displayRecordTypeLabel(recordType: string): string {
  */
 const PROGRAM_SCOPE_REF = "program";
 
+/**
+ * A variable's name in sentence case: "Duration of protection", "COGS".
+ *
+ * Sentence case because a variable name is a phrase, not a title, and Drafter and Scout
+ * name the same variables: one wrote "Duration of protection" and the other "Duration Of
+ * Protection", so a reader moving between the two met one variable under two names.
+ */
 export function displayAttributeLabel(ref: string): string {
   if (ref === PROGRAM_SCOPE_REF) return "Program-wide";
   const local = ref.includes(".") ? ref.split(".").slice(1).join(".") : ref;
@@ -252,11 +426,11 @@ export function displayAttributeLabel(ref: string): string {
     .replace(/[._-]+/g, " ")
     .split(" ")
     .filter(Boolean)
-    .map((word) =>
-      ACRONYMS.has(word.toLowerCase())
-        ? word.toUpperCase()
-        : word.charAt(0).toUpperCase() + word.slice(1).toLowerCase(),
-    )
+    .map((word, index) => {
+      const lower = word.toLowerCase();
+      if (ACRONYMS.has(lower)) return lower.toUpperCase();
+      return index === 0 ? lower.charAt(0).toUpperCase() + lower.slice(1) : lower;
+    })
     .join(" ");
 }
 

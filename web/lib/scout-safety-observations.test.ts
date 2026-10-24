@@ -24,6 +24,7 @@ function observation(
     source_role: "unknown",
     target_relationship: "direct",
     target_relationship_reason: "Matches the uploaded product.",
+    target_relationship_failure_code: "",
     attribute_refs: [],
     supporting_findings: [],
     ...rest,

@@ -1,3 +1,4 @@
+import contextvars
 import json
 import re
 import threading
@@ -9,6 +10,8 @@ import openai
 import anthropic
 
 import api.execution as execution
+from fastapi import HTTPException
+
 from api.streaming import QUEUED_STAGE, run_with_progress
 from shared.errors import ModelResponseError
 
@@ -177,6 +180,99 @@ class RunCapacityTests(unittest.TestCase):
 
         names = [event.get("name") for event in drain(work)]
         self.assertEqual(names, ["parsing", None])
+
+
+class CancellationTests(unittest.TestCase):
+    """A client that goes away stops its run, so capacity is not spent on nobody."""
+
+    def setUp(self) -> None:
+        for name in ("_run_slots", "_admissions"):
+            self.addCleanup(setattr, execution, name, getattr(execution, name))
+
+    def test_closing_the_stream_stops_a_running_run_and_returns_its_slot(self) -> None:
+        execution._run_slots = threading.Semaphore(1)
+        stopped = threading.Event()
+
+        def work(progress):
+            try:
+                while True:
+                    progress("assess")
+                    threading.Event().wait(0.01)
+            except execution.RunCancelled:
+                stopped.set()
+                raise
+
+        stream = run_with_progress(work)
+        self.assertEqual(json.loads(next(stream))["name"], "assess")
+        stream.close()
+
+        self.assertTrue(stopped.wait(timeout=5), "the run kept going after its client left")
+        self.assertTrue(
+            execution._run_slots.acquire(timeout=5), "a cancelled run kept its slot"
+        )
+        execution._run_slots.release()
+
+    def test_an_abandoned_queued_run_never_starts(self) -> None:
+        execution._run_slots = threading.Semaphore(1)
+        holder_entered = threading.Event()
+        release_holder = threading.Event()
+        waiter_started = threading.Event()
+
+        def holder(progress):
+            holder_entered.set()
+            release_holder.wait(timeout=5)
+            return {}
+
+        def waiter(progress):
+            waiter_started.set()
+            return {}
+
+        first = threading.Thread(target=lambda: drain(holder), daemon=True)
+        first.start()
+        self.assertTrue(holder_entered.wait(timeout=5))
+
+        stream = run_with_progress(waiter)
+        self.assertEqual(json.loads(next(stream))["name"], QUEUED_STAGE)
+        stream.close()
+        # Long enough for the waiter to notice, before the slot frees.
+        threading.Event().wait(execution.QUEUE_POLL_SECONDS * 3)
+        release_holder.set()
+        first.join(timeout=5)
+
+        self.assertFalse(
+            waiter_started.wait(timeout=execution.QUEUE_POLL_SECONDS * 3),
+            "a run whose client had left took the slot when it freed",
+        )
+        self.assertTrue(execution._run_slots.acquire(blocking=False))
+        execution._run_slots.release()
+
+    def test_a_full_queue_is_refused_before_the_stream_opens(self) -> None:
+        execution._admissions = threading.Semaphore(0)
+        started = threading.Event()
+
+        with self.assertRaises(HTTPException) as raised:
+            run_with_progress(lambda progress: started.set())
+
+        self.assertEqual(raised.exception.status_code, 503)
+        self.assertFalse(started.is_set())
+
+    def test_a_finished_run_returns_its_admission(self) -> None:
+        execution._admissions = threading.Semaphore(1)
+        drain(lambda progress: {"ok": True})
+        drain(lambda progress: {"ok": True})
+        with self.assertLogs("api.streaming", level="ERROR"):
+            drain(lambda progress: (_ for _ in ()).throw(RuntimeError("boom")))
+        self.assertTrue(execution._admissions.acquire(blocking=False))
+        execution._admissions.release()
+
+
+class RequestContextTests(unittest.TestCase):
+    def test_the_run_sees_the_request_context(self) -> None:
+        """The request ID is a ContextVar; a bare thread would log without it."""
+        marker = contextvars.ContextVar("marker", default="")
+        marker.set("request-1")
+        events = drain(lambda progress: {"seen": marker.get()})
+        self.assertEqual(events[-1]["result"], {"seen": "request-1"})
 
 
 class SingleWorkerTests(unittest.TestCase):

@@ -8,6 +8,8 @@ import type {
 } from "./api";
 import { displayLabel } from "./display-label.ts";
 import { RESULT_CONTRACTS, type ResultType } from "./result-contracts.ts";
+import { formatWindowDate } from "./published-date.ts";
+import { countLabel } from "./count-label.ts";
 
 export { isScoutResultFinal, pendingQuantitativeReviewCount } from "./result-contracts.ts";
 
@@ -57,11 +59,28 @@ const ANALYSIS_VERSIONS = {
   // 5: every answer cites retained document blocks. Older context answers carry only
   // labels, so their missing evidence cannot be reconstructed during import.
   screener: 5,
-  inspector: 3,
+  // 4: a failed consistency pass carries `consistency_failure_code`. A v3 file records the
+  // failure as prose alone, and no code can be recovered from prose without inventing one.
+  inspector: 4,
   // 2: explicit review/mapping failures, retained reviewer source context,
   // and model-authored numeric presentation metadata.
-  scout: 2,
-  drafter: 1,
+  // 3: a stage that obtained no verdict records `not_assessed` with a failure code, where
+  // a v2 file filed it under `unrelated`, `unknown` or `uncertain` - a failed call read as
+  // the model's answer. A numeric review names its failed checks by code, and a meeting
+  // rate without a cohort is null rather than zero.
+  // 4: every searchable field holds a grounding and a precedent, `no_evidence` where nothing
+  // retrieved reached it, and a run states its retrieval scope and identity-layer outcomes.
+  // 5: the reviewer chooses which fields are searched. `not_searched_fields` records the
+  // choice and those fields hold `not_searched`; a v4 file has neither, and its every field
+  // was searched under a contract that did not say so.
+  scout: 5,
+  // 2: a failed call carries its `cause` code, and quotes a reader offered that its excerpt
+  // does not contain are counted. A v1 file has neither, and its silence on the second
+  // would read as "every quote was found".
+  // 3: a number carries the quote's own words for it (`value.text`), and each figure group
+  // names the observations it was computed from. A v2 number was never checked against its
+  // quote, so it cannot be read as one that was.
+  drafter: 3,
 } as const satisfies Record<ResultType, number>;
 
 type SourceDocument = {
@@ -90,17 +109,14 @@ type ResultFile<TResultType extends ResultType, TAnalysis> = {
   source_documents: SourceDocument[];
 };
 
-function newRunId(): string {
-  return (
-    globalThis.crypto?.randomUUID?.()
-    ?? `run-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`
-  );
-}
-
-/** Identity for a newly packed run. */
-function stamp(): { id: string; created_at: string } {
-  return { id: newRunId(), created_at: new Date().toISOString() };
-}
+/**
+ * Who a held run is: the workspace entry's own identity, written into its file.
+ *
+ * Taken from the entry rather than minted at packing. A file that named a fresh id
+ * every time it was written was a stranger to the workspace that wrote it, so
+ * re-importing a run just downloaded held it twice.
+ */
+export type RunIdentity = { id: string; created_at: string };
 
 /**
  * The identity inside a result file, for a caller recording it in a workspace.
@@ -132,15 +148,8 @@ type ScreenerAnalysis = {
   review: Omit<ScreenerResponse["review"], "blocks">;
 };
 
-
-
-
-
-
-
-
 /** Build a portable artifact without coupling the analysis tree to document text. */
-export function packScoutResult(result: ScoutResponse): ResultFile<"scout", ScoutAnalysis> {
+export function packScoutResult(result: ScoutResponse, identity: RunIdentity): ResultFile<"scout", ScoutAnalysis> {
   // The same contract the import path runs, so a file we could not read is never
   // written in the first place.
   RESULT_CONTRACTS.scout(result);
@@ -150,7 +159,8 @@ export function packScoutResult(result: ScoutResponse): ResultFile<"scout", Scou
     envelope_version: ENVELOPE_VERSION,
     analysis_version: ANALYSIS_VERSIONS.scout,
     state: "final",
-    ...stamp(),
+    id: identity.id,
+    created_at: identity.created_at,
     result_type: "scout",
     analysis,
     source_documents: groupDocuments(blocks),
@@ -160,14 +170,15 @@ export function packScoutResult(result: ScoutResponse): ResultFile<"scout", Scou
 /** A draft reads no document, so the analysis is the whole result and no documents travel. */
 type DrafterAnalysis = DraftResult;
 
-export function packDrafterResult(result: DraftResult): ResultFile<"drafter", DrafterAnalysis> {
+export function packDrafterResult(result: DraftResult, identity: RunIdentity): ResultFile<"drafter", DrafterAnalysis> {
   RESULT_CONTRACTS.drafter(result);
   return {
     schema: RESULT_SCHEMA,
     envelope_version: ENVELOPE_VERSION,
     analysis_version: ANALYSIS_VERSIONS.drafter,
     state: "final",
-    ...stamp(),
+    id: identity.id,
+    created_at: identity.created_at,
     result_type: "drafter",
     analysis: result,
     source_documents: [],
@@ -260,7 +271,13 @@ export function runScope(result: unknown, type: RunKeepingTool): string {
     .map(displayLabel);
   if (type === "screener") {
     const count = (result as ScreenerResponse).review.documents.length;
-    if (count > 0) parts.push(`${count} ${count === 1 ? "document" : "documents"}`);
+    if (count > 0) parts.push(countLabel(count, "document"));
+  }
+  // A publication window is scope: it removes evidence before anything is counted, so the
+  // same document gives different numbers under different windows.
+  if (type === "scout") {
+    const since = formatWindowDate((result as ScoutResponse).published_since);
+    if (since) parts.push(`evidence since ${since}`);
   }
   return parts.join(" · ");
 }
@@ -329,6 +346,7 @@ const FALLBACK_LABEL: Record<RunKeepingTool, string> = {
 
 export function packInspectorResult(
   result: InspectorResponse,
+  identity: RunIdentity,
 ): ResultFile<"inspector", InspectorAnalysis> {
   RESULT_CONTRACTS.inspector(result);
   if (!isInspectorResultFinal(result)) {
@@ -340,7 +358,8 @@ export function packInspectorResult(
     envelope_version: ENVELOPE_VERSION,
     analysis_version: ANALYSIS_VERSIONS.inspector,
     state: "final",
-    ...stamp(),
+    id: identity.id,
+    created_at: identity.created_at,
     result_type: "inspector",
     analysis: { inspection },
     source_documents: groupDocuments(blocks),
@@ -353,6 +372,7 @@ export function isInspectorResultFinal(result: InspectorResponse): boolean {
 
 export function packAlignerResult(
   result: AlignerResponse,
+  identity: RunIdentity,
 ): ResultFile<"aligner", AlignerAnalysis> {
   RESULT_CONTRACTS.aligner(result);
   const { blocks, ...alignment } = result.alignment;
@@ -361,7 +381,8 @@ export function packAlignerResult(
     envelope_version: ENVELOPE_VERSION,
     analysis_version: ANALYSIS_VERSIONS.aligner,
     state: "final",
-    ...stamp(),
+    id: identity.id,
+    created_at: identity.created_at,
     result_type: "aligner",
     analysis: { alignment },
     source_documents: groupDocuments(blocks),
@@ -370,6 +391,7 @@ export function packAlignerResult(
 
 export function packScreenerResult(
   result: ScreenerResponse,
+  identity: RunIdentity,
 ): ResultFile<"screener", ScreenerAnalysis> {
   RESULT_CONTRACTS.screener(result);
   const { blocks, ...review } = result.review;
@@ -378,7 +400,8 @@ export function packScreenerResult(
     envelope_version: ENVELOPE_VERSION,
     analysis_version: ANALYSIS_VERSIONS.screener,
     state: "final",
-    ...stamp(),
+    id: identity.id,
+    created_at: identity.created_at,
     result_type: "screener",
     analysis: { review },
     source_documents: groupDocuments(blocks),
@@ -412,7 +435,12 @@ export function unpackInspectorResult(value: unknown): InspectorResponse {
   return result;
 }
 
-/** v2 already has today's verdict semantics; older verdict vocabularies stay refused. */
+/**
+ * v2 already has today's verdict semantics; older verdict vocabularies stay refused.
+ *
+ * A v2 run whose consistency pass failed recorded no failure code, and none is invented:
+ * it is left to the version gate, which asks for a re-run.
+ */
 function upgradeInspectorV2(value: unknown): unknown {
   if (!value || typeof value !== "object") return value;
   const file = value as Record<string, unknown>;
@@ -420,10 +448,12 @@ function upgradeInspectorV2(value: unknown): unknown {
     || file.envelope_version !== ENVELOPE_VERSION || file.analysis_version !== 2) return value;
   const analysis = file.analysis as { inspection?: Record<string, unknown> } | undefined;
   if (!analysis?.inspection || !Array.isArray(analysis.inspection.sections)) return value;
+  if (analysis.inspection.consistency_status === "failed") return value;
   const { sections, ...document } = analysis.inspection;
   const id = "legacy_template";
   return { ...file, analysis_version: ANALYSIS_VERSIONS.inspector, analysis: { inspection: {
     ...document,
+    consistency_failure_code: null,
     applicability_facts: {},
     rubric_resolutions: [{ rubric_id: id, display_name: "Historical template review", status: "included",
       reason_code: "legacy_import", reason: "Imported single-rubric review; the original file did not record its rubric revision." }],

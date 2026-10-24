@@ -101,7 +101,7 @@ export function Quoted({
               components={{
                 p: ({ children }) => <p className="mb-2 last:mb-0">{children}</p>,
                 a: ({ href, children }) => href ? <a href={href} target="_blank" rel="noreferrer"
-                  className="underline underline-offset-2 focus-visible:outline-offset-2">{children}</a> : <>{children}</>,
+                  className="underline underline-offset-2 rounded-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/60">{children}</a> : <>{children}</>,
                 ul: ({ children }) => <ul className="list-disc ps-4">{children}</ul>,
                 ol: ({ children }) => <ol className="list-decimal ps-4">{children}</ol>,
               }}
@@ -402,7 +402,7 @@ export function SourceEntry({
             href={href}
             target="_blank"
             rel="noreferrer"
-            className="block min-w-0 break-words text-xs font-medium leading-relaxed text-foreground underline decoration-border underline-offset-2 hover:decoration-current focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/20"
+            className="block min-w-0 break-words text-xs font-medium leading-relaxed text-foreground underline decoration-border underline-offset-2 hover:decoration-current focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/60"
           >
             {title}
           </a>

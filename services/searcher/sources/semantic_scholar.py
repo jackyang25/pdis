@@ -5,6 +5,8 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from typing import Any
 
+from ..dates import partial_date
+from ..errors import RetrievalError
 from ..models import (
     Finding,
     RetrievalIntent,
@@ -19,8 +21,8 @@ from .literature import (
     queries_for_track,
 )
 from .planning import request_lineage
+from .tooluniverse_records import TOOLUNIVERSE_INTEGRATION, run_tool
 
-TOOLUNIVERSE_INTEGRATION = "tooluniverse"
 SEARCH_TOOL = "SemanticScholar_search_papers"
 MAX_RESULTS = 10
 MAX_EXCERPT_CHARS = 16_000
@@ -48,6 +50,7 @@ class SemanticScholarSource:
         jurisdiction="global",
         reads=("text", "condition", "intervention", "product", "population", "outcome", "subject"),
         feeds=("insights",),
+        max_results=MAX_RESULTS,
     )
 
     def plan(self, intent: RetrievalIntent) -> list[SearchRequest]:
@@ -66,11 +69,8 @@ class SemanticScholarSource:
                     input_queries=input_queries,
                     connector=TOOLUNIVERSE_INTEGRATION,
                     operation=SEARCH_TOOL,
-                    options=(
-                        ("limit", str(MAX_RESULTS)),
-                        # Scout needs evidence text, not title-only metadata.
-                        ("include_abstract", "true"),
-                    ),
+                    # Scout needs evidence text, not title-only metadata.
+                    options=(("include_abstract", "true"),),
                 )
             )
         return requests
@@ -81,16 +81,14 @@ class SemanticScholarSource:
         runtime: SearchRuntime,
         *,
         max_tokens: int,
-        max_uses: int,
     ) -> list[Finding]:
-        connector = runtime.integrations.get(TOOLUNIVERSE_INTEGRATION)
-        if connector is None or not callable(getattr(connector, "run", None)):
-            raise RuntimeError("ToolUniverse connector is not configured")
-        result = connector.run(
+        result = run_tool(
+            runtime,
+            self.spec,
             SEARCH_TOOL,
             {
                 "query": request.query,
-                "limit": int(request.option("limit", str(MAX_RESULTS))),
+                "limit": self.spec.max_results,
                 "include_abstract": request.option("include_abstract") == "true",
             },
         )
@@ -101,9 +99,16 @@ class SemanticScholarSource:
             url = _paper_url(record)
             if not url:
                 continue
-            excerpt = _text(record.get("abstract")) or _text(record.get("tldr"))
+            abstract = _text(record.get("abstract"))
+            # A TLDR is Semantic Scholar's model-written summary, not the paper's words.
+            excerpt = abstract or _text(record.get("tldr"))
             if len(excerpt) > MAX_EXCERPT_CHARS:
                 excerpt = excerpt[:MAX_EXCERPT_CHARS].rstrip() + "..."
+            paper_id = _text(record.get("paper_id") or record.get("paperId"))
+            year = record.get("year")
+            published_at, precision = (
+                partial_date(year) if isinstance(year, int) and 1000 <= year <= 9999 else (None, "")
+            )
             findings.append(
                 Finding(
                     url=url,
@@ -111,24 +116,32 @@ class SemanticScholarSource:
                     query=request.query,
                     retrieved_at=retrieved_at,
                     excerpt=excerpt or None,
+                    excerpt_kind="passage" if abstract else "generated",
+                    published_at=published_at,
+                    published_precision=precision,
+                    identifiers={"doi": _text(record.get("doi"))},
+                    record_key=f"semantic_scholar:{paper_id}" if paper_id else "",
                     source=self.spec.key,
                 )
             )
         return findings
 
+
 def _records(result: Any) -> list[dict[str, Any]]:
     if isinstance(result, dict):
         if result.get("status") == "error" or result.get("error"):
-            raise RuntimeError(str(result.get("error") or "Semantic Scholar failed"))
+            raise RetrievalError(
+                "Semantic Scholar", "tool_error", str(result.get("error") or "search failed")
+            )
         result = result.get("data", result.get("results", []))
     if not isinstance(result, list):
-        raise RuntimeError("Semantic Scholar returned an unexpected result shape")
+        raise RetrievalError("Semantic Scholar", "invalid_response", "unexpected result shape")
     records: list[dict[str, Any]] = []
     for item in result:
         if not isinstance(item, dict):
             continue
         if item.get("error"):
-            raise RuntimeError(str(item["error"]))
+            raise RetrievalError("Semantic Scholar", "tool_error", str(item["error"]))
         records.append(item)
     return records
 

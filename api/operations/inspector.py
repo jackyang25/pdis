@@ -33,13 +33,13 @@ def prepare_inspection(
 def execute_inspection(
     file_path: str, *, prepared: PreparedInspection,
     indication: str, llm_client,
-    max_tokens: int, progress_callback=None, doc_id: str | None = None,
+    progress_callback=None, doc_id: str | None = None,
     pipeline=run_profile_pipeline,
 ) -> dict:
     result = pipeline(
         file_path, profile=prepared.profile,
         applicability_facts=prepared.applicability_facts,
-        llm_client=llm_client, indication=indication, max_tokens=max_tokens,
+        llm_client=llm_client, indication=indication,
         progress_callback=progress_callback, doc_id=doc_id,
     )
     response = InspectorRunResponse(

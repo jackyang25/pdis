@@ -57,6 +57,17 @@ export const DISPLAY_HEADING = "font-display tracking-[0.005em]";
 export const COUNT = "text-[11px] tabular-nums text-muted-foreground";
 
 /**
+ * The name of one row in a result list: a rubric unit, a variable, a Scout field.
+ *
+ * One weight because the four tools that list things set four - Inspector's units at
+ * `text-sm font-medium`, Scout's fields semibold, Drafter's variables at `text-xs`, and
+ * Screener's questions muted at the size of the model's answer beneath them, so the subject
+ * of the row was the quietest thing in it. A question is a sentence rather than a name and
+ * keeps the dense size, but at full contrast.
+ */
+export const ROW_TITLE = "text-sm font-medium leading-snug text-foreground";
+
+/**
  * Nothing in this interface tightens its letter-spacing.
  *
  * Not a recipe, a rule, so there is no constant to import: the correct value is the font's
@@ -85,4 +96,4 @@ export const COUNT = "text-[11px] tabular-nums text-muted-foreground";
  * 12px under a summary.
  */
 export const TEXT_TOGGLE =
-  "min-h-6 rounded-sm font-medium text-muted-foreground underline decoration-border underline-offset-4 transition-colors hover:text-foreground hover:decoration-current focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/20 motion-reduce:transition-none";
+  "min-h-6 rounded-sm font-medium text-muted-foreground underline decoration-border underline-offset-4 transition-colors hover:text-foreground hover:decoration-current focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/60 motion-reduce:transition-none";

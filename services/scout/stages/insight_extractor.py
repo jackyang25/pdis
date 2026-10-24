@@ -1,24 +1,27 @@
 """Stage 2: extract atomic Insights from external retrieval Findings.
 
-Given a flat list of Findings (collected across all queries), the LLM
-extracts atomic factual statements, each tied to one or more supporting
-Findings by URL. We then re-attach the full Finding objects.
+Given one variable's batch of Findings, the LLM extracts atomic factual statements,
+each citing one or more of them by record. Code re-attaches the full Finding objects
+and the coverage tracks and targets of the requests that retrieved them. Which
+statements are one fact is decided afterwards, by `insight_reconciler`, and nowhere
+here.
 """
 
 from __future__ import annotations
 
-import logging
-
 from services.searcher import Finding
+from shared.ai import Effort, ModelTask
 
-from ..ai import request_structured
+from ..ai import request_validated
 from ..ai_contracts import insight_batch
+from ..lineage import RetrievalLineage
 from ..models import Insight, LLMClientProtocol
 
-logger = logging.getLogger(__name__)
-
+#: The fast tier at low effort: extraction states what the sources say; the stages that
+#: weigh it run after, and see the records it cites.
+TASK: ModelTask = "fast"
+EFFORT: Effort = "low"
 DEFAULT_MAX_TOKENS = 24000
-MAX_FINDING_EXCERPT_CHARS = 6000
 
 
 def extract_insights(
@@ -27,77 +30,51 @@ def extract_insights(
     *,
     indication: str,
     intervention_class: str,
-    attribute_ref: str | None = None,
+    attribute_ref: str,
     attribute_description: str = "",
-    query_tracks: dict[str, list[str]] | None = None,
-    query_targets: dict[str, list[str]] | None = None,
+    lineage: RetrievalLineage | None = None,
     max_tokens: int = DEFAULT_MAX_TOKENS,
 ) -> list[Insight]:
-    """Return Insights extracted from the supplied Findings."""
+    """Return Insights extracted from the supplied Findings of one variable."""
     if not findings:
         return []
+    lineage = lineage or RetrievalLineage(())
+    findings_by_key = {finding.record_key: finding for finding in findings}
+    if len(findings_by_key) != len(findings):
+        raise ValueError("an insight batch holds one entry per record")
 
-    system_prompt = build_system_prompt(
-        indication=indication,
-        intervention_class=intervention_class,
-        attribute_ref=attribute_ref,
-        attribute_description=attribute_description,
-    )
-    user_message = _user_message(findings, query_tracks=query_tracks)
-    contract = insight_batch(list(dict.fromkeys(finding.url for finding in findings)))
-
-    parsed = request_structured(
+    # A batch that never returns a valid answer fails the run: returning no insights
+    # would read exactly like findings that said nothing about this variable.
+    parsed = request_validated(
         llm_client,
-        contract,
-        system_prompt,
-        user_message,
+        insight_batch(list(findings_by_key)),
+        build_system_prompt(
+            indication=indication,
+            intervention_class=intervention_class,
+            attribute_ref=attribute_ref,
+            attribute_description=attribute_description,
+        ),
+        _user_message(findings, attribute_ref=attribute_ref, lineage=lineage),
         max_tokens=max_tokens,
-        task="fast",
+        task=TASK,
+        effort=EFFORT,
+        parse=lambda payload: _validated_insights(payload, set(findings_by_key)),
+        failure=f"Insight extraction failed for {attribute_ref}",
     )
-    if not isinstance(parsed, list):
-        parsed = request_structured(
-            llm_client,
-            contract,
-            system_prompt,
-            user_message,
-            max_tokens=max_tokens,
-            task="fast",
-        )
-    parsed = _validated_insights(parsed)
 
-    findings_by_url = {f.url: f for f in findings}
     insights: list[Insight] = []
     for item in parsed:
-        statement = item.get("statement", "").strip()
-        urls = item.get("supporting_finding_urls", []) or []
-        supporting = [findings_by_url[u] for u in urls if u in findings_by_url]
-        if not statement or not supporting:
-            continue
-        # Use the query of the first supporting finding (best available attribution)
-        query = supporting[0].query
-        tracks = list(
-            dict.fromkeys(
-                track
-                for finding in supporting
-                for finding_query in (finding.queries or [finding.query])
-                for track in (query_tracks or {}).get(finding_query, [])
-            )
-        )
-        retrieval_target_ids = list(
-            dict.fromkeys(
-                target_id
-                for finding in supporting
-                for finding_query in (finding.queries or [finding.query])
-                for target_id in (query_targets or {}).get(finding_query, [])
-            )
-        )
+        supporting = [
+            findings_by_key[key] for key in dict.fromkeys(item["supporting_record_keys"])
+        ]
         insights.append(
             Insight(
-                statement=statement,
+                statement=item["statement"].strip(),
                 supporting_findings=supporting,
-                query=query,
-                query_tracks=tracks,
-                retrieval_target_ids=retrieval_target_ids,
+                # The first supporting finding's query: the best single attribution.
+                query=supporting[0].query,
+                query_tracks=lineage.tracks(attribute_ref, supporting),
+                retrieval_target_ids=lineage.target_ids(attribute_ref, supporting),
                 attribute_ref=attribute_ref,
             )
         )
@@ -131,12 +108,7 @@ def build_system_prompt(
         "dropping it (favor recall slightly, to avoid emptying fields that have real content).\n\n"
         "Rules:\n"
         "- Each Insight is ONE atomic factual statement (one fact, not a paragraph).\n"
-        "- Every Insight must cite at least one supporting Finding by its URL.\n"
-        "- MERGE duplicates: if several findings state the SAME fact - e.g. the same "
-        "announcement in different languages, a press release and its mirror/republish, "
-        "or a PubMed record and its PMC full-text - produce ONE insight that cites ALL "
-        "those URLs, not one insight per copy. Only emit separate insights for genuinely "
-        "distinct facts/sources.\n"
+        "- Every Insight must cite at least one supporting Finding by its record key.\n"
         "- Write every Insight statement in English, even when the supporting Finding "
         "is in another language. Preserve the original source via its URL/title.\n"
         "- Prefer recent, source-attributable facts (regulatory actions, trial readouts, "
@@ -172,70 +144,43 @@ def build_system_prompt(
 def _user_message(
     findings: list[Finding],
     *,
-    query_tracks: dict[str, list[str]] | None = None,
+    attribute_ref: str,
+    lineage: RetrievalLineage,
 ) -> str:
-    lines = ["Findings:"]
-    for f in findings:
-        lines.append(f"\n--- {f.url} ---")
-        lines.append(f"title: {f.title}")
-        lines.append(f"source lane: {f.source}")
-        if f.published_at:
-            lines.append(f"published: {f.published_at.isoformat()}")
-        queries = getattr(f, "queries", None) or [f.query]
-        lines.append(f"discovered by: {' | '.join(q for q in queries if q)}")
-        tracks = list(
-            dict.fromkeys(
-                track for query in queries for track in (query_tracks or {}).get(query, [])
-            )
-        )
+    lines = ["Findings, each headed by the record key to cite it by:"]
+    for finding in findings:
+        lines.append(f"\n--- record {finding.record_key} ---")
+        lines.append(f"url: {finding.url}")
+        lines.append(f"title: {finding.title}")
+        lines.append(f"source lane: {finding.source}")
+        if finding.published_at:
+            lines.append(f"published: {finding.published_at.isoformat()}")
+        queries = finding.queries or [finding.query]
+        lines.append(f"discovered by: {' | '.join(query for query in queries if query)}")
+        tracks = lineage.tracks(attribute_ref, [finding])
         if tracks:
             lines.append(f"coverage tracks: {', '.join(tracks)}")
-        if f.excerpt:
-            excerpt = f.excerpt[:MAX_FINDING_EXCERPT_CHARS]
-            if len(f.excerpt) > MAX_FINDING_EXCERPT_CHARS:
-                excerpt += "...[source excerpt clipped]"
-            lines.append(f"excerpt: {excerpt}")
+        if finding.excerpt:
+            lines.append(f"excerpt: {finding.excerpt}")
     lines.append("\nExtract insights now.")
     return "\n".join(lines)
 
 
-def merge_duplicate_insights(insights: list[Insight]) -> list[Insight]:
-    """Merge statements that are identical apart from spacing and case.
-
-    This is an identity check, not a similarity judgement: two statements that
-    differ in any character other than whitespace may be different facts, and
-    deciding that belongs to `insight_reconciler`. Merging here only keeps batch
-    parallelism from emitting the same statement twice, and it preserves the
-    union of every cited Finding.
-    """
-    by_statement: dict[tuple[str, str], Insight] = {}
-    out: list[Insight] = []
-    for insight in insights:
-        normalized = " ".join(insight.statement.casefold().split())
-        key = (insight.attribute_ref or "", normalized)
-        existing = by_statement.get(key)
-        if existing is None:
-            by_statement[key] = insight
-            out.append(insight)
-            continue
-        seen_urls = {finding.url for finding in existing.supporting_findings}
-        for finding in insight.supporting_findings:
-            if finding.url not in seen_urls:
-                existing.supporting_findings.append(finding)
-                seen_urls.add(finding.url)
-        existing.query_tracks = list(
-            dict.fromkeys([*existing.query_tracks, *insight.query_tracks])
-        )
-        existing.retrieval_target_ids = list(
-            dict.fromkeys(
-                [*existing.retrieval_target_ids, *insight.retrieval_target_ids]
-            )
-        )
-        existing.refresh_id()
-    return out
-
-
-def _validated_insights(parsed: object) -> list[dict]:
+def _validated_insights(parsed: object, known_keys: set[str]) -> list[dict]:
+    """Every item states a fact and cites records from this request, or none is used."""
     if not isinstance(parsed, list):
-        return []
-    return [p for p in parsed if isinstance(p, dict)]
+        raise ValueError("no insights array was returned")
+    for item in parsed:
+        keys = item.get("supporting_record_keys") if isinstance(item, dict) else None
+        if (
+            not isinstance(item, dict)
+            or not str(item.get("statement", "")).strip()
+            or not isinstance(keys, list)
+            or not keys
+            or not set(keys) <= known_keys
+        ):
+            raise ValueError(
+                "every insight needs a statement and at least one supporting record "
+                "key from this request"
+            )
+    return parsed

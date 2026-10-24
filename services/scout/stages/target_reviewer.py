@@ -1,17 +1,27 @@
-"""Independent, non-authoritative triage for document numeric proposals."""
+"""Independent, non-authoritative triage for document numeric proposals.
+
+One request per proposal over the whole retained document, so the document and its
+visuals lead every request and the proposal follows them. A review that stays invalid
+after one retry, is refused, or whose provider fails leaves the proposal
+``unavailable`` with the failure's code; the human decision is unaffected.
+"""
 
 from __future__ import annotations
 
-import logging
 import json
+import logging
+from collections.abc import Callable
 from dataclasses import asdict, replace
 
 from services.chunker import ContentBlock
-
-from ..ai import request_structured
+from shared.ai import RECORDABLE_FAILURES, Effort, FailureCode, ModelTask, failure_code
 from shared.batching import fixed_batches, map_ordered
+from shared.request_budget import check_request
+from shared.source_blocks import image_inputs
+
+from ..ai import request_validated
 from ..ai_contracts import target_review_batch
-from ..context import render_document_context
+from ..context import limit_document_context, render_document_context
 from ..models import Attribute, LLMClientProtocol, QuantitativeLedger, QuantitativeTarget
 from ..prompt_primitives import (
     ATOMIC_TARGET_PRIMITIVE,
@@ -20,10 +30,16 @@ from ..prompt_primitives import (
 )
 
 
-MAX_TOKENS = 5000
+#: Reasoning counts against the budget; the reviewer reads the whole document.
+MAX_TOKENS = 16000
 # Per-item scope: one verification decision per proposed target, so an
 # unrelated proposal can never sit in this decision's prompt.
 TARGETS_PER_REQUEST = 1
+#: The reasoning tier: this is the independent check on a number before it shapes
+#: retrieval and statistics. Low effort, because the cited passage decides most
+#: proposals and the run waits on one call per target.
+TASK: ModelTask = "reasoning"
+EFFORT: Effort = "low"
 MAX_REVIEW_WORKERS = 4
 logger = logging.getLogger(__name__)
 
@@ -60,6 +76,9 @@ def build_review_system_prompt() -> str:
         "Review every supplied target ID exactly once. Give each decision one short, "
         "document-specific reason naming the decisive source fact. For a flag, name exactly "
         "what is ambiguous or what mapping needs checking; do not merely say 'review manually'. "
+        "The reason is read by a reviewer beside the document, so write it in plain words: name a "
+        "dimension as the thing it is (the dosing regimen, the statistic) and never in the "
+        "`name=value` notation used above to show you the contract. "
         "Return only the schema-bound response."
     )
 
@@ -68,7 +87,9 @@ def prefill_target_review(
     attributes: list[Attribute],
     ledger: QuantitativeLedger,
     blocks: list[ContentBlock],
-    llm_client: LLMClientProtocol | None,
+    llm_client: LLMClientProtocol,
+    *,
+    progress: Callable[[int, int], None] | None = None,
 ) -> tuple[list[Attribute], QuantitativeLedger]:
     """Recommend decisions without creating a second target interpretation.
 
@@ -79,134 +100,141 @@ def prefill_target_review(
     if not ledger.targets:
         return attributes, ledger
     attributes_by_name = {attribute.name: attribute for attribute in attributes}
-    prompt = (
-        build_review_system_prompt()
+    prompt = build_review_system_prompt()
+    proposals = {
+        target.id: _proposal(target, attributes_by_name) for target in ledger.targets
+    }
+    document = (
+        "COMPLETE UPLOADED DOCUMENT FOR DISAMBIGUATION\n"
+        + limit_document_context(render_document_context(blocks))
     )
-    proposals: dict[str, str] = {}
-    for target in ledger.targets:
-        linked_fields = [
-            attributes_by_name[link.attribute_ref]
-            for link in target.field_links
-            if link.attribute_ref in attributes_by_name
-        ]
-        semantics = "; ".join(
-            f"{name}={slot.value or slot.other or slot.state}"
-            for name, slot in target.semantic_profile.items()
-            if name in target.comparison_dimensions
-        )
-        comparison = "; ".join(
-            f"{name}={rule.mode}({rule.scope or rule.reason})"
-            for name, rule in target.comparison_contract.items()
-        )
-        proposals[target.id] = "\n".join(
-            (
-                f"[target:{target.id}]",
-                "Field links: " + "; ".join(
-                    f"{link.attribute_ref} ({link.relation}: {link.reason})"
-                    for link in target.field_links
-                ),
-                "Linked field definitions: " + "; ".join(
-                    f"{attribute.name} — {attribute.description}"
-                    for attribute in linked_fields
-                ),
-                "Linked canonical bindings: " + " | ".join(
-                    attribute.document_target for attribute in linked_fields
-                ),
-                f"Proposed target: {target.label}",
-                "Numeric expression: " + json.dumps(asdict(target.expression), ensure_ascii=False),
-                f"Target role: {target.role}",
-                "Exact cited passages: " + " | ".join(
-                    span.quote for span in target.provenance_spans
-                ),
-                f"Mapped meaning: {semantics}",
-                f"Direct-comparator contract: {comparison}",
-            )
-        )
-    document = render_document_context(blocks)
-    images = [
-        {"block_id": block.id, "data_url": block.image.data_url()}
-        for block in blocks
-        if block.image
-    ] or None
-    by_id: dict[str, tuple[str, str]] = {}
-    target_ids = [target.id for target in ledger.targets]
-    if llm_client is None:
-        return _apply_recommendations(
-            attributes,
-            ledger,
-            {},
-            missing_reason=(
-                "Independent target verification is not configured; review this proposal manually."
-            ),
-        )
+    images = image_inputs(blocks) or None
+    # Every request repeats the document and its visuals, so an oversized one is
+    # refused once, here, rather than by the provider once per target.
+    check_request("Scout's target review", text=document, images=images)
+    batches = fixed_batches([target.id for target in ledger.targets], TARGETS_PER_REQUEST)
 
-    batches = fixed_batches(target_ids, TARGETS_PER_REQUEST)
-
-    def review_batch(batch_ids: list[str]) -> object | None:
-        message = (
-            "PROPOSALS TO REVIEW\n"
-            + "\n\n".join(proposals[target_id] for target_id in batch_ids)
-            + "\n\nCOMPLETE UPLOADED DOCUMENT FOR DISAMBIGUATION\n"
-            + document
-        )
+    def review_batch(batch_ids: list[str]) -> dict[str, _Recommendation]:
         try:
-            raw = request_structured(
+            return request_validated(
                 llm_client,
                 target_review_batch(batch_ids),
                 prompt,
-                message,
+                document,
                 max_tokens=MAX_TOKENS,
                 images=images,
-                task="reasoning",
+                trailing_text=(
+                    "\n\nPROPOSALS TO REVIEW\n"
+                    + "\n\n".join(proposals[target_id] for target_id in batch_ids)
+                ),
+                task=TASK,
+                effort=EFFORT,
+                parse=lambda raw: _validated_decisions(raw, batch_ids),
+                failure="Independent target review failed",
             )
-        except Exception as exc:  # Independent triage must degrade to manual review.
+        except RECORDABLE_FAILURES as exc:
             logger.warning(
                 "Document-target AI prefill unavailable for %d proposal(s): %s",
                 len(batch_ids),
                 exc,
             )
-            return None
-        return raw
+            code = failure_code(exc)
+            return {
+                target_id: ("unavailable", str(exc), code) for target_id in batch_ids
+            }
 
-    responses = map_ordered(batches, review_batch, workers=MAX_REVIEW_WORKERS)
-
-    for batch_ids, raw in zip(batches, responses):
-        if isinstance(raw, list):
-            for item in raw:
-                if not isinstance(item, dict):
-                    continue
-                target_id = str(item.get("target_id", "")).strip()
-                decision = str(item.get("decision", "")).strip().lower()
-                reason = " ".join(str(item.get("reason", "")).split())
-                if (
-                    target_id in batch_ids
-                    and target_id not in by_id
-                    and decision in {"confirm", "exclude", "flag"}
-                    and reason
-                ):
-                    by_id[target_id] = (decision, reason)
-
+    if progress:
+        progress(0, len(batches))
+    by_id: dict[str, _Recommendation] = {}
+    for decisions in map_ordered(
+        batches, review_batch, workers=MAX_REVIEW_WORKERS, on_progress=progress,
+    ):
+        by_id.update(decisions)
     return _apply_recommendations(attributes, ledger, by_id)
+
+
+#: decision, reason, failure code ("" for a model decision).
+_Recommendation = tuple[str, str, FailureCode | str]
+
+
+def _proposal(target: QuantitativeTarget, attributes_by_name: dict[str, Attribute]) -> str:
+    linked_fields = [
+        attributes_by_name[link.attribute_ref]
+        for link in target.field_links
+        if link.attribute_ref in attributes_by_name
+    ]
+    semantics = "; ".join(
+        f"{name}={slot.value or slot.other or slot.state}"
+        for name, slot in target.semantic_profile.items()
+        if name in target.comparison_dimensions
+    )
+    comparison = "; ".join(
+        f"{name}={rule.mode}({rule.scope or rule.reason})"
+        for name, rule in target.comparison_contract.items()
+    )
+    return "\n".join(
+        (
+            f"[target:{target.id}]",
+            "Field links: " + "; ".join(
+                f"{link.attribute_ref} ({link.relation}: {link.reason})"
+                for link in target.field_links
+            ),
+            "Linked field definitions: " + "; ".join(
+                f"{attribute.name} — {attribute.description}"
+                for attribute in linked_fields
+            ),
+            "Linked canonical bindings: " + " | ".join(
+                attribute.document_target for attribute in linked_fields
+            ),
+            f"Proposed target: {target.label}",
+            "Numeric expression: " + json.dumps(asdict(target.expression), ensure_ascii=False),
+            f"Target role: {target.role}",
+            "Exact cited passages: " + " | ".join(
+                span.quote for span in target.provenance_spans
+            ),
+            f"Mapped meaning: {semantics}",
+            f"Direct-comparator contract: {comparison}",
+        )
+    )
+
+
+def _validated_decisions(raw: object, batch_ids: list[str]) -> dict[str, _Recommendation]:
+    """One closed decision with a reason for every requested target, or a retry."""
+    decisions: dict[str, _Recommendation] = {}
+    for item in raw if isinstance(raw, list) else []:
+        if not isinstance(item, dict):
+            continue
+        target_id = str(item.get("target_id", "")).strip()
+        decision = str(item.get("decision", "")).strip().lower()
+        reason = " ".join(str(item.get("reason", "")).split())
+        if (
+            target_id in batch_ids
+            and target_id not in decisions
+            and decision in {"confirm", "exclude", "flag"}
+            and reason
+        ):
+            decisions[target_id] = (decision, reason, "")
+    missing = [target_id for target_id in batch_ids if target_id not in decisions]
+    if missing:
+        raise ValueError(
+            "no complete decision with a reason for target(s) " + ", ".join(missing)
+        )
+    return decisions
 
 
 def _apply_recommendations(
     attributes: list[Attribute],
     ledger: QuantitativeLedger,
-    by_id: dict[str, tuple[str, str]],
-    *,
-    missing_reason: str = "Independent AI verification did not return one complete decision.",
+    by_id: dict[str, _Recommendation],
 ) -> tuple[list[Attribute], QuantitativeLedger]:
     reviewed_targets: list[QuantitativeTarget] = []
     for target in ledger.targets:
-        decision, reason = by_id.get(
-            target.id,
-            ("unavailable", missing_reason),
-        )
+        decision, reason, code = by_id[target.id]
         reviewed_targets.append(replace(
             target,
             ai_recommendation=decision,
             ai_review_reason=reason,
-            ai_review_failure_code="independent_review_unavailable" if decision == "unavailable" else "",
+            ai_review_failure_code=code,
             # AI triage is a recommendation, not the human decision boundary.
             # This matches evidence review: explicit UI acceptance is the only
             # operation that changes a review item to approved or rejected.

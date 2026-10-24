@@ -3,14 +3,15 @@ import { sortMatchesForReading } from "./scout-match-order.ts";
 import {
   CALIBRATION_BASIS_LABEL,
   GROUNDING_LABEL,
-  OUTCOME_LABEL,
-  PRECEDENT_LABEL,
   RELATIONSHIP_LABEL,
   TARGET_ROLE_LABEL,
   displayAttributeLabel,
+  precedentStatusLabel,
+  verdictReason,
 } from "./scout-labels.ts";
 import { conformityTargetLabel } from "./scout-result-view.ts";
 import type { PriorityFinding } from "./priorities.ts";
+import { countLabel } from "./count-label.ts";
 
 /**
  * How Scout's result is read for its priority card: one finding per field.
@@ -49,6 +50,18 @@ export function scoutPriorityFindings(result: ScoutResponse): PriorityFinding[] 
     const scores = (result.conformity ?? []).filter((score) => score.attribute_refs.includes(field.name));
     const matches = matchesByField.get(field.name) ?? [];
     const contradicting = matches.filter((match) => match.relation === "contradicts");
+    // Left out at review: one fact, said once, in place of axes that never ran. Kept as a
+    // finding so the reading knows the field exists and was not examined.
+    if (assessment?.strength === "not_searched") {
+      return {
+        id: field.name,
+        subject: displayAttributeLabel(field.name),
+        verdicts: [GROUNDING_LABEL.not_searched],
+        statements: [],
+        quote: field.document_target,
+        blockIds: [...new Set(field.block_ids ?? [])],
+      };
+    }
     const verdicts = [
       // Whether there was anything to test comes first, in the run headline's words: a
       // field with no target, or one whose target could not be interpreted, was never
@@ -61,7 +74,7 @@ export function scoutPriorityFindings(result: ScoutResponse): PriorityFinding[] 
       ...(assessment ? [GROUNDING_LABEL[assessment.strength]] : []),
       ...relationCounts(matches),
       ...(precedent
-        ? [`${PRECEDENT_LABEL[precedent.precedent]} · ${OUTCOME_LABEL[precedent.outcome]}`]
+        ? [precedentStatusLabel(precedent)]
         : []),
       // Code's own count, so a verdict line and never a statement. The target is named as
       // the Fields tab names it - role and expression, "Threshold >= 80%" - never by its quote
@@ -79,11 +92,13 @@ export function scoutPriorityFindings(result: ScoutResponse): PriorityFinding[] 
       // Never empty: a field nothing was found for says so, rather than arriving blank.
       verdicts: verdicts.length > 0 ? verdicts : ["No evidence assessed"],
       statements: [
-        assessment?.reason ?? "",
+        // A check that obtained no verdict carries the pipeline's diagnostic, not a model's
+        // sentence, so it is never offered as a statement.
+        assessment ? verdictReason(assessment.strength, assessment.reason) : "",
         ...contradicting
           .slice(0, CONTRADICTIONS_QUOTED)
           .flatMap((match) => [match.insight.statement, match.reason]),
-        precedent?.reason ?? "",
+        precedent ? verdictReason(precedent.precedent, precedent.reason) : "",
       ].filter(Boolean),
       quote: field.target_resolved ? field.document_target : undefined,
       blockIds: [
@@ -120,6 +135,6 @@ function relationCounts(matches: Match[]): string[] {
   const counts = new Map<Match["relation"], number>();
   for (const match of matches) counts.set(match.relation, (counts.get(match.relation) ?? 0) + 1);
   return [...counts].map(
-    ([relation, count]) => `${RELATIONSHIP_LABEL[relation]}: ${count} insight${count === 1 ? "" : "s"}`,
+    ([relation, count]) => `${RELATIONSHIP_LABEL[relation]}: ${countLabel(count, "insight")}`,
   );
 }

@@ -48,7 +48,6 @@ function chain(
     upstreamBlocks = ["candidate/b-0042"],
     downstreamBlocks = ["candidate/b-0042"],
     downstreamVerdict = "meets" as AlignmentVerdict,
-    gap = "Annual dosing against six-monthly offered.",
   } = {},
 ): AlignmentResult {
   return {

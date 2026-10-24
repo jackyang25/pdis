@@ -1,11 +1,14 @@
 "use client";
 
-import { FormEvent, useEffect, useRef, useState } from "react";
-import { ExternalLink, Loader2, Search, X } from "lucide-react";
+import { FormEvent, memo, useEffect, useRef, useState } from "react";
+import { useShallow } from "zustand/react/shallow";
+import { Loader2, Search, X } from "lucide-react";
 import { PageHeader } from "@/components/page-header";
 import { ErrorMessage } from "@/components/ui/error-message";
 import { Button } from "@/components/ui/button";
-import { Badge } from "@/components/ui/badge";
+import { DisclosureSummary } from "@/components/ui/disclosure-summary";
+import { SourceEntry } from "@/components/ui/evidence-text";
+import { formatPublishedMonth } from "@/lib/published-date";
 import { Label } from "@/components/ui/label";
 import { ConfigChip, ConfigDateInput, ConfigField, ConfigFieldGrid, ConfigHelp, ConfigSectionHeading, ConfigSelect, ConfigTextInput } from "@/components/ui/config-field";
 import { cn } from "@/lib/utils";
@@ -18,6 +21,7 @@ import {
 import { RunHistory } from "@/components/run-history";
 import { runLabel } from "@/lib/result-file";
 import { useSearcherSession } from "@/lib/session";
+import { runTool } from "@/lib/tool-run";
 import { SourceAttributions } from "@/components/source-attributions";
 import type { Finding } from "@/lib/api";
 import { EYEBROW } from "@/lib/typography";
@@ -39,16 +43,9 @@ export default function SearcherPage() {
   const [sources, setSources] = useState<SearchSource[]>([]);
   const [sourcesLoaded, setSourcesLoaded] = useState(false);
   const [selected, setSelected] = useState<Set<string>>(new Set());
-  const {
-    result,
-    busy,
-    error,
-    addResult,
-    setResult,
-    setBusy,
-    setStage,
-    setError,
-  } = useSearcherSession();
+  const { result, busy, error, setError } = useSearcherSession(
+    useShallow(({ result, busy, error, setError }) => ({ result, busy, error, setError })),
+  );
 
   // A search the Assistant set up arrives in the address. It fills the form and nothing
   // more: the reader reviews it and presses Run, so Ask still never searches. Its sources
@@ -160,15 +157,12 @@ export default function SearcherPage() {
     setEntityName("");
   }
 
-  async function onSubmit(e: FormEvent) {
+  function onSubmit(e: FormEvent) {
     e.preventDefault();
     if (!canRun) return;
-    setBusy(true);
-    setError(null);
-    setStage("search");
-    setResult(null);
-    try {
-      const res = await runSearcher(
+    void runTool(useSearcherSession, (report) => {
+      report("search");
+      return runSearcher(
         query.trim(),
         Array.from(selected),
         {
@@ -183,15 +177,9 @@ export default function SearcherPage() {
           region: region.trim(),
           publishedSince,
         },
-        setStage,
+        report,
       );
-      addResult(res);
-    } catch (err) {
-      setError((err as Error).message);
-    } finally {
-      setBusy(false);
-      setStage(null);
-    }
+    });
   }
 
   return (
@@ -432,6 +420,7 @@ export default function SearcherPage() {
                     key={`${entity.name}:${entity.type}`}
                     type="button"
                     disabled={busy}
+                    aria-label={`Remove ${entity.name} (${entity.type})`}
                     onClick={() =>
                       setEntities((previous) =>
                         previous.filter(
@@ -441,7 +430,7 @@ export default function SearcherPage() {
                         ),
                       )
                     }
-                    className="group/entity flex h-7 items-center gap-1.5 rounded-md border border-border bg-background px-2 text-xs text-foreground disabled:opacity-50"
+                    className="group/entity flex h-7 items-center gap-1.5 rounded-md border border-border bg-background px-2 text-xs text-foreground transition-colors hover:border-foreground/25 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/60 disabled:opacity-50 motion-reduce:transition-none"
                   >
                     <span>
                       {entity.name}
@@ -450,7 +439,7 @@ export default function SearcherPage() {
                         · {entity.type}
                       </span>
                     </span>
-                    <X className="h-3 w-3 text-muted-foreground group-hover/entity:text-foreground" />
+                    <X aria-hidden="true" className="h-3 w-3 text-muted-foreground group-hover/entity:text-foreground" />
                   </button>
                 ))}
               </div>
@@ -465,21 +454,34 @@ export default function SearcherPage() {
 
         {error && <ErrorMessage>{error}</ErrorMessage>}
 
-        {result && <Findings result={result} sources={sources} />}
+        {/* Held back while a search runs, not cleared: a search that fails or is refused
+            leaves the run being viewed where it was. */}
+        {result && !busy && <Findings result={result} sources={sources} />}
       </div>
     </>
   );
 }
 
-function Findings({
+/** Memoized so typing in the form above leaves the findings alone. */
+function hostOf(url: string): string {
+  try {
+    return new URL(url).hostname.replace(/^www\./, "");
+  } catch {
+    return "";
+  }
+}
+
+const Findings = memo(function Findings({
   result,
   sources,
 }: {
   result: { query: string; findings: Finding[]; lanes?: SearchLane[] };
   sources: SearchSource[];
 }) {
-  const { results, selectedId, selectResult, removeResult } =
-    useSearcherSession();
+  const { results, selectedId, selectResult, removeResult } = useSearcherSession(
+    useShallow(({ results, selectedId, selectResult, removeResult }) =>
+      ({ results, selectedId, selectResult, removeResult })),
+  );
   const labels = new Map(sources.map((source) => [source.key, source.label]));
 
   return (
@@ -501,43 +503,35 @@ function Findings({
         </span>
       </div>
       <Lanes lanes={result.lanes ?? []} sources={sources} />
-      {result.findings.map((finding) => (
-        <article
-          key={finding.url}
-          className="rounded-lg bg-card p-4 shadow-raised"
-        >
-          <div className="flex items-start gap-3">
-            <Badge variant="muted">
-              {labels.get(finding.source) ?? humanizeSource(finding.source)}
-            </Badge>
-            <a
-              href={finding.url}
-              target="_blank"
-              rel="noreferrer"
-              className="flex-1 text-sm font-medium leading-snug text-foreground hover:underline"
-            >
-              {finding.title}
-            </a>
-            <ExternalLink className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
-          </div>
-          <p className="mt-2 truncate font-mono text-[10px] text-muted-foreground/70">
-            {finding.url}
-          </p>
-          {finding.excerpt ? (
-            <p className="mt-3 whitespace-pre-wrap text-sm leading-relaxed">
-              {finding.excerpt}
-            </p>
-          ) : (
-            <p className="mt-3 text-xs italic text-muted-foreground">
-              No cited excerpt - model did not quote this source.
-            </p>
-          )}
-        </article>
-      ))}
+      {/* One list in the shared source shape - title, where it is from, the words - as
+          every tool's evidence list is. Each finding was its own card with its full excerpt
+          and its URL printed beneath the link, so fifty findings ran to twenty screens, and
+          web excerpts showed their Markdown as literal asterisks. */}
+      {result.findings.length > 0 && (
+        <section className="rounded-lg bg-card px-5 py-4 shadow-raised sm:px-6">
+          <ul>
+            {result.findings.map((finding) => (
+              <SourceEntry
+                key={finding.url}
+                title={finding.title || finding.url}
+                href={finding.url}
+                meta={[labels.get(finding.source) ?? humanizeSource(finding.source), hostOf(finding.url),
+                  formatPublishedMonth(finding.published_at, finding.published_precision)].filter(Boolean).join(" · ")}
+                quote={finding.excerpt || undefined}
+                quoteMarkdown
+              >
+                {!finding.excerpt && (
+                  <p className="mt-1 text-[11px] text-muted-foreground">No excerpt: the source returned none.</p>
+                )}
+              </SourceEntry>
+            ))}
+          </ul>
+        </section>
+      )}
       <SourceAttributions findings={result.findings} />
     </div>
   );
-}
+});
 
 /**
  * What every selected source did, including the ones that produced nothing.
@@ -581,20 +575,20 @@ function Lanes({
   }
   return (
     <div className="rounded-lg bg-card shadow-raised">
-      <p className="border-b border-border px-4 py-2 text-xs text-muted-foreground">
+      <p className="border-b border-border/60 px-4 py-2 text-xs text-muted-foreground">
         Sources searched
       </p>
       {groups.map((group) => (
         <div key={group.name}>
           <p
             className={cn(
-              "border-b border-border bg-foreground/[0.045] px-4 py-1.5",
+              "border-b border-border/60 bg-foreground/[0.045] px-4 py-1.5",
               EYEBROW,
             )}
           >
             {group.name}
           </p>
-          <ul className="divide-y divide-border">
+          <ul className="divide-y divide-border/60">
             {group.lanes.map((lane, at) => (
               <li
                 key={`${lane.source}-${at}`}
@@ -632,6 +626,25 @@ function Lanes({
                     {lane.detail ? `: ${lane.detail}` : ""}
                   </span>
                 )}
+                {/* What the provider made of the request, where it says: PubMed maps terms
+                    to its vocabulary and flags phrases it could not find. A lane returning
+                    nothing is read differently once its own translation is on screen. */}
+                {lane.provider_query && lane.provider_query !== lane.query && (
+                  // Folded: PubMed's translation expands every term into its vocabulary and
+                  // runs to a dozen lines, which a reader opens only to ask why a lane found
+                  // what it found.
+                  <details className="basis-full text-[11px] text-muted-foreground sm:pl-[8.75rem]">
+                    <DisclosureSummary className="w-fit rounded-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/60">
+                      How {labels.get(lane.source) ?? humanizeSource(lane.source)} read it
+                    </DisclosureSummary>
+                    <code className="mt-1 block break-all font-mono text-[10px]">{lane.provider_query}</code>
+                  </details>
+                )}
+                {(lane.warnings ?? []).map((warning, index) => (
+                  <p key={index} className="basis-full text-[11px] text-muted-foreground sm:pl-[8.75rem]">
+                    {warning.detail}
+                  </p>
+                ))}
               </li>
             ))}
           </ul>

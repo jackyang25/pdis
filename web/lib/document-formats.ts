@@ -33,9 +33,6 @@ export const TEXT_EXTRACTION_FORMATS: DocumentFormats = {
   note: "Prefer DOCX or PPTX when available. PDFs retain an image of every page, including visible charts and drawings. Extracted text may misorder columns or tables; check the page images for context. PDFs must be unlocked, up to 20 MiB and 200 pages, with selectable text on every page. Scanned-only or blank pages are not supported.",
 };
 
-/** Value for an `<input type="file">` accept attribute. */
-export const DOCUMENT_ACCEPT = STRUCTURED_DOCUMENT_FORMATS.accept;
-
 /** Reader-facing format list, e.g. `DOCX, PPTX`. */
 export const DOCUMENT_FORMAT_HINT = STRUCTURED_DOCUMENT_FORMATS.hint;
 

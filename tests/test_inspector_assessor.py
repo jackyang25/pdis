@@ -24,12 +24,18 @@ from services.inspector.models import (
 from services.inspector.stages.assessor import (
     _parse_cross_section_payload,
     _parse_unit_payload,
-    assess_document,
+    assess_rubrics,
     assessment_schema,
     build_assessment_prompt,
     check_cross_section,
     cross_section_schema,
+    unit_request,
 )
+from shared.ai import ResponseTruncatedError
+
+
+def assess_document(blocks, config, llm_client, *, progress=None):
+    return assess_rubrics(blocks, [config], llm_client, progress=progress)[0]
 
 
 def _block(block_id: str, section: str, ordinal: int = 1) -> ContentBlock:
@@ -81,9 +87,9 @@ def _answer(verdict: str, block_ids: list[str]) -> dict:
     }
 
 
-def _assess_single_section(*, section_spec, section_blocks, llm_client, max_tokens):
+def _assess_single_section(*, section_spec, section_blocks, llm_client):
     findings, _ = assess_document(
-        section_blocks, _config([section_spec]), llm_client, max_tokens=max_tokens,
+        section_blocks, _config([section_spec]), llm_client,
     )
     return findings
 
@@ -96,10 +102,10 @@ class _UnitClient:
         self.calls = 0
         self.verdict_enum: list[str] | None = None
 
-    def call_structured(self, _system, message, *_args, schema, **_kwargs):
+    def call_structured(self, _system, _message, *_args, schema, trailing_text, **_kwargs):
         self.calls += 1
         self.verdict_enum = schema["properties"]["verdict"]["enum"]
-        subject = message.split("Assess: ", 1)[1].splitlines()[0]
+        subject = trailing_text.split("Assess: ", 1)[1].splitlines()[0]
         return self.answers_by_subject.get(
             subject, _answer("specified", ["document:b1"])
         )
@@ -112,11 +118,15 @@ class _EmptyClient:
 
 class PromptAndSchemaTests(unittest.TestCase):
     def test_the_model_is_offered_every_verdict_a_unit_can_carry(self) -> None:
-        schema = assessment_schema([_block("document:b1", "Profile")])
-        verdicts = schema["properties"]["verdict"]["enum"]
+        """Absence has one name per unit, and the rubric's `optional` flag picks it."""
+        blocks = [_block("document:b1", "Profile")]
+        required = assessment_schema(blocks)["properties"]["verdict"]["enum"]
+        optional = assessment_schema(blocks, optional=True)["properties"]["verdict"]["enum"]
 
-        self.assertEqual(verdicts, list(UNIT_VERDICTS))
-        self.assertNotIn("section_conflict", verdicts, "a conflict belongs to no single unit")
+        self.assertEqual(required, [v for v in UNIT_VERDICTS if v != "not_applicable"])
+        self.assertEqual(optional, [v for v in UNIT_VERDICTS if v != "not_present"])
+        for verdicts in (required, optional):
+            self.assertNotIn("section_conflict", verdicts, "a conflict belongs to no single unit")
 
     def test_one_question_gets_one_answer(self) -> None:
         """The schema returns an object, not an array of them. An array let a unit
@@ -134,13 +144,13 @@ class PromptAndSchemaTests(unittest.TestCase):
         content could land either side depending on how the requirement was read.
         The prompt states the test instead: coverage first, then usability.
         """
-        prompt = build_assessment_prompt(_section(), _section().variables[0])
+        prompt = build_assessment_prompt()
 
         self.assertIn("not degrees of each other", prompt)
         self.assertIn("Ask coverage first", prompt)
 
     def test_layout_alone_is_not_a_verdict(self) -> None:
-        prompt = build_assessment_prompt(_section(), _section().variables[0])
+        prompt = build_assessment_prompt()
 
         self.assertIn("Do not judge structure or naming on its own", prompt)
         self.assertNotIn("off_template", prompt)
@@ -164,16 +174,69 @@ class PromptAndSchemaTests(unittest.TestCase):
         ]["properties"]
         self.assertNotIn("uniqueItems", conflict["block_ids"])
 
-    def test_the_prompt_names_the_one_unit_being_assessed(self) -> None:
+    def test_the_request_names_the_one_unit_being_assessed(self) -> None:
         section = _section()
-        prompt = build_assessment_prompt(section, section.variables[0])
+        request = unit_request(section, section.variables[0])
 
-        self.assertIn("Efficacy, within the Profile section.", prompt)
-        self.assertNotIn("Safety", prompt, "an unrelated unit must not sit in this prompt")
+        self.assertIn("Efficacy, within the Profile section.", request)
+        self.assertNotIn("Safety", request, "an unrelated unit must not sit in this request")
+
+    def test_the_system_prompt_is_fixed_for_a_rubric_whatever_the_unit(self) -> None:
+        """The unit travels after the section's content, so every request for one
+        rubric shares the system prompt and the section's prefix."""
+        prompt = build_assessment_prompt("Stage bar.")
+
+        self.assertIn("Stage bar.", prompt)
+        self.assertNotIn("THE UNIT YOU ARE ASSESSING", prompt)
+        self.assertNotIn("Return ONLY valid JSON", prompt)
+
+    def test_the_unit_follows_the_section_content_and_its_images(self) -> None:
+        sent: list[dict] = []
+
+        class Client:
+            def call_structured(self, system, message, *_args, **kwargs):
+                sent.append({"system": system, "message": message, **kwargs})
+                return _answer("specified", ["document:b1"])
+
+        assess_document([_block("document:b1", "Profile")], _config([_section()]),
+                        Client())
+
+        self.assertEqual(len({call["system"] for call in sent}), 1)
+        self.assertEqual(len({call["message"] for call in sent}), 1)
+        self.assertEqual(
+            [call["trailing_text"].splitlines()[0] for call in sent],
+            ["Assess: Efficacy", "Assess: Safety"],
+        )
+
+    def test_the_review_context_leads_the_shared_prefix(self) -> None:
+        """A unit about the target population is read against the disease it is for."""
+        sent: list[dict] = []
+
+        class Client:
+            def call_structured(self, system, message, *_args, **kwargs):
+                sent.append({"message": message, **kwargs})
+                return _answer("specified", ["document:b1"])
+
+        assess_rubrics([_block("document:b1", "Profile")], [_config([_section()])], Client(),
+                       indication="respiratory_syncytial_virus")
+        message = sent[0]["message"]
+        self.assertTrue(message.startswith("Review context (user-selected, not evidence):"))
+        self.assertIn("Disease / condition: respiratory syncytial virus", message)
+        self.assertIn("Intervention class: vaccine", message)
+        self.assertEqual((sent[0]["task"], sent[0]["effort"]), ("reasoning", "low"))
+
+    def test_a_section_too_large_for_one_request_stops_the_run_before_any_call(self) -> None:
+        from shared.request_budget import RequestTooLargeError
+
+        huge = _block("document:b1", "Profile")
+        huge.content = "x" * 700_000
+
+        with self.assertRaises(RequestTooLargeError):
+            assess_document([huge], _config([_section()]), _EmptyClient())
 
     def test_a_prose_section_is_assessed_as_itself(self) -> None:
-        prompt = build_assessment_prompt(SectionSpec(name="Introduction", description="Framing."))
-        self.assertIn("The Introduction section as a whole.", prompt)
+        request = unit_request(SectionSpec(name="Introduction", description="Framing."))
+        self.assertIn("The Introduction section as a whole.", request)
 
     def test_unit_expectations_override_the_section_default(self) -> None:
         section = SectionSpec(
@@ -186,8 +249,8 @@ class PromptAndSchemaTests(unittest.TestCase):
             ],
         )
 
-        self.assertIn("Expectations: Unit rule.", build_assessment_prompt(section, section.variables[0]))
-        self.assertIn("Expectations: Section default.", build_assessment_prompt(section, section.variables[1]))
+        self.assertIn("Expectations: Unit rule.", unit_request(section, section.variables[0]))
+        self.assertIn("Expectations: Section default.", unit_request(section, section.variables[1]))
 
 
 class OneCallPerUnitTests(unittest.TestCase):
@@ -196,7 +259,7 @@ class OneCallPerUnitTests(unittest.TestCase):
 
         class ReverseClient(_UnitClient):
             def call_structured(self, system, message, *args, **kwargs):
-                if message.startswith("Assess: Efficacy\n"):
+                if kwargs["trailing_text"].startswith("Assess: Efficacy\n"):
                     if not second_completed.wait(timeout=3):
                         raise AssertionError("Second unit never completed concurrently")
                 return super().call_structured(system, message, *args, **kwargs)
@@ -207,7 +270,7 @@ class OneCallPerUnitTests(unittest.TestCase):
 
         findings, _ = assess_document(
             [_block("document:b1", "Profile")], _config([_section()]),
-            ReverseClient({}), max_tokens=4000, progress=progress,
+            ReverseClient({}), progress=progress,
         )
         self.assertEqual([finding.id for finding in findings],
                          ["Profile|Efficacy", "Profile|Safety"])
@@ -220,7 +283,6 @@ class OneCallPerUnitTests(unittest.TestCase):
             section_spec=_section(),
             section_blocks=[_block("document:b1", "Profile")],
             llm_client=client,
-            max_tokens=4000,
         )
 
         self.assertEqual(client.calls, 2, "two units, two calls")
@@ -232,7 +294,6 @@ class OneCallPerUnitTests(unittest.TestCase):
             section_spec=_section(),
             section_blocks=[_block("document:b1", "Profile")],
             llm_client=_UnitClient({}),
-            max_tokens=4000,
         )
 
         self.assertEqual([item.verdict for item in assessed], ["specified", "specified"])
@@ -249,7 +310,6 @@ class OneCallPerUnitTests(unittest.TestCase):
             section_spec=_section(),
             section_blocks=[_block("document:b1", "Profile")],
             llm_client=client,
-            max_tokens=4000,
         )
 
         self.assertEqual(
@@ -268,7 +328,6 @@ class OneCallPerUnitTests(unittest.TestCase):
                 section_spec=_section(),
                 section_blocks=[_block("document:b1", "Profile")],
                 llm_client=_EmptyClient(),
-                max_tokens=4000,
             )
 
     def test_an_unwritten_section_reports_every_unit_absent(self) -> None:
@@ -279,7 +338,6 @@ class OneCallPerUnitTests(unittest.TestCase):
             [_block("document:b1", "Timeline")],
             config,
             _UnitClient({}),
-            max_tokens=4000,
         )
 
         # Presence is the mapping: Profile got no blocks, so it is absent.
@@ -347,7 +405,15 @@ class CrossSectionTests(unittest.TestCase):
 
     def test_a_conflict_must_cite_two_different_sections(self) -> None:
         payload = {"findings": [{"statement": "Conflict.", "block_ids": ["document:b1"]}]}
-        self.assertIsNone(_parse_cross_section_payload(payload, self._blocks_by_section()))
+        with self.assertRaisesRegex(ValueError, "two different sections"):
+            _parse_cross_section_payload(payload, self._blocks_by_section())
+
+    def test_the_schema_states_what_the_parser_enforces(self) -> None:
+        item = cross_section_schema(self._blocks_by_section())["properties"]["findings"][
+            "items"
+        ]["properties"]
+        self.assertEqual(item["statement"]["minLength"], 1)
+        self.assertEqual(item["block_ids"]["minItems"], 2)
 
     def test_a_spanning_conflict_becomes_a_document_finding(self) -> None:
         payload = {
@@ -382,23 +448,75 @@ class CrossSectionTests(unittest.TestCase):
             _block("document:b3", "Other", 3),
             _block("document:b4", "Document Metadata", 4),
         ]
-        check_cross_section(blocks, _config(), Client(), max_tokens=4000)
+        check_cross_section(blocks, _config(), Client())
 
         self.assertEqual(recorded["ids"], ["document:b1", "document:b2"])
 
     def test_one_mapped_section_makes_the_pass_not_applicable(self) -> None:
         blocks = [_block("document:b1", "Profile", 1), _block("document:b3", "Other", 3)]
 
-        findings, status = check_cross_section(blocks, _config(), _EmptyClient(), max_tokens=4000)
+        check = check_cross_section(blocks, _config(), _EmptyClient())
 
-        self.assertEqual((findings, status), ([], "not_applicable"))
+        self.assertEqual(tuple(check), ([], "not_applicable", None))
 
     def test_a_failed_pass_is_reported_rather_than_read_as_clean(self) -> None:
         blocks = [_block("document:b1", "Profile", 1), _block("document:b2", "Timeline", 2)]
 
-        findings, status = check_cross_section(blocks, _config(), _EmptyClient(), max_tokens=4000)
+        check = check_cross_section(blocks, _config(), _EmptyClient())
 
-        self.assertEqual((findings, status), ([], "failed"))
+        self.assertEqual(tuple(check), ([], "failed", "invalid_model_response"))
+
+    def test_a_failed_consistency_answer_is_repaired_with_its_reason(self) -> None:
+        sent: list[str] = []
+
+        class OnceWrong:
+            def call_structured(self, _system, message, *_args, **_kwargs):
+                sent.append(message)
+                ids = ["document:b1"] if len(sent) == 1 else ["document:b1", "document:b2"]
+                return {"findings": [{"statement": "Efficacy differs.", "block_ids": ids}]}
+
+        blocks = [_block("document:b1", "Profile", 1), _block("document:b2", "Timeline", 2)]
+        check = check_cross_section(blocks, _config(), OnceWrong())
+
+        self.assertEqual(check.status, "complete")
+        self.assertIn("two different sections", sent[1].rsplit("failed the consistency contract", 1)[1])
+
+    def test_a_cut_off_pass_is_recorded_not_raised(self) -> None:
+        """The pass runs after every unit is assessed; losing it must not lose them."""
+        class Truncating:
+            calls = 0
+
+            def call_structured(self, *_args, **_kwargs):
+                Truncating.calls += 1
+                raise ResponseTruncatedError("cut off")
+
+        blocks = [_block("document:b1", "Profile", 1), _block("document:b2", "Timeline", 2)]
+        check = check_cross_section(blocks, _config(), Truncating())
+
+        self.assertEqual(tuple(check), ([], "failed", "response_truncated"))
+        self.assertEqual(Truncating.calls, 2, "a cut-off answer is retried once")
+
+    def test_a_provider_failure_in_the_pass_is_recorded_not_raised(self) -> None:
+        import httpx
+        import openai
+
+        class Unreachable:
+            def call_structured(self, *_args, **_kwargs):
+                raise openai.APIConnectionError(request=httpx.Request("POST", "https://x"))
+
+        blocks = [_block("document:b1", "Profile", 1), _block("document:b2", "Timeline", 2)]
+        check = check_cross_section(blocks, _config(), Unreachable())
+
+        self.assertEqual(tuple(check), ([], "failed", "provider_error"))
+
+    def test_a_programming_error_in_the_pass_still_raises(self) -> None:
+        class Broken:
+            def call_structured(self, *_args, **_kwargs):
+                raise TypeError("bug")
+
+        blocks = [_block("document:b1", "Profile", 1), _block("document:b2", "Timeline", 2)]
+        with self.assertRaises(TypeError):
+            check_cross_section(blocks, _config(), Broken())
 
 
 if __name__ == "__main__":
@@ -424,9 +542,7 @@ class CrossSectionBoundaryTest(unittest.TestCase):
         for name, text in (
             (
                 "per-unit",
-                build_assessment_prompt(
-                    SectionSpec(name="Introduction", description="Framing.")
-                ),
+                build_assessment_prompt(),
             ),
             ("cross-section", build_cross_section_prompt(_config())),
         ):
@@ -451,17 +567,17 @@ class AbsenceNormalisationTests(unittest.TestCase):
             section_blocks=[_block("document:b1", "Profile")],
         )
 
-    def test_an_optional_absence_is_corrected_rather_than_retried(self) -> None:
-        """The model saw what the rubric saw and filed it under the wrong word.
+    def test_an_optional_absence_has_one_name(self) -> None:
+        """The schema never offers `not_present` for an optional unit, so the parser
+        refuses it rather than correcting a word the model could not have chosen."""
+        with self.assertRaisesRegex(ValueError, "closed vocabulary"):
+            self._parse(_answer("not_present", []), optional=True)
+        self.assertEqual(self._parse(_answer("not_applicable", []), optional=True).verdict,
+                         "not_applicable")
 
-        Not worth a second request, so it is corrected in place - unlike the opposite
-        direction, where a required unit called `not_applicable` drops a real shortfall
-        out of the worklist and is refused.
-        """
-        parsed = self._parse(_answer("not_present", []), optional=True)
-
-        self.assertEqual(parsed.verdict, "not_applicable")
-        self.assertEqual(parsed.statement, "")
+    def test_a_required_unit_cannot_be_called_not_applicable(self) -> None:
+        with self.assertRaisesRegex(ValueError, "closed vocabulary"):
+            self._parse(_answer("not_applicable", []), optional=False)
 
     def test_a_required_absence_stays_a_shortfall(self) -> None:
         parsed = self._parse(_answer("not_present", []), optional=False)
@@ -469,6 +585,6 @@ class AbsenceNormalisationTests(unittest.TestCase):
         self.assertEqual(parsed.verdict, "not_present")
 
     def test_the_prompt_says_which_of_the_two_absences_applies(self) -> None:
-        prompt = build_assessment_prompt(_section(), _section().variables[0])
+        prompt = build_assessment_prompt()
 
         self.assertIn("where the rubric marks the unit optional", prompt)

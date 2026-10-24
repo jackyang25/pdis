@@ -28,6 +28,8 @@ def parse_document(
     Supported formats:
         .docx  -> parser_docx.parse_docx (semantic-tag-driven)
         .pptx  -> parser_pptx.parse_pptx (slide text, tables, and visuals)
+        .pdf   -> parser_pdf.parse_pdf (page text and page renders; only when the
+                  caller passes TEXT_EXTRACTION_SUFFIXES)
 
     Args:
         file_path: Path to the source file.
@@ -37,7 +39,7 @@ def parse_document(
         List of ContentBlock objects in document order.
 
     Raises:
-        ValueError: if the file extension is not supported.
+        ValueError: if the file extension is not accepted or the file is unreadable.
     """
     suffix = Path(file_path).suffix.lower()
     if suffix not in accepted_suffixes:

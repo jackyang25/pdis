@@ -30,6 +30,12 @@ web/ → api/ → services/ → shared/
   prompt influence each other and batch composition shifts between runs. Each stage
   states its choice in an `<ITEMS>_PER_REQUEST` constant carrying the justification;
   throughput comes from fan-out, never from packing unrelated items.
+- Beside that constant a stage states its call policy - `TASK` (tier), `EFFORT` and
+  `MAX_TOKENS` - each with its reason. Budgets are the stage's, never a route's. A
+  cut-off reply is retried at a lower effort before it is given more room, a refusal
+  (`response_refused`) is never retried, and a request is measured against
+  `shared.request_budget` before its stage fans out. Every call writes one `model_call`
+  usage line; read it before changing a policy.
 - A schema states every constraint its receiving code enforces. A required field
   is declared required, and non-empty text declares it; a validator that rejects
   what its own schema permits creates answers the model cannot get right.
@@ -58,7 +64,7 @@ web/ → api/ → services/ → shared/
   configuration is a YAML change, not an engine branch.
 - A mechanic needed by two services lives in `shared/`, not once per service:
   request batching and fan-out in `shared/batching.py`, the schema-bound call in
-  `shared/ai.py`, cross-service vocabularies in `shared/vocabulary.py`. Move a
+  `shared/ai.py`, how a block is shown to a model in `shared/source_blocks.py`, cross-service vocabularies in `shared/vocabulary.py`. Move a
   mechanic there on the second consumer, not the third.
 - Services present one shape to their caller: `find_config` raises `LookupError`
   when a configuration is absent, optional configuration is asked about with a
@@ -122,8 +128,8 @@ web/ → api/ → services/ → shared/
      adding a tool is a lens, not a prompt or a route.
   3. **One count grammar per page:** `<title> <count>`, the count in muted
      tabular figures beside the heading. Not `Title · 7`, and never both on one
-     screen. `SectionHeading` takes a node rather than a string so a caller does
-     not have to pre-format one into the other.
+     screen. The figures take `COUNT` from `web/lib/typography.ts`, after a space, so a
+     card heading, a disclosure row and a trace list all read the same.
   4. **A number the model produced is shown even at zero**, because zero means the
      check ran and found nothing. A number config or the inputs produced is hidden
      at zero, because there is nothing to report. Hiding `0 answered` once made a
@@ -289,7 +295,10 @@ The run owns source `blocks[]` once, applicability resolutions and one
   never differences between authorities.
 - `assessment_status` and `consistency_status` are process facts outside verdicts.
   The additive consistency pass reports its own failure rather than implying no
-  conflict. Its citations receive the same deterministic validation as before.
+  conflict, with `consistency_failure_code` from `shared.ai.FAILURE_CODES` set exactly
+  when it failed; a cut-off or invalid answer never discards the assessed reviews.
+  Its citations receive the same deterministic validation as before. Conflicts rank
+  after every review's own worklist; ranks are never compared across rubrics.
 - `models.py` declares shapes, `configuration.py` resolves profiles and rubrics,
   `assembly.py` joins and ranks, `stages/assessor.py` owns the prompt and reply,
   `contract.py` owns checks, and `pipeline.py` orchestrates.
@@ -314,9 +323,14 @@ The run owns source `blocks[]` once, applicability resolutions and one
   target may mean the target is stale. `not_comparable` exists so vagueness is not
   reported as a shortfall — a qualitative claim against a numeric bar is neither worse
   nor silent, and calling it either is a judgement the text does not support.
-- `falls_short` and `not_comparable` carry `gap`; the other three refuse it. That
-  sentence is what a PPL takes back to whoever wrote the document, so leaving it to
-  prose would make it usually present and never guaranteed.
+- A finding carries one sentence, `statement`: what the measured document does about
+  the subject. It is required on every verdict but `not_addressed` and refused there,
+  where it would only restate the verdict. There is no `gap`: the distance from the bar
+  is the requirement and the statement, which head and fill the same row, and a third
+  sentence asked to name it restated the requirement on every shortfall.
+- What honouring a requirement looks like is a fact about the measured document's
+  type — a profile states a value, a plan carries the work — so it is
+  `document_roles.<type>.honours` in config, and the verdict prompt names no type.
 - A requirement is read out of the reference document, cites the passage that states it,
   and is atomic — compound sentences are split at extraction, because one verdict cannot
   honestly cover three facts. Aligner never decides what matters.
@@ -340,7 +354,10 @@ The run owns source `blocks[]` once, applicability resolutions and one
 - Documents that resolve no declared comparison, or two documents of one type,
   fail loudly before parsing. A run that silently compares nothing is
   indistinguishable from one that found nothing wrong — which is also why the result
-  contract refuses an alignment carrying zero findings.
+  contract refuses a comparison carrying zero findings, and edges other than the ones
+  the config resolves for the result's documents.
+- Whether two extracted requirements are one is the extraction's judgement; code never
+  merges them by normalized wording.
 - **Two comparisons are linked at the document they share, by block id and nothing
   else.** With three documents the middle one is measured in one comparison and
   authoritative in the next, so a plan can faithfully deliver a commitment that itself
@@ -412,7 +429,8 @@ supplied material answers and which it does not.
 - `intervention_classes` is declared per bank, not per question, because the scope is a
   fact about the whole document: these banks derive from a drug milestone dictionary and
   ask about synthetic routes, salt forms and BCS class. A run for another modality is
-  refused, and the gate picker offers nothing for one — rather than returning a review
+  refused by `resolve_questions` and by the result contract, and the gate picker offers
+  nothing for one — rather than returning a review
   in which every question is inapplicable, which reads exactly like a review that found
   nothing wrong.
 - `applies_to` is the one field that removes a question from a run, so it is set only
@@ -451,7 +469,7 @@ supplied material answers and which it does not.
   union of selected original blocks
   in source order and may cite only that selection. Selection failure aborts the
   run; it never becomes an empty selection or an absence finding. Both phases use
-  sequential, flat queues capped at six model calls, never nested worker pools.
+  sequential, flat queues capped at twelve model calls, never nested worker pools.
 - Banks are keyed `(org, gate)`; the intervention class filters questions inside a
   bank rather than selecting which to read, so `find_config` takes two keys.
 - `load_config` raises on a bank naming an unknown intervention class or document
@@ -502,10 +520,14 @@ supplied material answers and which it does not.
   ```
 
 - Validate the configured indication before retrieval. Only a clear, block-cited
-  mismatch stops the run; ambiguity remains explicit.
+  mismatch stops the run; ambiguity remains explicit. The retrieval scope (condition,
+  intervention, document-stated region) is resolved before target review and carried
+  on the draft, so a reviewer sees it and the continuation never re-reads it.
 - Fixed fields are resolved in bounded, block-aligned batches that see the full
   field catalog. Cite exact block IDs and source spans. Retry only structurally
-  invalid or missing decisions once; unresolved canonical fields stop retrieval.
+  invalid or missing decisions once; unresolved canonical fields stop retrieval
+  as a failed run, never as a finished empty result. One chunk's present decision
+  never stands in for another chunk that returned no valid decision.
 - Quantitative extraction receives already-owned canonical spans. It may split
   a span into multiple atomic targets but may not rescan unrelated blocks or
   choose field ownership again. Atomic targets are document-owned and link to
@@ -548,12 +570,37 @@ supplied material answers and which it does not.
   a wider set than the one shown. The window is declared before retrieval and
   carried on the reviewed draft, so a continuation cannot widen it after targets
   were approved. A finding whose source supplied no publication date is admitted —
-  an absent date is not evidence of age. The retrieval record stays complete: a
+  an absent date is not evidence of age. A partial date keeps its precision
+  (`Finding.published_precision`) and a lower bound is compared with the latest day
+  it allows (`Finding.published_before`), never with the first of the period. A
+  registry record is dated by when it was first posted, never by its last edit. Where
+  an adapter controls the request and the provider can bound by date, the window
+  goes to the provider (`honors_date_bound`). The retrieval record stays complete: a
   trace's `source_urls` is what the source returned, and
   `excluded_before_window` names which of those the window held out.
 - Searcher adapters own source grammar, applicability metadata, credentials,
   rate limits, concurrency, execution, and normalization. Scout supplies neutral
   intents and config-selected adapter keys.
+- A finding's identity is its record, not its page. Adapters set `record_key`
+  (`<lane>:<provider id>`) and typed `identifiers` from the provider's own fields;
+  a record with no stable provider identity is skipped rather than given a
+  generic or positional URL. Deduplication compares those (`dedupe_findings`),
+  merging one work across lanes only on cross-lane schemes (DOI, PMID, PMCID,
+  trial numbers) and always merging lineage. Identifiers never travel inside a
+  title and are never read back out of a URL or a title.
+- A request asks the provider for the number it keeps (`SourceSpec.max_results`)
+  and keeps the provider's order. A lexical re-rank that truncates decides which
+  records exist, which is the request-construction role lexical matching may not
+  take. A structured excerpt renders a record's fields in declared order, so one
+  record reads the same whichever request returned it.
+- One transport (`services/searcher/transport.py`) makes every provider call:
+  it retries 429/502/503/504, resets and timeouts with jittered backoff or the
+  provider's `Retry-After` within one total deadline, and raises `RetrievalError`
+  carrying a code beside the provider's message. Pacing is per provider call and
+  per `SourceSpec.rate_group`, because a quota is the provider's, not the lane's.
+  Identical native calls within a run are made once (`SearchRuntime.calls`), and
+  every requesting intent keeps its own outcome and lineage. Searcher never
+  changes process-wide state such as name resolution.
 - A query intent carries both its natural-language text and the facets its author
   stated. An adapter selects whichever its API accepts and treats a blank facet as
   the intent's own scope; a field-addressed source varies its request by those
@@ -578,8 +625,11 @@ supplied material answers and which it does not.
   source's own vocabulary, so it survives any request budget while precision is
   what gets dropped. A source declares that budget in its `SourceSpec` beside its
   concurrency and interval, because those limits belong to the source.
-- A failed retrieval records the provider's message, not just the exception type.
-  A saved result that says only `RuntimeError` cannot be diagnosed later.
+- A failed retrieval records the provider's message, not just the exception type,
+  and a machine-readable `error_code` beside it. A saved result that says only
+  `RuntimeError` cannot be diagnosed later. What a provider reports beside a
+  successful answer — its query translation, a phrase it ignored, a page it could
+  not return — is recorded on the outcome rather than logged and lost.
 - The static source registry is code; enabled keys are configuration. Adding a
   source means implementing and registering an adapter, injecting any connector,
   and opting configuration into its key—never adding source branches to Scout,
@@ -614,6 +664,22 @@ supplied material answers and which it does not.
   evidence was looked for. A discovery track never determines a relation.
 - Do not restore holistic “basis” labels or present descriptive cohort statistics
   as confidence intervals, success probabilities, or causal estimates.
+- Scout's identity layers - extracted claims, numeric targets, one field's insights,
+  program and product names - each partition their set in one model call through
+  `identity.partition`, and fail one way: the set continues unmerged and
+  `ScoutResult.reconciliations` records `not_reconciled` with its code. Nothing
+  pre-merges by case or spacing; a source record is what `Finding.record_key` and
+  `Finding.identifiers` name, never a pattern read from a URL or a title.
+- Every searchable variable gets one grounding and one precedent record. A variable no
+  insight reached is `no_evidence` - code-set, no model call, no reason - which is
+  neither the model's `unknown` nor the failure `not_assessed`.
+- The reviewer chooses at target review which fields are searched; the draft's
+  `not_searched_fields` is the one record of it. Excluded fields get no queries, insights,
+  judgements or calibration and are `not_searched` on grounding and precedent - the
+  reviewer's choice, code-set, never offered to a model. Program-wide queries still run.
+- Drift, grounding and precedent read the same rendering of each insight's records
+  (`insight_evidence`): title, lane and evidence class, date at its stated precision,
+  excerpt kind and verbatim opening. A judging stage never sees only the paraphrase.
 
 ### Drafter
 
@@ -633,9 +699,12 @@ no priority card, no verdicts and no score, and reads no other tool's output.
   registry or regulatory text - Scout's rule. Figures are per stated unit, never converted
   or pooled, and descriptive only. `web` is not a Drafter source: its excerpts are snippets.
 - `insufficient` is a suggestion's outcome; `status: failed` with a code is a pipeline
-  failure, and the two never share a value. A variable no source spoke to is recorded
-  `insufficient` without a model call and with an empty rationale, which the interface
-  states in its own voice rather than as a model's sentence.
+  failure, and the two never share a value. A variable whose searches returned nothing is
+  recorded `insufficient` without a model call and with an empty rationale, which the
+  interface states in its own voice rather than as a model's sentence; every model answer
+  carries a rationale. A variable never searched, or whose sources failed, went unread or
+  quoted words they lack, is `evidence_unavailable` - nothing was read, so nothing was
+  found insufficient. A failed call also records its `cause` from `shared.ai.FAILURE_CODES`.
 - Published guidance is found by searching, never stored in configuration: a copy of a
   document that is revised goes stale without anyone noticing.
 - A run is final when it finishes and is exported as it is, every target labelled a

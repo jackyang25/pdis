@@ -7,16 +7,22 @@ one wording everywhere. Tool pipelines' prompts depend on this exact text.
 
 from __future__ import annotations
 
-from typing import Any, Iterable
+from typing import Any, Iterable, Literal
+
+#: How finely the provider looks at an image. `high` reads a page's text and a chart's
+#: figures; `low` is one small view of the whole image, enough to tell what a visual is
+#: and whether it bears on a question, at a fraction of the cost. A stage chooses.
+ImageDetail = Literal["low", "high"]
 
 
-def labelled_image_parts(images: Iterable[tuple[str, str]]) -> list[dict[str, Any]]:
-    """`(block_id, data_url)` pairs as label-then-image content parts."""
-    return [
-        part
-        for block_id, data_url in images
-        for part in (
-            {"type": "text", "text": f"Visual for document block [{block_id}]:"},
-            {"type": "image_url", "image_url": {"url": data_url, "detail": "high"}},
-        )
-    ]
+def labelled_image_parts(
+    images: Iterable[tuple[str, str] | tuple[str, str, ImageDetail]],
+) -> list[dict[str, Any]]:
+    """`(block_id, data_url[, detail])` as label-then-image parts; detail defaults to high."""
+    parts: list[dict[str, Any]] = []
+    for image in images:
+        block_id, data_url = image[0], image[1]
+        detail = image[2] if len(image) > 2 else "high"
+        parts.append({"type": "text", "text": f"Visual for document block [{block_id}]:"})
+        parts.append({"type": "image_url", "image_url": {"url": data_url, "detail": detail}})
+    return parts

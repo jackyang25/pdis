@@ -21,6 +21,7 @@ const result = {
     document_indication: "malaria",
     reason: "The document concerns malaria.",
     doc_block_ids: ["document/b-0007"],
+    failure_code: "",
   },
   quantitative_ledger: {
     status: "not_applicable",
@@ -43,6 +44,7 @@ const result = {
       target_resolved: true,
       target_resolution_reason: "Resolved from exact document spans.",
       evidence_domain: "clinical",
+      supplies_scope: "",
       entities: [],
       quantitative_target_ids: [],
       quantitative_statement_dispositions: [],
@@ -76,6 +78,7 @@ const result = {
       relation: "contradicts",
       reason: "The observed efficacy is below the document target.",
       doc_block_ids: ["document/b-0007"],
+      failure_code: "",
     },
   ],
   assessments: [
@@ -89,6 +92,7 @@ const result = {
       doc_block_ids: ["document/b-9999"],
       supporting_insight_ids: ["i-efficacy"],
       supporting_findings: [],
+      failure_code: "",
     },
   ],
   conformity: [],
@@ -102,7 +106,14 @@ const result = {
     insights: 1,
     matches: 1,
     assessments: 1,
+    announcements_read: 0,
+    announcements_named: 0,
+    announcements_failed: 0,
+    announcements_failed_by_code: {},
   },
+  retrieval_scope: { entries: [] },
+  reconciliations: [],
+  not_searched_fields: [],
   blocks: [],
 } satisfies ScoutResponse;
 
@@ -305,4 +316,19 @@ test("edges between the same two columns share one trunk, wherever their targets
   // A near target and a far one: the library's step routing put these on different verticals.
   assert.equal(draw(420), "M 100,400 H 130 V 420 H 160");
   assert.equal(draw(90), "M 100,400 H 130 V 90 H 160");
+});
+
+test("a field left out at review says so once, in place of the axes it never reached", () => {
+  const unsearched: ScoutResponse = structuredClone(result);
+  unsearched.not_searched_fields = ["clinical_efficacy"];
+  unsearched.matches = [];
+  unsearched.conformity = [];
+  unsearched.assessments = unsearched.assessments.map((item) => ({ ...item, strength: "not_searched" as const, reason: "", supporting_insight_ids: [], supporting_findings: [] }));
+  unsearched.precedents = [{
+    attribute_ref: "clinical_efficacy", precedent: "not_searched", outcome: "not_searched", reason: "",
+    doc_block_ids: [], coverage_insight_ids: [], outcome_insight_ids: [], supporting_insight_ids: [],
+    supporting_findings: [], failure_code: "",
+  }];
+  const field = buildScoutEvidenceMap(unsearched, "clinical_efficacy").nodes.find((node) => node.kind === "field");
+  assert.deepEqual(field?.signals, [{ label: "Evidence search", value: "Not searched", tone: "neutral" }]);
 });

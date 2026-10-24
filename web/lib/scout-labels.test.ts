@@ -7,32 +7,47 @@ import {
   CALIBRATION_BASIS_LABEL,
   DISPOSITION_LABEL,
   GROUNDING_LABEL,
+  GROUNDING_TONE,
   OUTCOME_LABEL,
+  OUTCOME_TONE,
   PRECEDENT_LABEL,
+  precedentStatusLabel,
+  statementReviewReason,
+  TARGET_MAPPING_ISSUE_LABEL,
+  verdictNote,
+  verdictReason,
+  reviewRecommendationReason,
   QUERY_TRACK_LABEL,
   RELATIONSHIP_LABEL,
+  RELATIONSHIP_TONE,
   SEMANTIC_STATUS_LABEL,
   sourceIdentityCaveat,
   TARGET_ROLE_LABEL,
   displayAttributeLabel,
   sourceDisplayLabel,
 } from "./scout-labels.ts";
+import { relationshipLabel } from "./scout-projection-roles.ts";
 
 test("a field ref renders the same however it separates words", () => {
   // The evidence map replaced only underscores while the document trace also
   // replaced dots and hyphens, so one ref rendered two ways across views.
-  assert.equal(displayAttributeLabel("vaccine.dose_volume"), "Dose Volume");
-  assert.equal(displayAttributeLabel("vaccine.cold-chain_window"), "Cold Chain Window");
-  assert.equal(displayAttributeLabel("dose_volume"), "Dose Volume");
+  assert.equal(displayAttributeLabel("vaccine.dose_volume"), "Dose volume");
+  assert.equal(displayAttributeLabel("vaccine.cold-chain_window"), "Cold chain window");
+  assert.equal(displayAttributeLabel("dose_volume"), "Dose volume");
 });
 
 test("a known acronym stays upper case anywhere in the label", () => {
-  assert.equal(displayAttributeLabel("vaccine.fda_alignment"), "FDA Alignment");
-  assert.equal(displayAttributeLabel("who_prequalification"), "WHO Prequalification");
+  assert.equal(displayAttributeLabel("vaccine.fda_alignment"), "FDA alignment");
+  assert.equal(displayAttributeLabel("who_prequalification"), "WHO prequalification");
+});
+
+test("a variable name is a phrase in sentence case, the same in every tool", () => {
+  assert.equal(displayAttributeLabel("vaccine.duration_of_protection"), "Duration of protection");
+  assert.equal(displayAttributeLabel("vaccine.cogs"), "COGS");
 });
 
 test("collapsed separators never produce empty words", () => {
-  assert.equal(displayAttributeLabel("vaccine.dose__volume"), "Dose Volume");
+  assert.equal(displayAttributeLabel("vaccine.dose__volume"), "Dose volume");
   assert.equal(displayAttributeLabel("vaccine..dose"), "Dose");
 });
 
@@ -354,7 +369,9 @@ test("how a source was matched is said in one place, and only where it matters",
   // It is load-bearing: `calibrationStatus` cannot report a verified basis unless every
   // admitted measurement is canonical, so this is what caps a cohort at "Limited".
   assert.equal(sourceIdentityCaveat("canonical"), "", "a matched record needs no caveat");
-  assert.equal(sourceIdentityCaveat("title_fallback"), "Matched by title only");
+  // Retired: Scout no longer matches a source by its title, so a saved status of that
+  // name is unknown here and invents no caveat.
+  assert.equal(sourceIdentityCaveat("title_fallback"), "");
   assert.equal(sourceIdentityCaveat("url_fallback"), "Matched by link only");
   assert.equal(sourceIdentityCaveat("anything_else"), "", "an unknown status invents no caveat");
 
@@ -426,5 +443,128 @@ test("the glossary and the tooltips list the same axes", () => {
     [...axes].sort(),
     [...titles].sort(),
     "the glossary and the tooltips disagree about which axes Scout has",
+  );
+});
+
+test("a stage that obtained no verdict reads as not assessed, never as a reading", () => {
+  // `not_assessed` is recorded by code when a model call failed. Shown as "Unrelated",
+  // "Grounding unknown" or "Outcome unknown" it would say the evidence was read and was
+  // silent, which is the one thing nobody observed. Neutral, because it is no signal.
+  const labels: [string, string][] = [
+    [RELATIONSHIP_LABEL.not_assessed, "Not assessed"],
+    [GROUNDING_LABEL.not_assessed, "Grounding not assessed"],
+    [PRECEDENT_LABEL.not_assessed, "Precedent not assessed"],
+    [OUTCOME_LABEL.not_assessed, "Outcome not assessed"],
+    [relationshipLabel("not_assessed"), "Product relation not assessed"],
+  ];
+  for (const [actual, expected] of labels) assert.equal(actual, expected);
+  assert.equal(RELATIONSHIP_TONE.not_assessed, "neutral");
+  assert.equal(GROUNDING_TONE.not_assessed, "neutral");
+  assert.equal(OUTCOME_TONE.not_assessed, "neutral");
+});
+
+test("a precedent that was not assessed is named once, not once per axis", () => {
+  // One classification decides both axes, so a failure leaves both `not_assessed`.
+  // "Precedent not assessed · Outcome not assessed" says one fact twice.
+  assert.equal(
+    precedentStatusLabel({ precedent: "not_assessed", outcome: "not_assessed" }),
+    "Precedent not assessed",
+  );
+  assert.equal(
+    precedentStatusLabel({ precedent: "direct", outcome: "mixed" }),
+    "Direct precedent · Mixed outcome",
+  );
+});
+
+test("an unassessed check shows no reason, because its reason is the pipeline's diagnostic", () => {
+  // Code wrote it, so it must not be set where a model's sentence goes.
+  assert.equal(verdictReason("not_assessed", "OpenAI request failed: timeout"), "");
+  assert.equal(verdictReason("thin", "Two small studies."), "Two small studies.");
+});
+
+test("an unresolved statement is explained from its codes, never from its reason's wording", () => {
+  // The page once matched phrases and a bracketed token out of `reason`, so rewording the
+  // backend's sentence silently changed what a reviewer was told.
+  const base = { reason: "Target mapping rejected.", classification: "mapping_failed" as const };
+  assert.equal(
+    statementReviewReason({ ...base, failure_code: "invalid_target_mapping", issue_codes: ["invalid_target_quote", "missing_field_links"] }),
+    "Scout could not create a complete, source-verifiable target from this statement. It remains outside retrieval and statistics. "
+      + `Failed checks: ${TARGET_MAPPING_ISSUE_LABEL.invalid_target_quote}; ${TARGET_MAPPING_ISSUE_LABEL.missing_field_links}.`,
+  );
+  assert.match(
+    statementReviewReason({ ...base, classification: "partial_target", failure_code: "invalid_target_mapping", issue_codes: ["duplicate_atomic_target"] }),
+    /^Validated targets from this passage were kept\./,
+  );
+  assert.match(
+    statementReviewReason({ ...base, failure_code: "invalid_model_response", issue_codes: [] }),
+    /one reliable review decision/,
+  );
+  // The wording a backend sentence happens to use decides nothing.
+  assert.equal(
+    statementReviewReason({ reason: "Target mapping rejected [invalid_target_quote].", classification: "uncertain", failure_code: "", issue_codes: [] }),
+    "Target mapping rejected [invalid_target_quote].",
+  );
+});
+
+test("every structural check has a reader's label", () => {
+  for (const label of Object.values(TARGET_MAPPING_ISSUE_LABEL)) {
+    assert.ok(label.trim() && !label.includes("_"), `"${label}" is not a reader's label`);
+  }
+});
+
+test("no evidence is the interface's own sentence, neutral on every axis", () => {
+  // Set by code when nothing retrieved reached a field: no model call and an empty reason.
+  // Neither a failure (`not_assessed`) nor the model's `unknown`, so it is named apart from
+  // both and never coloured as a finding.
+  for (const [name, map] of [["grounding", GROUNDING_LABEL], ["precedent", PRECEDENT_LABEL], ["outcome", OUTCOME_LABEL]] as const) {
+    assert.ok(map.no_evidence, `${name} has no label for no_evidence`);
+    assert.notEqual(map.no_evidence, map.unknown);
+    assert.notEqual(map.no_evidence, map.not_assessed);
+  }
+  assert.equal(GROUNDING_TONE.no_evidence, "neutral");
+  assert.equal(OUTCOME_TONE.no_evidence, "neutral");
+  // Named once, like a failure: one absence on both axes is one fact.
+  assert.equal(precedentStatusLabel({ precedent: "no_evidence", outcome: "no_evidence" }), PRECEDENT_LABEL.no_evidence);
+  // The note is what the interface says in place of a reason; a verdict has none.
+  assert.ok(verdictNote("no_evidence"));
+  assert.equal(verdictNote("unknown"), "");
+  assert.equal(verdictNote("not_assessed"), "");
+  assert.equal(verdictReason("no_evidence", ""), "");
+});
+
+test("not searched is the reviewer's choice, neutral and named once", () => {
+  // Set by code for a field left out at review: no search ran, so it is neither evidence
+  // being absent (`no_evidence`) nor a check failing (`not_assessed`).
+  for (const [name, map] of [["grounding", GROUNDING_LABEL], ["precedent", PRECEDENT_LABEL], ["outcome", OUTCOME_LABEL]] as const) {
+    assert.ok(map.not_searched, `${name} has no label for not_searched`);
+    assert.notEqual(map.not_searched, map.no_evidence);
+    assert.notEqual(map.not_searched, map.not_assessed);
+  }
+  assert.equal(GROUNDING_TONE.not_searched, "neutral");
+  assert.equal(OUTCOME_TONE.not_searched, "neutral");
+  assert.equal(precedentStatusLabel({ precedent: "not_searched", outcome: "not_searched" }), PRECEDENT_LABEL.not_searched);
+  assert.match(verdictNote("not_searched"), /excluded at review/i);
+  assert.equal(verdictReason("not_searched", "anything"), "");
+});
+
+test("an unavailable review is explained from its code, never from the failure's message", () => {
+  // The recorded reason on an unavailable review is the exception the call raised - a
+  // diagnostic, not a reviewer's sentence - so the page words it from the code.
+  const unavailable = reviewRecommendationReason({
+    ai_recommendation: "unavailable", ai_review_failure_code: "response_truncated",
+    ai_review_reason: "ModelResponseError: max_output_tokens",
+  });
+  assert.ok(unavailable);
+  assert.doesNotMatch(unavailable, /ModelResponseError|max_output_tokens/);
+  for (const code of ["response_truncated", "response_refused", "invalid_model_response", "provider_error"] as const) {
+    assert.notEqual(
+      reviewRecommendationReason({ ai_recommendation: "unavailable", ai_review_failure_code: code, ai_review_reason: "" }),
+      "",
+      `${code} has no explanation`,
+    );
+  }
+  assert.equal(
+    reviewRecommendationReason({ ai_recommendation: "admit", ai_review_failure_code: "", ai_review_reason: "Comparable cohort." }),
+    "Comparable cohort.",
   );
 });

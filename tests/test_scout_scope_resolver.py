@@ -15,8 +15,9 @@ from __future__ import annotations
 
 import unittest
 
-from services.scout.models import Attribute, RetrievalScopeLedger
+from services.scout.models import Attribute, DocumentSpan, RetrievalScopeLedger
 from services.scout.stages.scope_resolver import resolve_retrieval_scope
+from shared.errors import ModelResponseError
 
 
 class _Client:
@@ -28,7 +29,7 @@ class _Client:
 
     def call_structured(self, system_prompt, user_message, max_tokens, **kwargs):
         self.calls.append(user_message)
-        return {} if self.payload is None else dict(self.payload)
+        return {} if self.payload is None else {"reading": dict(self.payload)}
 
 
 def _countries(target: str, *, blocks: tuple[str, ...] = ("profile/b-0007",)) -> Attribute:
@@ -37,8 +38,8 @@ def _countries(target: str, *, blocks: tuple[str, ...] = ("profile/b-0007",)) ->
         description="Geographic markets and tiers.",
         evidence_domain="commercial_access",
         supplies_scope="region",
-        document_target=target,
-        block_ids=list(blocks),
+        document_spans=[DocumentSpan(quote=target, block_ids=list(blocks))] if target else [],
+        target_resolved=True,
     )
 
 
@@ -100,17 +101,18 @@ class DocumentSuppliedTests(unittest.TestCase):
         )
         self.assertEqual(ledger.entry("region").provenance, "unset")
 
-    def test_a_claimed_value_with_no_citation_is_dropped(self) -> None:
-        """The ledger would refuse it; dropping it here keeps the reason in the log."""
+    def test_a_claimed_value_with_no_citation_is_retried_then_fails_the_run(self) -> None:
+        """Recording it unset would silently widen the search on a failed reading."""
         client = _Client(
             {"found": "yes", "value": "Kenya", "reason": "x", "block_ids": []}
         )
-        ledger = resolve_retrieval_scope(
-            [_countries("Kenya.")], client, condition="malaria", intervention_class="v"
-        )
-        self.assertEqual(ledger.entry("region").provenance, "unset")
+        with self.assertRaises(ModelResponseError):
+            resolve_retrieval_scope(
+                [_countries("Kenya.")], client, condition="malaria", intervention_class="v"
+            )
+        self.assertEqual(len(client.calls), 2)
 
-    def test_a_citation_outside_the_attribute_is_dropped(self) -> None:
+    def test_a_citation_outside_the_attribute_is_not_a_reading(self) -> None:
         client = _Client(
             {
                 "found": "yes",
@@ -119,19 +121,19 @@ class DocumentSuppliedTests(unittest.TestCase):
                 "block_ids": ["profile/b-9999"],
             }
         )
-        ledger = resolve_retrieval_scope(
-            [_countries("Kenya.")], client, condition="malaria", intervention_class="v"
-        )
-        self.assertEqual(ledger.entry("region").provenance, "unset")
+        with self.assertRaises(ModelResponseError):
+            resolve_retrieval_scope(
+                [_countries("Kenya.")], client, condition="malaria", intervention_class="v"
+            )
 
-    def test_an_unreadable_reply_leaves_the_dimension_unset(self) -> None:
-        ledger = resolve_retrieval_scope(
-            [_countries("Kenya.")],
-            _Client(None),
-            condition="malaria",
-            intervention_class="v",
-        )
-        self.assertEqual(ledger.entry("region").provenance, "unset")
+    def test_an_unreadable_reply_is_a_failure_not_an_unset_dimension(self) -> None:
+        with self.assertRaises(ModelResponseError):
+            resolve_retrieval_scope(
+                [_countries("Kenya.")],
+                _Client(None),
+                condition="malaria",
+                intervention_class="v",
+            )
 
 
 class SupplierSelectionTests(unittest.TestCase):
@@ -255,15 +257,14 @@ class ScopeReachesQueryGenerationTests(unittest.TestCase):
     @staticmethod
     def _prompt(region: str) -> str:
         from services.scout.models import load_config
-        from services.scout.stages.query_extractor import (
-            build_system_prompt_for_geographic_variable,
-        )
+        from services.scout.stages.query_extractor import build_track_system_prompt
 
-        return build_system_prompt_for_geographic_variable(
+        return build_track_system_prompt(
+            "geographic",
             load_config("services/scout/configs/bmgf_ctpp_vaccine.yaml"),
             indication="malaria",
             attribute=Attribute(name="vaccine.efficacy", description="Efficacy."),
-            geographic_queries_per_variable=6,
+            count=6,
             region=region,
         )
 
@@ -297,18 +298,18 @@ class ScopeReachesQueryGenerationTests(unittest.TestCase):
         target, and a region bound into it would fix the one dimension a reader is least
         likely to want held constant when nothing direct exists.
         """
-        import inspect
+        from services.scout.models import load_config
+        from services.scout.stages.query_extractor import TRACKS, build_track_system_prompt
 
-        from services.scout.stages import query_extractor
-
-        for builder in (
-            query_extractor.build_system_prompt_for_variable,
-            query_extractor.build_system_prompt_for_counterfactual_variable,
-            query_extractor.build_system_prompt_for_precedent_variable,
-            query_extractor.build_system_prompt_for_adjacent_variable,
-        ):
-            with self.subTest(builder=builder.__name__):
-                self.assertNotIn("region", inspect.signature(builder).parameters)
+        config = load_config("services/scout/configs/bmgf_ctpp_vaccine.yaml")
+        for track in set(TRACKS) - {"geographic"}:
+            with self.subTest(track=track):
+                prompt = build_track_system_prompt(
+                    track, config, indication="malaria",
+                    attribute=Attribute(name="vaccine.efficacy", description="Efficacy."),
+                    count=2, region="Kenya",
+                )
+                self.assertNotIn("Kenya", prompt)
 
     def test_the_ledger_is_resolved_before_queries_are_generated(self) -> None:
         """Ordering is the whole fix. Resolved after retrieval it reaches the adapters
@@ -335,7 +336,11 @@ class ScopeReachesQueryGenerationTests(unittest.TestCase):
         class _Client:
             def call_structured(self, system_prompt, user_message, max_tokens, **kwargs):
                 seen.append(system_prompt)
-                return {"queries": []}
+                count = kwargs["schema"]["properties"]["queries"]["minItems"]
+                return {"queries": [
+                    {"query": f"malaria vaccine efficacy {index}", "doc_block_ids": []}
+                    for index in range(count)
+                ]}
 
         attribute = Attribute(
             name="vaccine.efficacy",
@@ -354,7 +359,6 @@ class ScopeReachesQueryGenerationTests(unittest.TestCase):
                 condition=("malaria", "header"),
                 region=("sub-Saharan Africa", "document", ("profile/b-0001",)),
             ),
-            queries_per_variable=1,
             document_context="[profile/b-0001] 90% efficacy",
         )
         geographic = [p for p in seen if "Global-South" in p]

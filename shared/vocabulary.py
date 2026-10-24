@@ -17,7 +17,9 @@ file in both places would be two answers that could disagree.
 from __future__ import annotations
 
 from dataclasses import dataclass
+from functools import lru_cache
 from pathlib import Path
+import json
 import re
 
 import yaml
@@ -179,9 +181,20 @@ ENTITY_TYPES = frozenset(
 
 
 def _indications_document() -> dict[str, object]:
-    if not INDICATIONS_VOCAB.exists():
-        return {}
-    with INDICATIONS_VOCAB.open("r", encoding="utf-8") as handle:
+    return _vocabulary_document(INDICATIONS_VOCAB, "indication")
+
+
+@lru_cache(maxsize=None)
+def _vocabulary_document(path: Path, kind: str) -> dict[str, object]:
+    """One shared vocabulary file, read once per process and only ever read from.
+
+    A missing file raises rather than reading as empty: an empty indication list
+    offers no choice in any picker and validates nothing, which looks like a
+    vocabulary with no entries rather than a deployment missing a file.
+    """
+    if not path.exists():
+        raise LookupError(f"Shared {kind} vocabulary missing: {path.name}")
+    with path.open("r", encoding="utf-8") as handle:
         data = yaml.safe_load(handle) or {}
     return data if isinstance(data, dict) else {}
 
@@ -267,11 +280,7 @@ def attribute_definitions(intervention_class: str) -> tuple[AttributeDefinition,
     vocabulary, and this module is its one reader: two readers of one file are two answers
     that can disagree about what the vocabulary says.
     """
-    if not ATTRIBUTES_VOCAB.exists():
-        raise LookupError(f"Shared attribute vocabulary missing: {ATTRIBUTES_VOCAB}")
-    with ATTRIBUTES_VOCAB.open("r", encoding="utf-8") as handle:
-        data = yaml.safe_load(handle) or {}
-    items = data.get(intervention_class) or []
+    items = _vocabulary_document(ATTRIBUTES_VOCAB, "attribute").get(intervention_class) or []
     return tuple(
         AttributeDefinition(
             name=item["name"],
@@ -287,9 +296,9 @@ def search_term(tag: str) -> str:
     """One config tag as it should read inside a query or a prompt sentence.
 
     Both context tags that name subject matter need this — the indication and the
-    intervention class. A class is interpolated into eight prompt sentences and joined
-    into the fallback query beside the indication, so `monoclonal_antibody` has exactly
-    the same two jobs, and exactly the same conflict, as `group_b_streptococcus`.
+    intervention class. Both are interpolated into prompt sentences and carried into the
+    text that retrieval is planned from, so `monoclonal_antibody` has exactly the same
+    two jobs, and exactly the same conflict, as `group_b_streptococcus`.
 
     A tag is stored as a stable lowercase key and travels into retrieval
     text, so the two needs collide the moment a name has more than one word:
@@ -298,9 +307,44 @@ def search_term(tag: str) -> str:
     indication beside them was not, which is why the vocabulary was confined to
     single words — and why the two multi-word names it needed became `tb` and `gbs`.
 
-    Here rather than at each call site because it has two consumers that must not
-    diverge: the query fallback that joins the tag into text, and the configuration
-    framing that substitutes it into a prompt sentence. A tag rendered one way in a
-    query and another in the instructions about that query is the drift this prevents.
+    Here rather than at each call site because its consumers must not diverge: the
+    pipeline that carries the tag into retrieval text, and the configuration framing
+    that substitutes it into a prompt sentence. A tag rendered one way in a query and
+    another in the instructions about that query is the drift this prevents.
     """
     return tag.replace("_", " ").strip()
+
+
+@lru_cache(maxsize=1)
+def _display_labels() -> dict[str, object]:
+    return json.loads((Path(__file__).with_name("display_labels.json")).read_text(encoding="utf-8"))
+
+
+def _label_word(word: str, *, first: bool) -> str:
+    labels = _display_labels()
+    lower = word.lower()
+    special = labels["special"]
+    if lower in special:
+        return special[lower]
+    if lower in labels["acronyms"]:
+        return lower.upper()
+    return lower[:1].upper() + lower[1:] if first else lower
+
+
+def attribute_label(name: str) -> str:
+    """A variable's name as a reader sees it: "Duration of protection", "COGS".
+
+    Sentence case with the shared acronyms, the same as the web's `displayAttributeLabel`,
+    so a Drafter row on the page and in its Word export name a variable alike.
+    """
+    words = [word for word in re.split(r"[._-]+", name.split(".", 1)[-1]) if word]
+    words = [part for word in words for part in word.split()]
+    return " ".join(_label_word(word, first=index == 0) for index, word in enumerate(words))
+
+
+def display_label(key: str) -> str:
+    """A configuration key as a reader sees it: "Respiratory Syncytial Virus", "iTPP".
+
+    Title case with the shared acronyms, the same as the web's `displayLabel`.
+    """
+    return " ".join(_label_word(word, first=True) for word in key.split("_") if word)

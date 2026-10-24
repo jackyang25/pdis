@@ -5,19 +5,18 @@ import {
   GROUNDING_LABEL,
   GROUNDING_TONE,
   RELATIONSHIP_LABEL,
-  PRECEDENT_LABEL,
-  OUTCOME_LABEL,
   OUTCOME_TONE,
+  precedentStatusLabel,
+  verdictReason,
 } from "./scout-labels.ts";
 import type { Tone } from "./tone.ts";
 import type {
   Conformity,
-  EvidenceAssessment,
   Finding,
   Match,
-  PrecedentSignal,
   ScoutResponse,
 } from "./api";
+import { countLabel } from "./count-label.ts";
 
 export { displayAttributeLabel };
 
@@ -71,6 +70,7 @@ export type EvidenceMapEdgeKind =
   | "extends"
   | "confirms"
   | "unrelated"
+  | "not_assessed"
   | "supported_by";
 
 export type EvidenceMapEdge = {
@@ -153,7 +153,11 @@ function selectVisibleMatches(
   selectedByAnalysis: Set<string>,
   limit: number,
 ): Match[] {
-  const related = matches.filter((match) => match.relation !== "unrelated");
+  // Neither an unrelated insight nor one no relation was obtained for says anything about
+  // the target, so a sample reaches for them last.
+  const related = matches.filter(
+    (match) => match.relation !== "unrelated" && match.relation !== "not_assessed",
+  );
   const pool = related.length > 0 ? related : matches;
   const selected: Match[] = [];
   const selectedKeys = new Set<string>();
@@ -303,7 +307,11 @@ export function buildScoutEvidenceMap(
 
   const fieldId = `field:${attributeRef}`;
   const signals: EvidenceMapSignal[] = [];
-  if (assessment) {
+  // Left out at review, which is one fact rather than two verdicts on axes that never ran.
+  const notSearched = assessment?.strength === "not_searched";
+  if (notSearched) {
+    signals.push({ label: "Evidence search", value: GROUNDING_LABEL.not_searched, tone: "neutral" });
+  } else if (assessment) {
     signals.push({
       label: "Grounding",
       value: GROUNDING_LABEL[assessment.strength],
@@ -326,14 +334,14 @@ export function buildScoutEvidenceMap(
     } else {
       // A rate would have to blend incompatible targets, so report the cohort
       // size only; the per-target split sits in this node's meta line.
-      value = `${admitted} comparator${admitted === 1 ? "" : "s"}`;
+      value = countLabel(admitted, "comparator");
     }
     signals.push({ label: "Quantitative calibration", value, tone: "neutral" });
   }
-  if (precedent) {
+  if (precedent && !notSearched) {
     signals.push({
       label: "Precedent",
-      value: `${PRECEDENT_LABEL[precedent.precedent]} · ${OUTCOME_LABEL[precedent.outcome]}`,
+      value: precedentStatusLabel(precedent),
       tone: OUTCOME_TONE[precedent.outcome],
     });
   }
@@ -348,7 +356,7 @@ export function buildScoutEvidenceMap(
       summaryMode: "interface",
       meta: [
         conformities.length > 1 ? `${conformities.length} numeric targets` : null,
-        `${uniqueMatches.length} insight${uniqueMatches.length === 1 ? "" : "s"}`,
+        countLabel(uniqueMatches.length, "insight"),
       ]
         .filter(Boolean)
         .join(" · "),
@@ -368,7 +376,7 @@ export function buildScoutEvidenceMap(
       title: "Extracted target",
       summary: variable.document_target,
       summaryMode: "quoted",
-      meta: `${variable.block_ids?.length ?? 0} block${variable.block_ids?.length === 1 ? "" : "s"}`,
+      meta: countLabel(variable.block_ids?.length ?? 0, "block"),
       blockIds: variable.block_ids,
     });
     edges.push({
@@ -404,8 +412,8 @@ export function buildScoutEvidenceMap(
       title: RELATIONSHIP_LABEL[match.relation],
       summary: match.insight.statement,
       summaryMode: "reading",
-      detail: match.reason,
-      meta: `${findings.length} source${findings.length === 1 ? "" : "s"}`,
+      detail: verdictReason(match.relation, match.reason),
+      meta: countLabel(findings.length, "source"),
       relation: match.relation,
       blockIds: match.doc_block_ids,
       queries: match.insight.query ? [match.insight.query] : [],

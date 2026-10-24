@@ -97,10 +97,21 @@ naming split that came with it, where one axis was `adherence` in the data and
 All included rubrics share one bounded unit-work queue per document run (24
 concurrent unit calls maximum), using `shared.batching.map_ordered`. Work is
 interleaved across rubrics so a large template does not hold up every guideline.
-There are no nested rubric or section worker pools. Single-rubric entry points
-use the same queue. Progress counts completed units once across the whole run;
-result order remains the authored rubric/section/unit order. Retries stay inside
-their unit's worker slot. Parsing happens once before assessment and consistency
+There are no nested rubric or section worker pools. Progress counts completed
+units once across the whole run; result order remains the authored
+rubric/section/unit order. Retries stay inside their unit's worker slot: one
+repair attempt for an invalid answer, and one for an answer cut off at its limit
+(`shared.ai.request_validated`): at a lower effort, or with twice the budget at the
+lowest. Units run on the reasoning tier at low effort with an 8000-token budget; the
+consistency pass at medium effort with 16000. The budgets are the stages' own, not the
+route's. Each unit is offered only the absence verdict its rubric allows -
+`not_present` when required, `not_applicable` when optional. Every distinct request is
+measured against `shared.request_budget` before any unit is sent.
+
+The system prompt is fixed for a rubric. A request carries the review context (the
+intervention class and the selected disease, as context rather than evidence), the
+section's blocks, then its images, then the unit being asked about and its
+expectations, so every unit of a section shares one request prefix. Parsing happens once before assessment and consistency
 once afterward. A failed unit aborts publication rather than returning partial
 reviews; already-started independent work may finish before the error returns.
 
@@ -128,7 +139,12 @@ configs.
 are process facts kept outside the assessment, because "not checked" must never
 read as "nothing found". A failed unit stops the run, so a partial assessment
 cannot become a downloadable result; the cross-section pass is additive and reports
-its own failure instead.
+its own failure instead — `consistency_status: failed` with a machine-readable
+`consistency_failure_code` (`response_truncated`, `response_refused`,
+`invalid_model_response` or `provider_error`), and
+the assessed reviews intact. Its conflicts belong to the document, not to a rubric,
+so they rank after the longest review's worklist and follow the units in whichever
+review is read.
 
 ## Layout
 

@@ -53,7 +53,7 @@ function NoticeBody({ summary, children }: { summary?: string; children: ReactNo
     <div className="min-w-0 flex-1 space-y-2">
       {summary ? (
         <details>
-          <DisclosureSummary className="w-fit rounded-sm font-medium focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
+          <DisclosureSummary className="w-fit rounded-sm font-medium focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/60">
             {summary}
           </DisclosureSummary>
           <div className={cn("mt-2 space-y-2 break-words", DISCLOSURE_MOTION)}>{children}</div>

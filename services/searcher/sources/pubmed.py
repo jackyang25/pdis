@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from ..models import RetrievalIntent, SearchRequest, SearchRuntime, SourceSpec
-from ..stages.pubmed import search_pubmed
+from ..stages.pubmed import NCBI_RATE_GROUP, search_pubmed
 from .literature import active_tracks, build_pubmed_query, queries_for_track
 from .planning import request_lineage
 
@@ -18,6 +18,10 @@ class PubMedSource:
         reads=("text", "condition", "intervention", "product", "population", "outcome", "subject"),
         feeds=("insights",),
         honors_date_bound=True,
+        # Pacing is NCBI's, shared with every E-utilities call and dependent on whether
+        # a key is configured, so the stage paces each call itself (`NCBI_RATE_GROUP`).
+        rate_group=NCBI_RATE_GROUP,
+        max_results=20,
     )
 
     def plan(self, intent: RetrievalIntent) -> list[SearchRequest]:
@@ -41,9 +45,10 @@ class PubMedSource:
             )
         return requests
 
-    def search(self, request, runtime: SearchRuntime, *, max_tokens: int, max_uses: int):
+    def search(self, request, runtime: SearchRuntime, *, max_tokens: int):
         return search_pubmed(
             request.query,
-            api_key=runtime.ncbi_api_key,
+            runtime,
+            max_results=self.spec.max_results,
             published_since=request.option("published_since"),
         )

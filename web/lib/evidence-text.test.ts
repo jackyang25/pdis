@@ -39,8 +39,6 @@ const RESULT_VIEWS = [
 const RULE_EXEMPT: Record<string, string> = {
   "components/assistant/ask.tsx":
     "the assistant indenting its own answer: a model's prose, muted, not the document's words",
-  "components/labeled-item.tsx":
-    "Inspector's coloured status rule, amber or foreground rather than the neutral border",
 };
 
 /**

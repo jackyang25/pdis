@@ -11,7 +11,8 @@ import {
 } from "@/components/ui/result-toolbar";
 import { ResultSearch } from "@/components/ui/result-search";
 import { useTraceFocus } from "@/lib/trace-focus";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { memo, useCallback, useEffect, useMemo, useState } from "react";
+import { useShallow } from "zustand/react/shallow";
 import { CollapsibleCard } from "@/components/collapsible-card";
 import { EmptyState } from "@/components/empty-state";
 import { VerdictCounts } from "@/components/ui/verdict-counts";
@@ -33,21 +34,20 @@ import { HeaderGuard } from "@/components/header-guard";
 import { InspectorSignalHelp } from "@/components/inspector-signal-help";
 import { InspectorDocumentTrace } from "@/components/inspector-document-trace";
 import { PriorityPanel } from "@/components/ui/priority-panel";
-import { SectionHeading } from "@/components/ui/section-heading";
 import { InterfaceNote, Reading } from "@/components/ui/evidence-text";
 import { inspectorAnnotationId } from "@/lib/inspector-document-trace";
 import { PageHeader } from "@/components/page-header";
 import { RunPanel } from "@/components/run-panel";
 import { RunHistory } from "@/components/run-history";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { TabsContent, TabsTrigger } from "@/components/ui/tabs";
 import {
   ASSESSED_VERDICTS,
   VERDICTS,
   VERDICT_DESCRIPTION,
   VERDICT_LABEL,
+  VERDICT_TONE,
   runInspector,
   sectionShortfalls,
-  worklist,
   type Assessment,
   type Header,
   type InspectionResult,
@@ -65,21 +65,16 @@ import {
   runLabel,
   runScope,
   unpackInspectorResult,
-  readResultIdentity,
 } from "@/lib/result-file";
 import {
   INSPECTOR_PRIORITY_FOCUS,
   inspectorPriorityFindings,
 } from "@/lib/inspector-priorities";
-import {
-  IMPORT_LIMIT_MESSAGE,
-  MAX_RESULTS_PER_TOOL,
-  RESULT_LIMIT_MESSAGE,
-  useInspectorSession,
-} from "@/lib/session";
+import { useInspectorSession } from "@/lib/session";
+import { importTool, runTool } from "@/lib/tool-run";
 import { usePriorityReading } from "@/lib/priority-reading";
 import { toolAuthority } from "@/lib/tools";
-import { TONE_TEXT, type Tone } from "@/lib/tone";
+import { ROW_TITLE } from "@/lib/typography";
 import { cn } from "@/lib/utils";
 import { TRIGGER_AT_LINE_START } from "@/components/ui/provenance";
 
@@ -93,10 +88,7 @@ const INSPECTOR_STEPS = [
 export default function InspectorPage() {
   return (
     <>
-      <PageHeader
-        title="Inspector"
-        description="An iTPP, cTPP, or IPDP against its authored rubrics: what the document specifies and what each requirement leaves unresolved."
-      />
+      <PageHeader title="Inspector" description={toolAuthority("inspector")} />
       <HeaderGuard>
         {(header, ready) => (
           <InspectorView header={header as Header} ready={ready} />
@@ -107,24 +99,10 @@ export default function InspectorPage() {
 }
 
 function InspectorView({ header, ready }: { header: Header; ready: boolean }) {
-  const {
-    result,
-    busy,
-    stage,
-    progress,
-    error,
-    results,
-    selectedId,
-    selectResult,
-    removeResult,
-    addResult,
-    setResult,
-    setBusy,
-    startedAt,
-    setStage,
-    setProgress,
-    setError,
-  } = useInspectorSession();
+  const { result, busy, stage, progress, error, selectedId, startedAt } = useInspectorSession(
+    useShallow(({ result, busy, stage, progress, error, selectedId, startedAt }) =>
+      ({ result, busy, stage, progress, error, selectedId, startedAt })),
+  );
   const [showRunPanel, setShowRunPanel] = useState(!result);
   const catalog = useInspectorConfiguration(header);
   const profileKey = JSON.stringify([header.org, header.source_type, header.intervention_class]);
@@ -135,53 +113,20 @@ function InspectorView({ header, ready }: { header: Header; ready: boolean }) {
     if (result) setShowRunPanel(false);
   }, [result]);
 
-  async function handleRun(file: File) {
-    setBusy(true);
-    setError(null);
-    setStage(null);
-    setProgress(null);
-    try {
-      const response = await runInspector(
-        file,
-        header,
-        (nextStage, nextProgress) => {
-          setStage(nextStage);
-          setProgress(nextProgress ?? null);
-        },
-        Object.fromEntries(catalog.fields.map(field => [field.key, facts[field.key] ?? "unknown"])),
-      );
-      addResult(response);
-    } catch (runError) {
-      setError((runError as Error).message);
-    } finally {
-      setBusy(false);
-    }
+  function handleRun(file: File) {
+    const productFacts = Object.fromEntries(
+      catalog.fields.map(field => [field.key, facts[field.key] ?? "unknown"]),
+    );
+    void runTool(useInspectorSession, (report) => runInspector(file, header, report, productFacts));
   }
 
-  async function handleImport(file: File) {
-    setError(null);
-    if (results.length >= MAX_RESULTS_PER_TOOL) {
-      setError(IMPORT_LIMIT_MESSAGE);
-      return;
-    }
-    try {
-      const raw = JSON.parse(await file.text());
-      const parsed = unpackInspectorResult(raw);
-      if (!parsed?.inspection || !Array.isArray(parsed.inspection.reviews)) {
-        throw new Error("not an Inspector result file");
-      }
-      setStage(null);
-      setProgress(null);
-      addResult(parsed, readResultIdentity(raw));
-    } catch (importError) {
-      setError(`Could not import result: ${(importError as Error).message}`);
-    }
-  }
+  const showSetup = useCallback(() => setShowRunPanel(true), []);
 
   return (
     <div className="flex flex-col gap-6">
       {(busy || !result || showRunPanel) && (
         <RunPanel
+            onCancel={result ? () => setShowRunPanel(false) : undefined}
           configuration={<ConfigurationFields>
             {catalog.fields.length > 0 && <>
               <ConfigSectionHeading>Product context</ConfigSectionHeading>
@@ -207,7 +152,7 @@ function InspectorView({ header, ready }: { header: Header; ready: boolean }) {
           progress={progress}
           runDisabled={!ready || !catalog.ready}
           hint={ready ? undefined : "Complete the configuration to run."}
-          onImport={handleImport}
+          onImport={(file) => importTool(useInspectorSession, file, unpackInspectorResult)}
         />
       )}
       {error && <ErrorMessage>{error}</ErrorMessage>}
@@ -215,27 +160,31 @@ function InspectorView({ header, ready }: { header: Header; ready: boolean }) {
         <InspectionResultView
           key={selectedId}
           result={result}
-          onNewAnalysis={() => setShowRunPanel(true)}
+          onNewAnalysis={showSetup}
         />
       )}
     </div>
   );
 }
 
-function InspectionResultView({
+/** Memoized so a run's progress ticks, which re-render the page, leave a held result alone. */
+const InspectionResultView = memo(function InspectionResultView({
   result,
   onNewAnalysis,
 }: {
   result: InspectorResponse;
   onNewAnalysis: () => void;
 }) {
-  const { results, selectedId, selectResult, removeResult } =
-    useInspectorSession();
+  const { results, selectedId, selectResult, removeResult } = useInspectorSession(
+    useShallow(({ results, selectedId, selectResult, removeResult }) =>
+      ({ results, selectedId, selectResult, removeResult })),
+  );
+  const held = results.find((entry) => entry.id === selectedId);
   const run = result.inspection;
   const [rubricId, setRubricId] = useState(run.reviews[0].rubric.id);
   const inspection = useMemo(() => projectInspectionReview(run, rubricId), [run, rubricId]);
   const final = isInspectorResultFinal(result);
-  const [resultTab, setResultTab] = useState("trace");
+  const [resultTab, setResultTab] = useState("sections");
   const revealTrace = useCallback(() => setResultTab("trace"), []);
   const {
     focus: traceFocus,
@@ -289,9 +238,15 @@ function InspectionResultView({
         <div className="w-full max-w-md">
           <ConfigField label="Rubric" help={<InspectorRubricDetails rubric={inspection.rubric} />}
             note={<ConfigHelp>Rubric updated: {inspection.rubric.updated_on ?? "not recorded"}</ConfigHelp>}>
-            <ConfigSelect value={rubricId} options={run.reviews.map(({ rubric }) => ({ value: rubric.id,
-              label: rubric.revision ? `${rubric.display_name} · v${rubric.revision}` : rubric.display_name }))}
-              onChange={value => { if (traceFocus) consumeTraceFocus(traceFocus); setRubricId(value); }} />
+            {/* A picker only when there is a choice. With one rubric it was a dropdown
+                holding one option, on every Inspector result. */}
+            {run.reviews.length > 1 ? (
+              <ConfigSelect value={rubricId} options={run.reviews.map(({ rubric }) => ({ value: rubric.id,
+                label: rubricLabel(rubric) }))}
+                onChange={value => { if (traceFocus) consumeTraceFocus(traceFocus); setRubricId(value); }} />
+            ) : (
+              <p className="text-xs font-medium text-foreground">{rubricLabel(inspection.rubric)}</p>
+            )}
           </ConfigField>
         </div>
         <InspectorRubricOmissions resolutions={run.rubric_resolutions} />
@@ -307,11 +262,13 @@ function InspectionResultView({
       onTabChange={setResultTab}
       tabs={
         <>
-          {/* The document is what Inspector is about, so it opens on the
-              document. Scout opens on its evidence for the same reason. */}
-          <TabsTrigger value="trace">Documents</TabsTrigger>
+          {/* Findings first, as in every tool that judges a document: Aligner opens on its
+              comparisons, Screener on its questions, Scout on its fields. Opening on the
+              document put the priorities card, which lives with the sections, out of sight
+              on arrival. */}
           <TabsTrigger value="sections">Sections</TabsTrigger>
           <TabsTrigger value="consistency">Consistency</TabsTrigger>
+          <TabsTrigger value="trace">Documents</TabsTrigger>
         </>
       }
       priorities={{
@@ -331,10 +288,10 @@ function InspectionResultView({
           <FinalResultActions
             onNewAnalysis={onNewAnalysis}
             download={
-              final
+              final && held
                 ? {
                     filename: runFilename("inspector"),
-                    data: packInspectorResult(result),
+                    data: () => packInspectorResult(result, held),
                   }
                 : undefined
             }
@@ -372,7 +329,6 @@ function InspectionResultView({
               Sections tab and bring their own inset, so a padded wrapper put them 24px
               inside everything else on the card. The sentences above them take it instead. */}
           <div className="py-5 sm:py-6">
-            <p className="mb-3 px-5 text-xs text-muted-foreground sm:px-6">Document-wide check · shared across rubrics</p>
             <ConsistencyView
               findings={inspection.document_findings ?? []}
               status={inspection.consistency_status}
@@ -382,7 +338,7 @@ function InspectionResultView({
     </ResultLayout>
     </DocumentSourceProvider>
   );
-}
+});
 
 function SectionsList({
   sections,
@@ -467,12 +423,17 @@ function SectionsList({
  * The section above is still a disclosure, and that is the one that earns it: opening a
  * section is choosing what to read, and there are six of them rather than thirty-two.
  */
+function rubricLabel(rubric: RubricSnapshot): string {
+  return rubric.revision ? `${rubric.display_name} · v${rubric.revision}` : rubric.display_name;
+}
+
 function AssessmentRow({
   item,
   title,
   requirement,
   rubric,
   showVerdict = title !== null,
+  hideStatement = false,
 }: {
   item: Assessment;
   /** What this is about. The section's name where a unit declares no variable. */
@@ -481,11 +442,18 @@ function AssessmentRow({
   rubric?: RubricSnapshot;
   /** Single-unit cards already show this in their header; standalone findings do not. */
   showVerdict?: boolean;
+  /**
+   * For an absent section's units, whose statements assembly writes rather than a model:
+   * "The Introduction section is not present in the document. It should cover: …" beside
+   * a "Not present" pill, a "Section not found" line and the rubric requirement said one
+   * fact three times - and under the authorship star, over words no model wrote.
+   */
+  hideStatement?: boolean;
 }) {
   return (
     <div className="px-5 py-3.5 sm:px-6">
       {(title !== null || showVerdict) && <div className="flex flex-wrap items-baseline gap-x-4 gap-y-2">
-        {title !== null && <p className="min-w-0 flex-1 basis-48 text-sm font-medium">{title}</p>}
+        {title !== null && <p className={cn("min-w-0 flex-1 basis-48", ROW_TITLE)}>{title}</p>}
         {/* Right-aligned beside a title; with no title it leads the row, where the sentence
             under it starts, rather than floating alone at the far end of an empty line. */}
         {showVerdict && <div className={cn("flex shrink-0 items-center gap-2", title !== null && "ml-auto")}>
@@ -501,7 +469,7 @@ function AssessmentRow({
       {/* The verdict is on the pill and nowhere else. It used to be repeated here as
           well, which made sense when a unit held several findings and each carried its
           own reason; with one verdict per unit the second copy says nothing. */}
-      {item.statement && (
+      {!hideStatement && item.statement && (
         <Reading size="prominent" className="mt-1">
           {item.statement}
         </Reading>
@@ -540,6 +508,8 @@ function SectionCard({ section, rubric }: { section: SectionAssessment; rubric: 
           rounded border inside a rounded border was the third nesting level on a page
           Scout renders with two. */}
       <div className="divide-y divide-border/60">
+        {/* An absent section says so once, here; what it should have covered is the
+            rubric requirement under each unit. */}
         {section.is_present === false && (
           <p className="px-5 py-3.5 text-xs text-muted-foreground sm:px-6">
             Section not found in the document
@@ -552,6 +522,7 @@ function SectionCard({ section, rubric }: { section: SectionAssessment; rubric: 
             title={section.units.length === 1 && unit.variable_name === null ? null : unit.variable_name ?? section.section_name}
             requirement={rubric.requirements.find(requirement => requirement.id === unit.id)}
             rubric={rubric}
+            hideStatement={section.is_present === false}
           />
         ))}
       </div>
@@ -686,10 +657,13 @@ function ConsistencyView({
   return (
     <div>
       {/* The count and the name are in the toolbar above; what is left is the one thing a
-          reader cannot see, which is how much of the document the pass actually covered. */}
-      <InterfaceNote className="mx-5 mb-3 sm:mx-6">
-        {consistencyDescription(status)}
-      </InterfaceNote>
+          reader cannot see - how much of the document the pass covered - and only when it
+          was less than all of it. A complete pass is what a reader assumes. */}
+      {status !== "complete" && (
+        <InterfaceNote className="mx-5 mb-3 sm:mx-6">
+          {consistencyDescription(status)}
+        </InterfaceNote>
+      )}
       {/* The same rows the Sections tab shows, in the same divided list. A conflict is
           the same shape as a unit - one verdict, one sentence, the blocks it was read
           from - and it used to render as a bordered card instead, so the same kind of
@@ -742,33 +716,3 @@ function StatusPill({ status }: { status: Verdict }) {
     />
   );
 }
-
-/* The short forms live in `lib/api.ts` as `VERDICT_LABEL`. They used to live here, so the
-   document trace could not reach them and rendered the description as pill text instead.
-   Colour is decided once here as a tone and applied by `VerdictPill`. */
-
-/**
- * One tone per verdict. The only place the judgement is made.
- *
- * The pill fills with it and the section's count row dots with it - two shapes, one
- * decision, per the rule in `lib/tone.ts`. Two maps here would be the same verdict decided
- * twice, which is how a status came to be one colour on a unit and another on the section
- * summarising it.
- *
- * The shortfalls are not graded against each other. `vague` is the one that leaves the
- * requirement covered - the content is all there and unusable - so it reads as caution;
- * the rest leave something absent and read as danger. That split is the vocabulary's own
- * worst-first order, not a severity scale invented here.
- */
-const VERDICT_TONE: Record<Verdict, Tone> = {
-  specified: "success",
-  not_present: "danger",
-  placeholder: "danger",
-  insufficient: "danger",
-  vague: "warning",
-  section_conflict: "danger",
-  not_applicable: "neutral",
-};
-
-/* The tint is applied by `VerdictPill`, which reads the tone directly. A map from
-   verdict to class lived here as well, which is one lookup more than the fact needs. */

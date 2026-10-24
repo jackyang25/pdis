@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import contextvars
 import threading
 import unittest
 
@@ -106,6 +107,47 @@ class MapOrderedTests(unittest.TestCase):
             raise AssertionError("no work should run")
 
         self.assertEqual(map_ordered([], unreachable, workers=4), [])
+
+    def test_progress_rises_once_per_item_to_the_total(self) -> None:
+        seen: list[tuple[int, int]] = []
+        map_ordered(list(range(5)), lambda value: value, workers=3,
+                    on_progress=lambda done, total: seen.append((done, total)))
+        self.assertEqual(seen, [(1, 5), (2, 5), (3, 5), (4, 5), (5, 5)])
+
+    def test_a_failure_cancels_calls_not_yet_started(self) -> None:
+        ran: list[int] = []
+
+        def first_fails(value: int) -> int:
+            ran.append(value)
+            if value == 0:
+                raise RuntimeError("provider failed")
+            return value
+
+        with self.assertRaisesRegex(RuntimeError, "provider failed"):
+            map_ordered(list(range(50)), first_fails, workers=1)
+        self.assertLess(len(ran), 5)
+
+    def test_a_progress_callback_that_raises_cancels_the_rest(self) -> None:
+        """A run cancelled from its progress callback must not keep spending calls."""
+        class Cancelled(Exception):
+            pass
+
+        ran: list[int] = []
+
+        def stop(_done: int, _total: int) -> None:
+            raise Cancelled()
+
+        with self.assertRaises(Cancelled):
+            map_ordered(list(range(50)), ran.append, workers=1, on_progress=stop)
+        self.assertLess(len(ran), 5)
+
+    def test_context_variables_reach_worker_threads(self) -> None:
+        request_id = contextvars.ContextVar("request_id", default="unset")
+        request_id.set("req-7")
+        self.assertEqual(
+            map_ordered([1, 2], lambda _value: request_id.get(), workers=2),
+            ["req-7", "req-7"],
+        )
 
 
 if __name__ == "__main__":

@@ -13,10 +13,10 @@ from datetime import date
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Protocol
 
-from shared.openai_client import ModelTask
+from shared.ai import FAILURE_CODES, Effort, ModelTask, Verbosity
 from shared.spans import DocumentSpan
 
-from services.searcher import Finding, QueryFacets, source_keys
+from services.searcher import Finding, OutcomeWarning, QueryFacets, source_keys
 from shared.vocabulary import (
     ENTITY_TYPES,
     EVIDENCE_DOMAINS,
@@ -68,6 +68,16 @@ VALID_EVIDENCE_STRENGTHS = {
 VALID_PRECEDENT = {"direct", "adjacent", "none", "unknown"}
 VALID_PRECEDENT_OUTCOMES = {"favorable", "mixed", "unfavorable", "unknown"}
 VALID_CONTEXT_STATUSES = {"match", "mismatch", "uncertain"}
+NOT_ASSESSED = "not_assessed"
+"""The status this pipeline records when a stage obtained no verdict.
+
+Every axis above is a closed vocabulary the model is offered; this value is never
+offered, so it can only mean that the stage failed for that subject. It always
+travels with a ``failure_code`` from ``shared.ai.FAILURE_CODES`` and the subject is
+kept, because dropping it - or filing it as ``unrelated`` or ``unknown`` - would
+read as something the evidence said. ``SourcePassageDisposition`` uses the same
+token for the same claim.
+"""
 TARGET_RELATIONSHIPS = frozenset(
     {"direct", "analogous", "adjacent", "unrelated", "unknown"}
 )
@@ -82,6 +92,43 @@ its insight is `unrelated` on that one.
 Kept as-is rather than renamed: the field name carries the axis, and changing a
 published member would invalidate every saved Scout result for a wording gain.
 """
+NO_EVIDENCE = "no_evidence"
+"""The status this pipeline records when no insight reached a variable.
+
+Grounding and both precedent axes are judgements about retrieved evidence, so a
+variable that nothing retrieved bore on gets no model call and this value instead.
+It is neither the model's ``unknown`` ("the evidence I was shown cannot be judged")
+nor ``NOT_ASSESSED`` ("a stage failed"): nothing failed, and no evidence was shown.
+Its reason says which absence it was - retrieval returned nothing for the variable,
+or what it returned yielded no insight about it. Never offered to a model.
+"""
+NOT_SEARCHED = "not_searched"
+"""The status recorded for a searchable variable the reviewer left out of evidence search.
+
+Set at target review, in ``ScoutResult.not_searched_fields``, and recorded by code on
+grounding and both precedent axes: no query was planned for the variable, so nothing was
+retrieved, read or judged. It is the reviewer's decision, not an observation - unlike
+``NO_EVIDENCE`` (searched, nothing reached it) and ``NOT_ASSESSED`` (a stage failed) - so
+it carries no failure code, no reason and no evidence. Never offered to a model.
+"""
+#: What a result may hold on each axis: the model's closed vocabulary plus
+#: ``NOT_ASSESSED`` and, where nothing can reach the model, ``NO_EVIDENCE`` and
+#: ``NOT_SEARCHED``. Offer a model the ``VALID_*``/``TARGET_RELATIONSHIPS`` set; validate
+#: and publish a result against these.
+RECORDED_RELATIONS = frozenset(VALID_RELATIONS | {NOT_ASSESSED})
+#: The states code records on the axes that judge retrieved evidence, beside ``NOT_ASSESSED``.
+CODE_RECORDED_EVIDENCE_STATES = frozenset({NO_EVIDENCE, NOT_SEARCHED})
+RECORDED_EVIDENCE_STRENGTHS = frozenset(
+    VALID_EVIDENCE_STRENGTHS | {NOT_ASSESSED} | CODE_RECORDED_EVIDENCE_STATES
+)
+RECORDED_PRECEDENT = frozenset(
+    VALID_PRECEDENT | {NOT_ASSESSED} | CODE_RECORDED_EVIDENCE_STATES
+)
+RECORDED_PRECEDENT_OUTCOMES = frozenset(
+    VALID_PRECEDENT_OUTCOMES | {NOT_ASSESSED} | CODE_RECORDED_EVIDENCE_STATES
+)
+RECORDED_CONTEXT_STATUSES = frozenset(VALID_CONTEXT_STATUSES | {NOT_ASSESSED})
+RECORDED_TARGET_RELATIONSHIPS = frozenset(TARGET_RELATIONSHIPS | {NOT_ASSESSED})
 QUANTITATIVE_SEMANTIC_FIELDS = (
     "measure",
     "endpoint",
@@ -118,6 +165,7 @@ MEASUREMENT_ADMISSION_STATUSES = frozenset(
 )
 MEASUREMENT_AI_RECOMMENDATIONS = frozenset({"admit", "reject", "flag", "unavailable"})
 MEASUREMENT_EVIDENCE_MODES = frozenset({"prose", "structured_fact"})
+SOURCE_IDENTITY_STATUSES = frozenset({"canonical", "url_fallback"})
 EVIDENCE_UNIT_STATUSES = frozenset({"resolved", "record_level", "uncertain"})
 TERNARY_DECISION_STATES = frozenset({"yes", "no", "unknown"})
 QUANTITATIVE_TARGET_STATUSES = frozenset(
@@ -133,6 +181,31 @@ QUANTITATIVE_LEDGER_STATUSES = frozenset(
 #: the shape every vocabulary drift in this codebase has had.
 QUANTITATIVE_STATEMENT_DISPOSITIONS = frozenset(
     {"context_only", "non_scalar", "range_or_set", "uncertain", "mapping_failed"}
+)
+
+#: Why a statement's numeric review did not finish, recorded only by code. The model
+#: returning no single usable review for it is `invalid_model_response` (shared with every
+#: other stage); a review whose proposed targets failed structural validation is
+#: `invalid_target_mapping`, and its `issue_codes` say which checks failed.
+QUANTITATIVE_REVIEW_FAILURE_CODES = ("invalid_model_response", "invalid_target_mapping")
+#: The structural checks a proposed document target can fail. Closed, so a reader picks
+#: its wording from the code rather than from the reason's prose.
+TARGET_MAPPING_ISSUE_CODES = (
+    "invalid_target_list",
+    "invalid_target_object",
+    "missing_field_links",
+    "invalid_field_links",
+    "invalid_target_expression",
+    "target_expression_must_be_bound",
+    "invalid_target_role",
+    "invalid_target_semantic_profile",
+    "invalid_target_comparison_contract",
+    "invalid_target_quote",
+    "invalid_semantic_provenance",
+    "missing_target_provenance",
+    "invalid_target_provenance",
+    "duplicate_atomic_target",
+    "missing_target_mapping",
 )
 
 QUANTITATIVE_REVIEW_CLASSIFICATIONS = frozenset(
@@ -164,19 +237,22 @@ QUANTITATIVE_FIELD_LINK_RELATIONS = frozenset(
 def available_configs() -> list["ScoutTypeConfig"]:
     """Every document type Scout can retrieve evidence for, in stable order.
 
-    Decided by whether a file loads as a config, not by the shape of its name.
-    Mirrors `chunker.available_configs` and `inspector.available_configs`.
+    A file is a document type when it declares its own identity: `type_key` equal to
+    its name. The methodology file declares none, and the shipped template declares
+    `example_org_itpp_vaccine` while being called CONFIG_TEMPLATE, so both are
+    skipped. A file that does declare its identity must load: a malformed config is
+    a broken document type, and skipping it would remove it from the picker with no
+    error anywhere.
     """
+    import yaml
+
     configs: list[ScoutTypeConfig] = []
     for path in sorted(CONFIGS_DIR.glob("*.yaml")):
-        try:
-            config = load_config(str(path))
-        except (ValueError, KeyError, TypeError):
+        with open(path, "r", encoding="utf-8") as handle:
+            data = yaml.safe_load(handle)
+        if not isinstance(data, dict) or data.get("type_key") != path.stem:
             continue
-        # A config is named for its identity; a scaffold is not.
-        if config.type_key != path.stem:
-            continue
-        configs.append(config)
+        configs.append(load_config(str(path)))
     return configs
 
 
@@ -205,7 +281,13 @@ def find_config(org: str, source_type: str, intervention_class: str) -> "ScoutTy
 
 
 class LLMClientProtocol(Protocol):
-    """Schema-bound model capability required by Scout."""
+    """Schema-bound model capability required by Scout.
+
+    ``trailing_text`` follows the images, so the text one item adds comes after the
+    document and visuals a stage's requests share. ``task``, ``effort``,
+    ``verbosity`` and ``cache_key`` are the call policy a stage states beside it;
+    ``None`` keeps the provider's default.
+    """
 
     def call_structured(
         self,
@@ -216,7 +298,11 @@ class LLMClientProtocol(Protocol):
         schema_name: str,
         schema: dict[str, Any],
         images: list[dict[str, str]] | None = None,
+        trailing_text: str = "",
         task: ModelTask = "reasoning",
+        effort: Effort | None = None,
+        verbosity: Verbosity | None = None,
+        cache_key: str | None = None,
     ) -> dict[str, Any] | None:
         ...
 
@@ -385,6 +471,15 @@ class SearchTrace:
     applicability_reason: str = ""
     status: str = "complete"  # complete | failed | skipped
     error: str = ""
+    #: The machine-readable kind of a failed request, beside `error`'s prose:
+    #: Searcher's retrieval error code, or `adapter_error`. Empty unless it failed.
+    error_code: str = ""
+    #: The query the provider reports it ran, where it reports one (PubMed's query
+    #: translation). Differs from `query` when the provider mapped terms.
+    provider_query: str = ""
+    #: What the provider reported beside its records. A complete request with
+    #: warnings is still complete: a phrase it ignored, content it could not return.
+    warnings: list[OutcomeWarning] = field(default_factory=list)
     finding_count: int = 0
     source_urls: list[str] = field(default_factory=list)
     # Retrieved, then held out of this run because the source dated them before
@@ -431,7 +526,7 @@ class Insight:
     # this insight semantically supports those targets.
     retrieval_target_ids: list[str] = field(default_factory=list)
     # Stable lineage key used by aggregate assessments. Derived from the atomic
-    # statement, variable, and cited URLs; never supplied by the model.
+    # statement, variable, and cited records; never supplied by the model.
     id: str = ""
     # Header (document provenance, stamped by pipeline) ---
     org: str | None = None
@@ -448,8 +543,8 @@ class Insight:
         material = "\n".join(
             [
                 self.attribute_ref or "",
-                " ".join(self.statement.split()).lower(),
-                *sorted(finding.url for finding in self.supporting_findings if finding.url),
+                " ".join(self.statement.split()),
+                *sorted(finding.record_key for finding in self.supporting_findings),
             ]
         )
         self.id = "i-" + hashlib.sha256(material.encode("utf-8")).hexdigest()[:16]
@@ -468,6 +563,13 @@ class Match:
     relation: str
     reason: str
     doc_block_ids: list[str] = field(default_factory=list)
+    #: Present on exactly the ``not_assessed`` matches; see ``NOT_ASSESSED``.
+    failure_code: str = ""
+
+    def __post_init__(self) -> None:
+        require_verdict_or_failure(
+            "drift relation", self.relation, VALID_RELATIONS, self.failure_code
+        )
 
 
 @dataclass
@@ -483,6 +585,16 @@ class EvidenceAssessment:
     doc_block_ids: list[str] = field(default_factory=list)
     supporting_insight_ids: list[str] = field(default_factory=list)
     supporting_findings: list[Finding] = field(default_factory=list)
+    #: Present on exactly the ``not_assessed`` assessments; see ``NOT_ASSESSED``.
+    #: ``no_evidence`` and ``not_searched`` are recorded without one; see ``NO_EVIDENCE``
+    #: and ``NOT_SEARCHED``.
+    failure_code: str = ""
+
+    def __post_init__(self) -> None:
+        require_verdict_or_failure(
+            "grounding strength", self.strength, VALID_EVIDENCE_STRENGTHS,
+            self.failure_code, recorded=CODE_RECORDED_EVIDENCE_STATES,
+        )
 
 
 @dataclass
@@ -504,6 +616,49 @@ class PrecedentSignal:
     outcome_insight_ids: list[str] = field(default_factory=list)
     supporting_insight_ids: list[str] = field(default_factory=list)
     supporting_findings: list[Finding] = field(default_factory=list)
+    #: Present on exactly the ``not_assessed`` signals. One classification decides
+    #: both axes, so a failure leaves both ``not_assessed``, a variable no insight
+    #: reached leaves both ``no_evidence``, and one the reviewer left out leaves both
+    #: ``not_searched``; see ``NOT_ASSESSED``, ``NO_EVIDENCE`` and ``NOT_SEARCHED``.
+    failure_code: str = ""
+
+    def __post_init__(self) -> None:
+        require_verdict_or_failure(
+            "precedent coverage", self.precedent, VALID_PRECEDENT, self.failure_code,
+            recorded=CODE_RECORDED_EVIDENCE_STATES,
+        )
+        require_verdict_or_failure(
+            "precedent outcome", self.outcome, VALID_PRECEDENT_OUTCOMES,
+            self.failure_code, recorded=CODE_RECORDED_EVIDENCE_STATES,
+        )
+        for state in sorted(CODE_RECORDED_EVIDENCE_STATES):
+            if (self.precedent == state) != (self.outcome == state):
+                raise ValueError(f"{state} is recorded on both precedent axes or neither")
+
+
+def require_verdict_or_failure(
+    axis: str,
+    value: str,
+    verdicts: set[str] | frozenset[str],
+    failure_code: str,
+    *,
+    recorded: set[str] | frozenset[str] = frozenset(),
+) -> None:
+    """A value is a model verdict, a state code records, or ``not_assessed`` with its code.
+
+    The one rule for every axis: run when a record is built - so a rehydrated draft is
+    held to it too - and again by the result contract. ``recorded`` names the states an
+    axis allows that only code sets (``no_evidence``, ``not_searched``); like a verdict,
+    none carries a failure code. ``not_assessed`` always carries one of ``shared.ai.FAILURE_CODES``.
+    """
+    if value == NOT_ASSESSED:
+        if failure_code not in FAILURE_CODES:
+            raise ValueError(f"{axis} is not_assessed without a known failure code")
+        return
+    if value not in verdicts and value not in recorded:
+        raise ValueError(f"invalid {axis} {value!r}")
+    if failure_code:
+        raise ValueError(f"{axis} {value!r} is not a failure but carries a failure code")
 
 
 @dataclass
@@ -770,8 +925,7 @@ class QuantitativeTarget:
         self.ai_recommendation = self.ai_recommendation.strip().lower()
         if self.ai_recommendation not in QUANTITATIVE_TARGET_AI_RECOMMENDATIONS:
             raise ValueError("invalid quantitative target AI recommendation")
-        if (self.ai_recommendation == "unavailable") != bool(self.ai_review_failure_code):
-            raise ValueError("unavailable AI review requires a failure code, not a model verdict")
+        _require_review_failure(self.ai_recommendation, self.ai_review_failure_code)
         self.ai_review_reason = " ".join(self.ai_review_reason.split())
         self.field_links = [
             value if isinstance(value, QuantitativeFieldLink) else QuantitativeFieldLink(**value)
@@ -845,8 +999,11 @@ class QuantitativeTarget:
         )
         self.quote = self.provenance_spans[0].quote
         if not self.id:
+            # Exact values, not case-folded ones: two targets share an ID only when every
+            # structured field the model wrote is the same. Paraphrases and spelling
+            # variants are the claim reconciler's to judge, never a string rule's.
             semantic_material = [
-                f"{field_name}:{slot.state}:{slot.value.casefold()}:{slot.other.casefold()}"
+                f"{field_name}:{slot.state}:{slot.value}:{slot.other}"
                 for field_name, slot in self.semantic_profile.items()
             ]
             material = "\n".join(
@@ -854,9 +1011,9 @@ class QuantitativeTarget:
                     self.role,
                     self.expression.comparator,
                     str(self.expression.value),
-                    self.expression.unit.casefold(),
+                    self.expression.unit,
                     *(
-                        f"{field_name}:{rule.mode}:{rule.scope.casefold()}"
+                        f"{field_name}:{rule.mode}:{rule.scope}"
                         for field_name, rule in self.comparison_contract.items()
                     ),
                     *semantic_material,
@@ -919,6 +1076,32 @@ class QuantitativeTarget:
             )
         )
 
+def _require_review_failure(recommendation: str, failure_code: str) -> None:
+    """`unavailable` is the one recommendation code records, and it names its failure.
+
+    An independent review that obtained no recommendation records why in one of
+    ``shared.ai.FAILURE_CODES``, the vocabulary every other stage failure uses.
+    """
+    if recommendation == "unavailable":
+        if failure_code not in FAILURE_CODES:
+            raise ValueError("unavailable AI review requires a known failure code")
+    elif failure_code:
+        raise ValueError("a model recommendation cannot carry a failure code")
+
+
+def _check_target_mapping_failure(failure_code: str, issue_codes: list[str]) -> None:
+    """A ledger failure is a known code; only a target-mapping failure names its checks."""
+    if failure_code and failure_code not in QUANTITATIVE_REVIEW_FAILURE_CODES:
+        raise ValueError(f"unknown quantitative review failure code {failure_code!r}")
+    unknown = set(issue_codes) - set(TARGET_MAPPING_ISSUE_CODES)
+    if unknown:
+        raise ValueError(f"unknown target mapping issue codes: {', '.join(sorted(unknown))}")
+    if len(issue_codes) != len(set(issue_codes)):
+        raise ValueError("target mapping issue codes repeat")
+    if (failure_code == "invalid_target_mapping") != bool(issue_codes):
+        raise ValueError("a target mapping failure, and only one, names its failed checks")
+
+
 @dataclass
 class QuantitativeStatementDisposition:
     """A cited numeric-looking document statement intentionally not calibrated."""
@@ -929,10 +1112,12 @@ class QuantitativeStatementDisposition:
     reason: str
     attribute_refs: list[str] = field(default_factory=list)
     failure_code: str = ""
+    issue_codes: list[str] = field(default_factory=list)
 
     def __post_init__(self) -> None:
         self.quote = " ".join(self.quote.split())
         self.block_ids = list(dict.fromkeys(self.block_ids))
+        _check_target_mapping_failure(self.failure_code, self.issue_codes)
         self.disposition = self.disposition.strip().lower()
         self.reason = " ".join(self.reason.split())
         self.attribute_refs = list(
@@ -1195,8 +1380,10 @@ class QuantitativeLedgerReview:
     target_ids: list[str] = field(default_factory=list)
     review_status: str = "resolved"
     failure_code: str = ""
+    issue_codes: list[str] = field(default_factory=list)
 
     def __post_init__(self) -> None:
+        _check_target_mapping_failure(self.failure_code, self.issue_codes)
         self.unit_id = self.unit_id.strip()
         self.block_id = self.block_id.strip()
         self.quote = " ".join(self.quote.split())
@@ -1281,6 +1468,9 @@ class Measurement:
     source_quote: str = ""
     source_passage: str = ""
     source_record_id: str = ""
+    #: `canonical` when the record is identified by a provider identifier (a DOI, a
+    #: trial number, the lane's own record ID); `url_fallback` when the lane stated
+    #: none and the page it cites is the only identity. See `SOURCE_IDENTITY_STATUSES`.
     source_identity_status: str = "url_fallback"
     evidence_unit_id: str = ""
     evidence_unit: EvidenceUnitIdentity = field(default_factory=EvidenceUnitIdentity)
@@ -1319,10 +1509,11 @@ class Measurement:
             raise ValueError("invalid measurement evidence mode")
         if self.ai_recommendation not in MEASUREMENT_AI_RECOMMENDATIONS:
             raise ValueError("invalid measurement AI recommendation")
-        if (self.ai_recommendation == "unavailable") != bool(self.ai_review_failure_code):
-            raise ValueError("unavailable AI review requires a failure code, not a model verdict")
+        _require_review_failure(self.ai_recommendation, self.ai_review_failure_code)
         if self.admission_status not in MEASUREMENT_ADMISSION_STATUSES:
             raise ValueError("invalid measurement admission status")
+        if self.source_identity_status not in SOURCE_IDENTITY_STATUSES:
+            raise ValueError("invalid measurement source identity status")
         self.ai_review_reason = " ".join(self.ai_review_reason.split())
         self.admission_reason = " ".join(self.admission_reason.split())
 
@@ -1366,15 +1557,12 @@ class SourcePassageDisposition:
     failure_code: str = ""
 
     def __post_init__(self) -> None:
-        if self.status not in SOURCE_VERDICTS | {"not_assessed"}:
-            raise ValueError("invalid source passage disposition")
         self.reason = " ".join(self.reason.split())
         if not self.source_id or not self.reason:
             raise ValueError("source disposition requires an ID and reason")
-        if (self.status == "not_assessed") != bool(self.failure_code):
-            raise ValueError(
-                "a failure code belongs to exactly the not_assessed dispositions"
-            )
+        require_verdict_or_failure(
+            "source passage disposition", self.status, SOURCE_VERDICTS, self.failure_code,
+        )
 
 
 @dataclass
@@ -1394,7 +1582,8 @@ class ConformityScore:
     comparator: str  # "=", ">", ">=", "<", or "<="
     unit: str
     target_meeting_count: int
-    target_meeting_rate: float  # 0..1 unweighted observed share
+    #: 0..1 unweighted observed share; None when no comparator was admitted.
+    target_meeting_rate: float | None
     verdict: str
     target_quote: str = ""
     # Descriptive calibration over validated, claim-compatible measurements.
@@ -1434,6 +1623,19 @@ class FunnelStats:
     #: this existed still loads.
     announcements_read: int = 0
     announcements_named: int = 0
+    #: Announcements whose reading failed after its retry. Counted apart from those that
+    #: named no program: a failure says nothing about the announcement.
+    announcements_failed: int = 0
+    #: The same failures by `shared.ai.FAILURE_CODES` code, so a reader can tell a
+    #: refusal from a provider outage without the prose. Sums to `announcements_failed`.
+    announcements_failed_by_code: dict[str, int] = field(default_factory=dict)
+
+    def __post_init__(self) -> None:
+        unknown = set(self.announcements_failed_by_code) - set(FAILURE_CODES)
+        if unknown:
+            raise ValueError(f"unknown announcement failure code(s): {sorted(unknown)}")
+        if sum(self.announcements_failed_by_code.values()) != self.announcements_failed:
+            raise ValueError("announcement failures by code must sum to the failures")
 
 
 @dataclass
@@ -1445,6 +1647,8 @@ class DevelopmentProgram:
     source_role: str = "unknown"
     target_relationship: str = "unknown"
     target_relationship_reason: str = ""
+    #: Present on exactly a ``not_assessed`` relationship; see ``NOT_ASSESSED``.
+    target_relationship_failure_code: str = ""
     sponsors: list[str] = field(default_factory=list)
     phases: list[str] = field(default_factory=list)
     statuses: list[str] = field(default_factory=list)
@@ -1466,6 +1670,8 @@ class SafetyObservation:
     source_role: str = "unknown"
     target_relationship: str = "unknown"
     target_relationship_reason: str = ""
+    #: Present on exactly a ``not_assessed`` relationship; see ``NOT_ASSESSED``.
+    target_relationship_failure_code: str = ""
     detail: str = ""
     report_count: int | None = None
     qualification: str = ""
@@ -1482,14 +1688,67 @@ class DocumentContextValidation:
     document_indication: str = ""
     reason: str = ""
     doc_block_ids: list[str] = field(default_factory=list)
+    #: Present on exactly the ``not_assessed`` validation; see ``NOT_ASSESSED``.
+    #: Only ``mismatch`` stops a run, so an unvalidated context proceeds - and says so.
+    failure_code: str = ""
 
     def __post_init__(self) -> None:
-        if self.status not in VALID_CONTEXT_STATUSES:
-            raise ValueError(f"unknown document context status: {self.status}")
+        require_verdict_or_failure(
+            "document context status", self.status, VALID_CONTEXT_STATUSES,
+            self.failure_code,
+        )
         self.configured_indication = self.configured_indication.strip()
         self.document_indication = self.document_indication.strip()
         self.reason = self.reason.strip()
         self.doc_block_ids = list(dict.fromkeys(self.doc_block_ids))
+
+
+#: The identity layers Scout runs, each a partition of one set by one model call.
+#:
+#:     document_units        dynamically extracted claims, before retrieval
+#:     quantitative_targets  calculation-compatible numeric targets, before review
+#:     insights              one field's extracted insights, after extraction
+#:     projections           program and product names, before the landscape groups
+IDENTITY_LAYERS = ("document_units", "quantitative_targets", "insights", "projections")
+IDENTITY_STATUSES = frozenset({"reconciled", "not_reconciled"})
+
+
+@dataclass
+class IdentityReconciliation:
+    """What one identity layer decided about one set, or that it could not decide.
+
+    Every layer handles its failure the same way: the run continues with the set
+    unmerged, and this record says so. Stopping would discard a run for a duplicate a
+    reader can see; merging on a guess would hide one. `not_reconciled` carries a
+    `shared.ai.FAILURE_CODES` code, so "the layer found nothing to merge"
+    (`reconciled`, `merged == 0`) and "the layer never answered" stay different claims.
+    """
+
+    layer: str
+    #: The set that was partitioned: a field name for insights, "" for a document-wide
+    #: or run-wide set.
+    scope: str
+    status: str
+    #: Members of the set, and how many were merged into another member.
+    items: int
+    merged: int = 0
+    failure_code: str = ""
+    reason: str = ""
+
+    def __post_init__(self) -> None:
+        if self.layer not in IDENTITY_LAYERS:
+            raise ValueError(f"unknown identity layer {self.layer!r}")
+        if self.status not in IDENTITY_STATUSES:
+            raise ValueError(f"invalid identity reconciliation status {self.status!r}")
+        if (self.status == "not_reconciled") != bool(self.failure_code):
+            raise ValueError("an unreconciled set, and only one, carries a failure code")
+        if self.failure_code and self.failure_code not in FAILURE_CODES:
+            raise ValueError(f"unknown identity failure code {self.failure_code!r}")
+        if self.items < 2 or not 0 <= self.merged < self.items:
+            raise ValueError("an identity layer partitions two or more items")
+        if self.status == "not_reconciled" and self.merged:
+            raise ValueError("an unreconciled set merged nothing")
+        self.reason = " ".join(self.reason.split())
 
 
 @dataclass
@@ -1517,6 +1776,19 @@ class ScoutResult:
     # a benchmark read without knowing its window answers a different question
     # than the one asked.
     published_since: str = ""
+    #: What the run searches for, resolved before target review and carried on the
+    #: draft, so a reviewer sees the geography retrieval will use and a reading that
+    #: fails stops the run before anyone has reviewed anything.
+    retrieval_scope: RetrievalScopeLedger | None = None
+    #: One record per identity call the run made, in the order they ran.
+    reconciliations: list[IdentityReconciliation] = field(default_factory=list)
+    #: Searchable fields the reviewer left out of evidence search at target review.
+    #:
+    #: The one statement of that selection, carried on the draft and kept on the result.
+    #: Empty is the default and searches every field. Stored as the exclusions, not the
+    #: selection, so a draft that never mentions it behaves as it always did. Each named
+    #: field holds ``NOT_SEARCHED`` on grounding and precedent; nothing else records it.
+    not_searched_fields: list[str] = field(default_factory=list)
 
     def __post_init__(self) -> None:
         if self.phase not in {"target_review", "evidence_review", "final"}:
@@ -1590,6 +1862,7 @@ def matches_to_dicts(matches: list[Match]) -> list[dict]:
             "relation": match.relation,
             "reason": match.reason,
             "doc_block_ids": match.doc_block_ids,
+            "failure_code": match.failure_code,
         }
         for finding in d["insight"]["supporting_findings"]:
             if finding.get("retrieved_at") is not None and not isinstance(

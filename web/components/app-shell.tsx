@@ -124,7 +124,7 @@ function ProductHeader({ pathname }: { pathname: string }) {
         <Link
           href="/"
           aria-label="Product Development Intelligence Suite home"
-          className="inline-flex min-w-0 items-center gap-2.5 text-[13px] font-semibold transition-opacity hover:opacity-65 focus-visible:rounded-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/20 motion-reduce:transition-none"
+          className="inline-flex min-w-0 items-center gap-2.5 text-[13px] font-semibold transition-opacity hover:opacity-65 focus-visible:rounded-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/60 motion-reduce:transition-none"
         >
           {/* Their serif, which is where their own token puts the display face, at a size a
               serif reads at. The emoji it replaces was the only pictogram in the interface and
@@ -155,7 +155,7 @@ function ToolBreadcrumb({ title }: { title: string }) {
     <nav aria-label="Breadcrumb" className="mb-5 flex items-center gap-1.5 text-xs">
       <Link
         href="/"
-        className="text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/20 motion-reduce:transition-none"
+        className="text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/60 motion-reduce:transition-none"
       >
         All tools
       </Link>

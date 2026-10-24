@@ -3,8 +3,10 @@ from __future__ import annotations
 import os
 import re
 from typing import Any
+from zipfile import BadZipFile
 
 from docx import Document
+from docx.opc.exceptions import PackageNotFoundError
 from docx.oxml.ns import qn
 from docx.table import Table
 from docx.text.paragraph import Paragraph
@@ -17,6 +19,7 @@ from .docx_parts import (
     PartParagraph,
     PartTable,
     PartWarning,
+    paragraph_text as read_paragraph_text,
     regular_image_rels,
 )
 from .table_structure import serialize_table_row
@@ -37,7 +40,12 @@ def parse_docx(file_path: str, doc_id: str) -> list[ContentBlock]:
     """
     _validate_file_path(file_path)
 
-    doc = Document(file_path)
+    try:
+        doc = Document(file_path)
+    except (PackageNotFoundError, BadZipFile, KeyError) as exc:
+        # The package's own message names the temporary path the upload was written
+        # to, which is neither the reader's file nor something they can act on.
+        raise ValueError(f"{doc_id}: the file is not a readable DOCX document.") from exc
     part_reader = DocxPartReader(doc)
     blocks: list[ContentBlock] = []
     heading_stack: list[tuple[int, str]] = []
@@ -255,15 +263,48 @@ def _validate_file_path(file_path: str) -> None:
         raise FileNotFoundError(file_path)
 
 
+# OOXML's "body text" outline level: declared, and explicitly not a heading.
+BODY_TEXT_OUTLINE_LEVEL = 9
+
+
 def _heading_level(paragraph: Paragraph) -> int | None:
+    """The heading level the document declares, or None for body text.
+
+    Word declares a heading by outline level (`w:outlineLvl`, zero-based): directly on
+    the paragraph, or on its style or any style that style is based on. That is what
+    places a paragraph in the navigation pane, so a custom style based on Heading 1
+    is a heading whatever it is called. A style named "Heading N" with no declared
+    level keeps its historical reading.
+    """
+    level = _declared_outline_level(paragraph._p.pPr)
+    style = paragraph.style
+    seen: set[str] = set()
+    while level is None and style is not None and style.style_id not in seen:
+        seen.add(style.style_id)
+        level = _declared_outline_level(style.element.pPr)
+        style = style.base_style
+    if level is not None:
+        return None if level >= BODY_TEXT_OUTLINE_LEVEL else level + 1
+
     style_name = _style_name(paragraph)
     if not style_name.startswith("Heading"):
         return None
-
     match = re.search(r"(\d+)$", style_name)
     if not match:
         return 1
     return int(match.group(1))
+
+
+def _declared_outline_level(paragraph_properties: Any) -> int | None:
+    if paragraph_properties is None:
+        return None
+    element = paragraph_properties.find(qn("w:outlineLvl"))
+    if element is None:
+        return None
+    try:
+        return int(element.get(qn("w:val"), ""))
+    except ValueError:
+        return None
 
 
 def _parse_table(
@@ -323,7 +364,9 @@ def _parse_table(
         return retain_identity(blocks)
 
     # Multi-column data grid: the ROW is the unit, so keep table_row blocks.
-    # Images in a data cell (rare) are emitted at the table's position.
+    # Images in a data cell's own paragraphs (rare) are emitted at the table's
+    # position. A table nested in a cell is not part of the row's text: it follows
+    # the row as its own blocks, which also carry its images and supplements.
     image_blocks = [
         _make_image_block(doc_id, rel_id, heading_stack, {"table_index": table_index})
         for rel_id in _table_image_rels(table)
@@ -331,9 +374,6 @@ def _parse_table(
     row_blocks = _parse_multi_column_table(
         rows, doc_id, table_index, heading_stack, column_count
     )
-    if part_reader is None:
-        return retain_identity(image_blocks + row_blocks)
-
     blocks = image_blocks.copy()
     rows_by_index = {
         block.structural_meta["row_index"]: block for block in row_blocks
@@ -342,17 +382,33 @@ def _parse_table(
         row_block = rows_by_index.get(row_index)
         if row_block is not None:
             blocks.append(row_block)
-        added, _ = _emit_part_items(
-            table.part.document,
-            doc_id,
-            part_reader.container_supplements(
-                row._tr, document_part, document_part_kind, note_id
-            ),
-            table_index + 1,
-            heading_stack,
-            part_reader,
-        )
-        blocks.extend(added)
+        for tc in row._tr.tc_lst:
+            for child in tc.iterchildren(qn("w:p"), qn("w:tbl")):
+                if child.tag == qn("w:tbl"):
+                    blocks.extend(
+                        _parse_table(
+                            Table(child, table),
+                            doc_id,
+                            table_index,
+                            heading_stack,
+                            part_reader=part_reader,
+                            document_part=document_part,
+                            document_part_kind=document_part_kind,
+                            note_id=note_id,
+                        )
+                    )
+                elif part_reader is not None:
+                    added, _ = _emit_part_items(
+                        table.part.document,
+                        doc_id,
+                        part_reader.container_supplements(
+                            child, document_part, document_part_kind, note_id
+                        ),
+                        table_index + 1,
+                        heading_stack,
+                        part_reader,
+                    )
+                    blocks.extend(added)
     return retain_identity(blocks)
 
 
@@ -382,7 +438,7 @@ def _parse_cell(
     for child in cell._tc.iterchildren():
         if child.tag == qn("w:p"):
             paragraph = Paragraph(child, cell)
-            text = paragraph.text
+            text = read_paragraph_text(child)
             image_rels = _paragraph_image_rels(paragraph)
             if text.strip():
                 blocks.append(
@@ -498,7 +554,11 @@ def _normalize_row(row: list[str], width: int) -> list[str]:
 
 
 def _cell_text(cell: Any) -> str:
-    return cell.text
+    # The cell's own paragraphs, read by the same reader as body text so tracked
+    # insertions, fields and smart tags are not lost; nested tables are their own blocks.
+    return "\n".join(
+        read_paragraph_text(paragraph) for paragraph in cell._tc.iterchildren(qn("w:p"))
+    )
 
 
 def _make_block(
@@ -549,8 +609,17 @@ def _make_image_block(
 
 
 def _table_image_rels(table: Table) -> list[str]:
-    """Relationship ids of images embedded anywhere in a table, in order."""
-    return regular_image_rels(table._tbl)
+    """Relationship ids of images in a table's own cell paragraphs, in order.
+
+    Nested tables are excluded: they are parsed as tables and emit their own images.
+    """
+    return [
+        rel_id
+        for tr in table._tbl.tr_lst
+        for tc in tr.tc_lst
+        for paragraph in tc.iterchildren(qn("w:p"))
+        for rel_id in regular_image_rels(paragraph)
+    ]
 
 
 def _paragraph_style_hint(paragraph: Paragraph) -> dict[str, str | bool]:

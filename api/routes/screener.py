@@ -6,7 +6,7 @@ import os
 import tempfile
 from dataclasses import asdict
 
-from fastapi import APIRouter, File, Form, HTTPException, Request, UploadFile
+from fastapi import APIRouter, File, Form, HTTPException, UploadFile
 from fastapi.responses import StreamingResponse
 
 from services.screener import (
@@ -26,11 +26,9 @@ from api.schemas import (
     GateSpecOut,
 )
 from api.streaming import run_with_progress
-from api.uploads import document_upload_parts
+from api.uploads import document_upload_parts, read_uploads, require_distinct_doc_ids
 
 router = APIRouter()
-
-DEFAULT_MAX_TOKENS = 16000
 
 
 @router.get("/gates", response_model=ScreenerGatesResponse)
@@ -54,22 +52,12 @@ def list_gates(org: str = "bmgf", intervention: str | None = None) -> ScreenerGa
 
 @router.post("/run")
 async def run_screener(
-    request: Request,
     files: list[UploadFile] = File(...),
     gate: str = Form(...),
     org: str = Form(...),
     intervention_class: str = Form(...),
     indication: str = Form(...),
 ) -> StreamingResponse:
-    form = await request.form()
-    legacy_fields = {"source_types", "context_files", "context_labels"} & set(form)
-    if legacy_fields:
-        raise HTTPException(
-            status_code=400,
-            detail="Screener accepts one document collection. Remove obsolete fields: "
-            + ", ".join(sorted(legacy_fields)),
-        )
-
     uploads: list[tuple[UploadFile, str, str]] = []
     for upload in files:
         doc_id, suffix = document_upload_parts(
@@ -77,44 +65,28 @@ async def run_screener(
         )
         uploads.append((upload, doc_id, suffix))
 
-    doc_ids = [doc_id for _, doc_id, _ in uploads]
-    if len(set(doc_ids)) != len(doc_ids):
-        raise HTTPException(
-            status_code=400, detail="Each document must have a distinct filename."
-        )
+    require_distinct_doc_ids([doc_id for _, doc_id, _ in uploads])
 
     try:
         config = find_config(org, gate)
     except LookupError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
 
-    # Checked here as well as filtered from the picker: a stale page could still post a
-    # gate whose bank has nothing to ask this modality, and a review of questions none of
-    # which apply reads exactly like a review that found nothing.
-    if not config.serves(intervention_class):
-        raise HTTPException(
-            status_code=400,
-            detail=(
-                f"The {config.gate_label} question bank is written for "
-                f"{', '.join(sorted(config.intervention_classes))} programs, not for "
-                f"{intervention_class}. Its questions ask about matters this modality "
-                "does not have, so every one would report as unanswered."
-            ),
-        )
-
     # Resolve before reading a byte: a bank with nothing to say about this product
-    # is a 400, not a run that streams and then fails.
+    # is a 400, not a run that streams and then fails. That includes a class the bank
+    # is not written for at all, which `resolve_questions` refuses: a stale page could
+    # still post such a gate, and a review of questions none of which apply reads
+    # exactly like a review that found nothing.
     try:
         resolve_questions(config, intervention_class=intervention_class)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
-    contents = []
-    for upload, doc_id, suffix in uploads:
-        payload = await upload.read()
-        if not payload:
-            raise HTTPException(status_code=400, detail=f"{doc_id}: the file is empty.")
-        contents.append((payload, doc_id, suffix))
+    payloads = await read_uploads([(upload, doc_id) for upload, doc_id, _ in uploads])
+    contents = [
+        (payload, doc_id, suffix)
+        for payload, (_, doc_id, suffix) in zip(payloads, uploads)
+    ]
 
     # Construct provider clients before the stream opens: a missing credential must
     # fail the request, not arrive as an event on a 200 response.
@@ -143,7 +115,6 @@ async def run_screener(
                 indication=indication,
                 config=config,
                 llm_client=llm_client,
-                max_tokens=DEFAULT_MAX_TOKENS,
                 progress_callback=progress,
             )
             return ScreenerRunResponse(review=GateReviewOut(**asdict(result))).model_dump()

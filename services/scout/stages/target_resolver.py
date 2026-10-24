@@ -4,15 +4,24 @@ Dynamic providers already extract the target and its exact blocks. Fixed
 providers supply only a stable definition, so this stage locates the matching
 document statement. Both paths leave this stage with the same resolved
 ``Attribute`` contract.
+
+Ownership is guided, not enforced. Every request carries the complete field
+catalog and asks the model to assign each atomic claim to its single primary
+field, which is what keeps neighbouring fields from claiming one statement within
+a batch. Across batches and chunks nothing checks it, deliberately: a compound
+statement may bind several fields when it states a different atomic meaning for
+each, and no structural rule can tell that case from a duplicate claim.
 """
 
 from __future__ import annotations
 
 import logging
-import threading
 from dataclasses import dataclass, replace
 
-from ..ai import request_structured
+from shared.ai import Effort, ModelTask
+from shared.request_budget import check_request
+
+from ..ai import request_validated
 from shared.batching import fixed_batches, map_ordered
 from ..ai_contracts import target_binding_batch
 from ..context import (
@@ -29,13 +38,17 @@ from ..models import (
     LLMClientProtocol,
     parse_evidence_entities,
 )
+from shared.errors import ModelResponseError
 from ..prompt_primitives import CANONICAL_CLAIM_PRIMITIVE
 
 DEFAULT_MAX_TOKENS = 32000
-# Binding selects source lines for existing definitions; use the fast tier.
-# Subsequent quantitative review retains its independent reasoning-tier check.
-# Set scope: one request sees several fields plus the complete field catalog
-# so one document statement cannot acquire competing owners.
+#: Binding selects source lines for existing definitions; the fast tier at low
+#: effort. Subsequent quantitative review retains its independent reasoning-tier check.
+TASK: ModelTask = "fast"
+EFFORT: Effort = "low"
+# Set scope: one request sees several fields plus the complete field catalog, so
+# within a batch one document statement is assigned to its primary field (see the
+# module docstring for what is and is not guaranteed across batches).
 FIELDS_PER_REQUEST = 6
 FIELD_RESOLUTION_WORKERS = 6
 logger = logging.getLogger(__name__)
@@ -82,87 +95,103 @@ def resolve_document_targets(
     ]
     if progress_callback and tasks:
         progress_callback(completed=0, total=len(tasks))
-    progress_lock = threading.Lock()
-    progress_state = {"completed": 0}
 
-    def resolve_batch(task: tuple[str, list[Attribute]]) -> dict[str, Attribute]:
+    system_prompt = build_ledger_system_prompt(fixed)
+
+    def resolve_batch(task: tuple[str, list[Attribute]]) -> _LedgerValidation:
         chunk, requested = task
         chunk_ids = document_block_ids(chunk)
-        contract = target_binding_batch(
-            sorted(chunk_ids),
-            [attribute.name for attribute in requested],
-        )
-        parsed = request_structured(
-            llm_client,
-            contract,
-            build_ledger_system_prompt(fixed, requested),
-            _ledger_user_message(chunk, requested),
-            max_tokens=max_tokens,
-            task="fast",
-            images=[
-                image for image in (images or []) if image["block_id"] in chunk_ids
-            ]
-            or None,
-        )
-        validation = _validated_ledger(parsed, requested, chunk)
-        missing = [
-            attribute
-            for attribute in requested
-            if attribute.name not in validation.valid_refs
-        ]
-        if missing:
-            retry_contract = target_binding_batch(
-                sorted(chunk_ids),
-                [attribute.name for attribute in missing],
-            )
-            retry_parsed = request_structured(
-                llm_client,
-                retry_contract,
-                build_ledger_system_prompt(fixed, missing, retry=True),
-                _ledger_user_message(chunk, missing),
-                max_tokens=max_tokens,
-                task="fast",
-                images=[
-                    image
-                    for image in (images or [])
-                    if image["block_id"] in chunk_ids
-                ]
-                or None,
-            )
-            retry = _validated_ledger(retry_parsed, missing, chunk)
-            for attribute in missing:
-                validation.decisions[attribute.name] = retry.decisions[attribute.name]
-        return validation.decisions
+        chunk_images = [
+            image for image in (images or []) if image["block_id"] in chunk_ids
+        ] or None
+        message = _ledger_user_message(chunk)
+        source_blocks = rendered_block_texts(chunk)
+        valid: _LedgerValidation | None = None
 
-    def resolve_and_report(task: tuple[str, list[Attribute]]) -> dict[str, Attribute]:
-        decisions = resolve_batch(task)
-        if progress_callback:
-            with progress_lock:
-                progress_state["completed"] += 1
-                progress_callback(
-                    completed=progress_state["completed"],
-                    total=len(tasks),
+        def parse(parsed: object) -> _LedgerValidation:
+            """Keep every field decided validly by either attempt; retry the rest once."""
+            nonlocal valid
+            validation = _validated_ledger(parsed, requested, source_blocks)
+            if valid is not None:
+                for name in valid.valid_refs:
+                    validation.decisions[name] = valid.decisions[name]
+                validation.valid_refs |= valid.valid_refs
+            missing = [field.name for field in requested if field.name not in validation.valid_refs]
+            if missing and valid is None:
+                valid = validation
+                raise ValueError(
+                    "these required fields have no complete valid decision - "
+                    + "; ".join(
+                        f"{name}: {validation.decisions[name].target_resolution_reason.rstrip('.')}"
+                        for name in missing
+                    )
+                    + ". Return one valid binding for each; the others may repeat your "
+                    "earlier answer"
                 )
-        return decisions
+            return validation
 
-    ledgers = map_ordered(tasks, resolve_and_report, workers=FIELD_RESOLUTION_WORKERS)
+        try:
+            return request_validated(
+                llm_client,
+                target_binding_batch(sorted(chunk_ids), [field.name for field in requested]),
+                system_prompt,
+                message,
+                max_tokens=max_tokens,
+                parse=parse,
+                failure="Document claim binding failed",
+                images=chunk_images,
+                trailing_text=_requested_fields_message(requested),
+                task=TASK,
+                effort=EFFORT,
+            )
+        except ModelResponseError:
+            # A reply that never validated leaves its fields unresolved, which stops
+            # retrieval with their reasons; the partial answer, if any, is kept.
+            return valid or _validated_ledger(None, requested, source_blocks)
+
+    # Every field batch over a chunk repeats it, so an oversized chunk is refused once,
+    # before any request is sent.
+    for chunk in chunks:
+        chunk_ids = document_block_ids(chunk)
+        check_request(
+            "Scout's claim binding",
+            text=system_prompt + _ledger_user_message(chunk),
+            images=[image for image in images or [] if image["block_id"] in chunk_ids],
+        )
+    ledgers = map_ordered(
+        tasks,
+        resolve_batch,
+        workers=FIELD_RESOLUTION_WORKERS,
+        on_progress=(
+            (lambda completed, total: progress_callback(completed=completed, total=total))
+            if progress_callback
+            else None
+        ),
+    )
     bindings = _merge_ledgers(fixed, ledgers)
     return [bindings.get(attribute.name, attribute) for attribute in attributes]
 
 
 def _merge_ledgers(
     attributes: list[Attribute],
-    ledgers: list[dict[str, Attribute]],
+    ledgers: list[_LedgerValidation],
 ) -> dict[str, Attribute]:
     merged: dict[str, Attribute] = {}
     for attribute in attributes:
         decisions = [
-            ledger[attribute.name]
+            ledger.decisions[attribute.name]
             for ledger in ledgers
-            if attribute.name in ledger
+            if attribute.name in ledger.decisions
         ]
         present = [decision for decision in decisions if decision.document_target]
-        if present:
+        # A chunk that returned no valid decision may hold more of this field's claim,
+        # so another chunk's present decision cannot stand in for it: the field stays
+        # unresolved, and unresolved fields stop retrieval.
+        failed = any(
+            attribute.name in ledger.decisions and attribute.name not in ledger.valid_refs
+            for ledger in ledgers
+        )
+        if present and not failed:
             spans = list(
                 {
                     (span.quote, tuple(span.block_ids)): span
@@ -215,10 +244,9 @@ def _merge_ledgers(
 def _validated_ledger(
     parsed: object,
     attributes: list[Attribute],
-    document_context: str,
+    source_blocks: dict[str, str],
 ) -> _LedgerValidation:
     definitions = {attribute.name: attribute for attribute in attributes}
-    source_blocks = rendered_block_texts(document_context)
     # Missing, duplicated, or invalid decisions remain explicitly unresolved.
     # One malformed field must not erase valid bindings for every other field.
     decisions: dict[str, Attribute] = {
@@ -378,13 +406,13 @@ def _validated_claim_span(
         )
     selected = selected_source_lines(raw_span, source_blocks)
     if selected is None:
+        line_count = len(source_blocks[block_id].splitlines())
         return _SpanValidation(
             span=None,
             code="invalid_line_range",
             reason=(
                 "A supporting span selected an invalid or empty source line range in "
-                + block_id
-                + "."
+                f"{block_id}, which has {line_count} line(s) numbered from 1."
             ),
         )
     quote, block_id = selected
@@ -394,20 +422,10 @@ def _validated_claim_span(
         reason="The selected source lines were copied from the cited document block.",
     )
 
-def build_ledger_system_prompt(
-    attributes: list[Attribute],
-    requested: list[Attribute],
-    *,
-    retry: bool = False,
-) -> str:
+def build_ledger_system_prompt(attributes: list[Attribute]) -> str:
+    """The instructions and complete catalog every binding request of a run shares."""
     catalog = "\n".join(
         f"- {attribute.name}: {attribute.description}" for attribute in attributes
-    )
-    requested_refs = "\n".join(f"- {attribute.name}" for attribute in requested)
-    retry_instruction = (
-        "A prior response omitted or malformed these decisions. "
-        if retry
-        else ""
     )
     return (
         "ROLE\n"
@@ -420,11 +438,9 @@ def build_ledger_system_prompt(
         f"{CANONICAL_CLAIM_PRIMITIVE}\n\n"
         "FIELD CATALOG\n"
         f"{catalog}\n\n"
-        "REQUIRED OUTPUT FIELDS\n"
-        f"{requested_refs}\n\n"
         "DECISION PROCEDURE\n"
-        f"{retry_instruction}Return exactly one binding for every required output "
-        "field and no others. status=present only when the "
+        "Return exactly one binding for every required output field named at the end "
+        "of the request, and no others. status=present only when the "
         "document directly states a target, constraint, assumption, or commitment for "
         "that field. status=absent means the supplied document does not state a qualifying "
         "target, including when it contains only adjacent discussion, TBD values, or an "
@@ -455,12 +471,15 @@ def build_ledger_system_prompt(
     )
 
 
-def _ledger_user_message(
-    document_context: str,
-    requested: list[Attribute],
-) -> str:
-    requested_refs = ", ".join(attribute.name for attribute in requested)
+def _ledger_user_message(document_context: str) -> str:
+    """The chunk every field batch over it shares."""
+    return f"Uploaded document blocks:\n{render_line_addressable_context(document_context)}"
+
+
+def _requested_fields_message(requested: list[Attribute]) -> str:
+    """The one part of a binding request that differs between its field batches."""
     return (
-        f"Uploaded document blocks:\n{render_line_addressable_context(document_context)}\n\n"
-        f"Return one decision for each required field: {requested_refs}."
+        "\n\nREQUIRED OUTPUT FIELDS\n"
+        + "\n".join(f"- {attribute.name}" for attribute in requested)
+        + "\n\nReturn one decision for each required field."
     )

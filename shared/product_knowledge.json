@@ -60,7 +60,7 @@
             },
             {
               "term": "Services",
-              "description": "Run stateless Inspector, Aligner, Screener, Scout, Chunker, Searcher, and Assistant workflows through typed contracts."
+              "description": "Run stateless Drafter, Inspector, Aligner, Screener, Scout, Chunker, Searcher, and Assistant workflows through typed contracts."
             },
             {
               "term": "Shared",
@@ -82,7 +82,7 @@
             },
             {
               "term": "Portable results",
-              "description": "Final Inspector, Aligner, Screener, and Scout artifacts package analysis separately from their parsed source documents."
+              "description": "Final Drafter, Inspector, Aligner, Screener, and Scout artifacts package analysis separately from their parsed source documents."
             },
             {
               "term": "Model boundaries",
@@ -125,11 +125,11 @@
           "items": [
             {
               "term": "Relation to document target",
-              "description": "What one piece of outside evidence does to the target this document states: Conflicts, Supports, Adds context, or Unrelated. One relation per insight."
+              "description": "What one piece of outside evidence does to the target this document states: Conflicts, Supports, Adds context, or Unrelated. One relation per insight. Not assessed means the check could not be completed, so nothing was concluded."
             },
             {
               "term": "Grounding",
-              "description": "How well justified the target is: Well grounded, Partly grounded, Thinly grounded, Unsupported, or Grounding unknown."
+              "description": "How well justified the target is: Well grounded, Partly grounded, Thinly grounded, Unsupported, or Grounding unknown. Grounding not assessed means the check could not be completed. No evidence to ground means nothing the run retrieved bore on the field, so no verdict was asked for. Not searched means the reviewer excluded the field at target review, so Scout did not search for it."
             },
             {
               "term": "Measurable targets",
@@ -137,7 +137,7 @@
             },
             {
               "term": "Precedent",
-              "description": "How directly prior work matches: Direct precedent, Adjacent precedent, No precedent found, or Precedent unknown. The outcome is reported separately, and is a different question: Favorable outcome, Mixed outcome, Unfavorable outcome, or Outcome unknown."
+              "description": "How directly prior work matches: Direct precedent, Adjacent precedent, No precedent found, or Precedent unknown. The outcome is reported separately, and is a different question: Favorable outcome, Mixed outcome, Unfavorable outcome, or Outcome unknown. Precedent not assessed and Outcome not assessed mean the check could not be completed, so neither reading was made. No evidence on precedent and No evidence on outcome mean nothing the run retrieved bore on the field, so neither reading was asked for. Not searched means the reviewer excluded the field at target review."
             },
             {
               "term": "Relation to the uploaded product",
@@ -290,7 +290,7 @@
     {
       "id": "results",
       "title": "Saved results",
-      "intro": "Every tool that produces a result (Inspector, Aligner, Screener, and Scout) downloads a portable, versioned artifact. Their analysis and source documents travel together.",
+      "intro": "Every tool that produces a result (Drafter, Inspector, Aligner, Screener, and Scout) downloads a portable, versioned artifact. Their analysis and source documents travel together.",
       "content": [
         {
           "type": "definitions",

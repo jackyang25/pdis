@@ -72,13 +72,16 @@ def spec(
 BANK_SOURCE = "Stage Gate Questions - All Gates.docx, test fixture"
 
 
-def gate(*questions: QuestionSpec) -> GateConfig:
+ALL_CLASSES = ("vaccine", "drug", "device", "monoclonal_antibody", "diagnostic")
+
+
+def gate(*questions: QuestionSpec, serves: tuple[str, ...] = ("drug",)) -> GateConfig:
     return GateConfig(
         org="bmgf",
         gate_id="lcs",
         gate_label="Lead Chemical Series Selection",
         ordinal=1,
-        intervention_classes=frozenset({"drug"}),
+        intervention_classes=frozenset(serves),
         mirrors=BANK_SOURCE,
         disciplines=(DisciplineSpec(id="cp", label="Clinical Pharmacology", questions=questions),),
     )
@@ -330,14 +333,15 @@ class ResolveTests(unittest.TestCase):
     """
 
     def test_a_question_whose_text_names_another_class_is_not_applicable(self) -> None:
-        config = gate(spec("Q1", applies_to=("monoclonal_antibody",)), spec("Q2"))
+        config = gate(spec("Q1", applies_to=("monoclonal_antibody",)), spec("Q2"),
+                      serves=ALL_CLASSES)
         resolved = resolve_questions(config, intervention_class="vaccine")
         self.assertEqual(resolved[0].state, "not_applicable")
         self.assertIsNone(resolved[1].state)
 
     def test_an_unqualified_question_applies_to_every_class(self) -> None:
-        config = gate(spec("Q1"))
-        for intervention in ("vaccine", "drug", "device", "monoclonal_antibody", "diagnostic"):
+        config = gate(spec("Q1"), serves=ALL_CLASSES)
+        for intervention in ALL_CLASSES:
             resolved = resolve_questions(config, intervention_class=intervention)
             self.assertIsNone(resolved[0].state, intervention)
 
@@ -351,17 +355,25 @@ class ResolveTests(unittest.TestCase):
     def test_resolution_does_not_depend_on_which_documents_were_uploaded(self) -> None:
         """The signature has no place for it, and that is the point."""
         config = find_config("bmgf", "lcs")
-        resolved = resolve_questions(config, intervention_class="vaccine")
+        resolved = resolve_questions(config, intervention_class="drug")
         self.assertEqual(
             sum(1 for item in resolved if item.queued),
-            sum(1 for _, q in config.questions() if q.applies("vaccine")),
+            sum(1 for _, q in config.questions() if q.applies("drug")),
         )
 
     def test_a_bank_that_applies_to_nothing_fails_loudly(self) -> None:
-        config = gate(spec("Q1", applies_to=("drug",)), spec("Q2", applies_to=("monoclonal_antibody",)))
+        config = gate(spec("Q1", applies_to=("drug",)), spec("Q2", applies_to=("monoclonal_antibody",)),
+                      serves=ALL_CLASSES)
         with self.assertRaises(ValueError) as caught:
             resolve_questions(config, intervention_class="device")
         self.assertIn("device", str(caught.exception))
+
+    def test_a_class_the_bank_is_not_written_for_is_refused(self) -> None:
+        """Not returned with every question inapplicable: a review of nothing reads
+        exactly like a review that found nothing wrong."""
+        with self.assertRaises(ValueError) as caught:
+            resolve_questions(gate(spec("Q1")), intervention_class="vaccine")
+        self.assertIn("written for drug", str(caught.exception))
 
     def test_every_question_is_resolved_exactly_once_in_bank_order(self) -> None:
         config = find_config("bmgf", "lcs")
@@ -431,7 +443,7 @@ def review(*questions: QuestionAssessment, blocks=None) -> GateReview:
 
 
 class ContractTests(unittest.TestCase):
-    CONFIG = gate(spec("Q1"), spec("Q2"))
+    CONFIG = gate(spec("Q1"), spec("Q2", applies_to=("monoclonal_antibody",)))
 
     def answered(self, **overrides) -> QuestionAssessment:
         defaults = dict(
@@ -527,6 +539,62 @@ class ContractTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             validate_result_contract(result, self.CONFIG)
 
+    def test_a_review_for_a_class_the_bank_does_not_serve_is_refused(self) -> None:
+        result = review(self.answered(), self.excluded(), blocks=[block("d:1", "d", "itpp")])
+        result.intervention_class = "vaccine"
+        with self.assertRaisesRegex(ValueError, "not written for"):
+            validate_result_contract(result, self.CONFIG)
+
+    def test_not_applicable_is_exactly_where_the_question_text_says(self) -> None:
+        """Config is the only authority for the one state no model decides."""
+        withheld = QuestionAssessment(id="Q1", text="Question Q1?", state="not_applicable")
+        result = review(withheld, self.excluded(), blocks=[block("d:1", "d", "itpp")])
+        with self.assertRaisesRegex(ValueError, "applies to this run"):
+            validate_result_contract(result, self.CONFIG)
+
+        assessed = QuestionAssessment(
+            id="Q2", text="Question Q2?", state="not_found", statement="Nothing addresses it.",
+        )
+        result = review(self.answered(), assessed, blocks=[block("d:1", "d", "itpp")])
+        with self.assertRaisesRegex(ValueError, "does not apply"):
+            validate_result_contract(result, self.CONFIG)
+
+    def test_question_text_and_requirement_are_the_banks(self) -> None:
+        for override in ({"text": "A reworded question?"}, {"requirement": "anticipatory"}):
+            with self.subTest(override=override):
+                result = review(self.answered(**override), self.excluded(),
+                                blocks=[block("d:1", "d", "itpp")])
+                with self.assertRaisesRegex(ValueError, "the bank"):
+                    validate_result_contract(result, self.CONFIG)
+
+    def test_a_question_sits_under_the_discipline_that_owns_it(self) -> None:
+        config = GateConfig(
+            org="bmgf", gate_id="lcs", gate_label="Lead Chemical Series Selection", ordinal=1,
+            intervention_classes=frozenset({"drug"}), mirrors=BANK_SOURCE,
+            disciplines=(
+                DisciplineSpec(id="cp", label="Clinical Pharmacology", questions=(spec("Q1"),)),
+                DisciplineSpec(id="cmc", label="CMC", questions=(spec("Q2"),)),
+            ),
+        )
+        result = review(self.answered(), blocks=[block("d:1", "d", "itpp")])
+        result.disciplines.append(DisciplineReview(id="cmc", label="CMC", questions=[
+            QuestionAssessment(id="Q2", text="Question Q2?", state="not_found",
+                               statement="Nothing addresses it."),
+        ]))
+        self.assertIs(validate_result_contract(result, config), result)
+        moved = result.disciplines[1].questions.pop()
+        result.disciplines[0].questions.append(moved)
+        with self.assertRaisesRegex(ValueError, "discipline"):
+            validate_result_contract(result, config)
+
+    def test_a_not_found_answer_must_say_what_was_read(self) -> None:
+        """The assessor requires a statement on every model decision; so does the file."""
+        silent = QuestionAssessment(id="Q1", text="Question Q1?", state="not_found")
+        with self.assertRaisesRegex(ValueError, "statement"):
+            validate_result_contract(
+                review(silent, self.excluded(), blocks=[block("d:1", "d", "itpp")]), self.CONFIG,
+            )
+
 
 class FakeClient:
     """Answers every question the same way, recording what it was asked."""
@@ -536,12 +604,14 @@ class FakeClient:
         self.calls: list[dict] = []
 
     def call_structured(
-        self, system_prompt, user_message, max_tokens, *, schema_name, schema, **_
+        self, system_prompt, user_message, max_tokens, *, schema_name, schema,
+        trailing_text="", **_
     ):
         self.calls.append(
             {
                 "system": system_prompt,
                 "user": user_message,
+                "trailing_text": trailing_text,
                 "schema": schema,
                 "schema_name": schema_name,
             }
@@ -559,14 +629,14 @@ class AssessorTests(unittest.TestCase):
             block("b:1", "study", "ipdp", "Candidate A's supporting study describes manufacturing."),
             block("c:1", "comparator", "ipdp", "Candidate B treats tuberculosis and has completed stability tests."),
         ]
-        message = build_user_message(spec("Q1"), evidence,
+        message = build_user_message(evidence,
                                      indication="hiv", intervention_class="monoclonal_antibody")
         self.assertIn("Disease / condition: hiv", message)
         self.assertIn("Intervention class: monoclonal antibody", message)
         for item in evidence:
             self.assertIn(item.content, message)
             self.assertIn(item.id, message)
-        self.assertLess(message.index("Disease / condition:"), message.index("Question ("))
+        self.assertNotIn("Question (", message)
 
     def test_a_document_answer_carries_its_lineage(self) -> None:
         client = FakeClient(
@@ -582,7 +652,6 @@ class AssessorTests(unittest.TestCase):
             blocks=self.BLOCKS,
             indication="malaria", intervention_class="drug",
             llm_client=client,
-            max_tokens=100,
         )
         self.assertEqual(result.state, "answered")
         self.assertEqual(result.cited_block_ids, ["d:1"])
@@ -603,7 +672,6 @@ class AssessorTests(unittest.TestCase):
             blocks=self.BLOCKS,
             indication="malaria", intervention_class="drug",
             llm_client=client,
-            max_tokens=100,
         )
         self.assertEqual(result.state, "partly_answered")
         self.assertEqual(result.cited_block_ids, ["d:1"])
@@ -628,7 +696,6 @@ class AssessorTests(unittest.TestCase):
                 blocks=self.BLOCKS,
                 indication="malaria", intervention_class="drug",
                 llm_client=client,
-                max_tokens=100,
             )
         self.assertEqual(len(client.calls), 2, "the contract failure was not retried")
 
@@ -649,8 +716,25 @@ class AssessorTests(unittest.TestCase):
                 blocks=self.BLOCKS,
                 indication="malaria", intervention_class="drug",
                 llm_client=client,
-                max_tokens=100,
             )
+
+    def test_with_no_selected_evidence_only_not_found_is_offered(self) -> None:
+        """An answered decision needs citations, and there is nothing to cite. Offering it
+        would be a schema the parser must reject."""
+        schema = assessment_schema([])
+        self.assertEqual(schema["properties"]["decision"]["enum"], [DECISION_NOT_FOUND])
+
+    def test_the_question_follows_the_evidence_and_its_images(self) -> None:
+        """Order only: the question is sent after the images, as the last text."""
+        client = FakeClient({
+            "decision": DECISION_ANSWERED, "statement": "The plan states it.",
+            "missing": "", "block_ids": ["d:1"],
+        })
+        assess_question(spec("Q1"), blocks=self.BLOCKS, indication="malaria",
+                        intervention_class="drug", llm_client=client)
+        call = client.calls[0]
+        self.assertNotIn("Question (Q1)", call["user"])
+        self.assertEqual(call["trailing_text"], "Question (Q1):\nQuestion Q1?")
 
     def test_a_partial_is_offered_even_without_context(self) -> None:
         """Completeness is independent of source, so it is never gated on context."""
@@ -675,7 +759,6 @@ class AssessorTests(unittest.TestCase):
             blocks=self.BLOCKS,
             indication="malaria", intervention_class="drug",
             llm_client=client,
-            max_tokens=100,
         )
         self.assertEqual(result.state, "not_found")
 
@@ -694,7 +777,6 @@ class AssessorTests(unittest.TestCase):
                 blocks=self.BLOCKS,
                 indication="malaria", intervention_class="drug",
                 llm_client=client,
-                max_tokens=100,
             )
         self.assertEqual(len(client.calls), 2, "the contract failure was not retried")
 
@@ -718,22 +800,21 @@ class AssessorTests(unittest.TestCase):
         from services.screener.stages.assessor import build_user_message
 
         message = build_user_message(
-            spec("Q1"),
             self.BLOCKS,
             indication="malaria", intervention_class="drug",
         )
-        self.assertLess(message.index("Selected source blocks"), message.index("Question ("))
+        self.assertIn("Selected source blocks", message)
+        self.assertNotIn("Question (", message)
 
     def test_document_identity_labels_the_prompt(self) -> None:
         """Evidence is identified by its document, without a document-type taxonomy."""
         from services.screener.stages.assessor import build_user_message
 
         message = build_user_message(
-            spec("Q1"),
             [block("d:1", "d", "ipdp", "The plan states annual dosing.")],
             indication="malaria", intervention_class="drug",
         )
-        self.assertIn("[d:1 | d | paragraph", message)
+        self.assertIn("[block:d:1] paragraph | document: d", message)
 
 
 class PromptCatalogTests(unittest.TestCase):

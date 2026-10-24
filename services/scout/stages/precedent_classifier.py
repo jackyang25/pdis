@@ -12,21 +12,30 @@ stage reads the SAME per-variable insights - including the disconfirming
 insights surfaced by the counterfactual query track - and labels which story
 applies.
 
-One LLM call per variable. Self-gating: returns None when there are no insights,
-because absence of retrieved evidence is NOT proof that no precedent exists (it
-may be a search miss), so we decline to guess.
+One call per variable. A variable no insight reached is recorded ``no_evidence`` on
+both axes without a call: absence of retrieved evidence is not proof that no
+precedent exists (it may be a search miss), so no model is asked to guess, and the
+variable is kept rather than dropped. An answer that stays invalid after one retry,
+is refused, or whose provider fails keeps the variable with both axes
+``not_assessed`` and the failure's code: ``unknown`` is the model's statement that
+the evidence is too sparse.
 """
 
 from __future__ import annotations
 
-import logging
+from shared.ai import RECORDABLE_FAILURES, Effort, ModelTask, failure_code
 
-from services.searcher import Finding
-
-from ..ai import request_structured
+from ..ai import request_validated
 from ..ai_contracts import precedent_assessment
-from ..context import limit_document_context
+from ..insight_evidence import (
+    binding_message,
+    insights_message,
+    selected_insights,
+    supporting_findings,
+)
 from ..models import (
+    NO_EVIDENCE,
+    NOT_ASSESSED,
     Attribute,
     Insight,
     LLMClientProtocol,
@@ -35,16 +44,20 @@ from ..models import (
     VALID_PRECEDENT_OUTCOMES,
 )
 
-logger = logging.getLogger(__name__)
-
-# Matches evidence_assessor. drift_classifier runs a larger budget because its
-# per-insight contract returns lineage for every supplied block.
-DEFAULT_MAX_TOKENS = 16000
+#: One signal per variable: both axes are judgements about the variable's set.
+VARIABLES_PER_REQUEST = 1
+#: The reasoning tier at low effort, by measurement (README, Call policy): the fast tier
+#: called two of four outcomes `favorable` that both reasoning efforts called `mixed`;
+#: low effort matched medium at a median 2.9 s against 4.2 s.
+TASK: ModelTask = "reasoning"
+EFFORT: Effort = "low"
+#: Two labels, one sentence and two index lists; the rest is reasoning room.
+MAX_TOKENS = 16000
 
 
 def classify_precedent(
     attribute: Attribute,
-    doc_text: str,
+    binding: str,
     insights: list[Insight],
     llm_client: LLMClientProtocol,
     *,
@@ -52,95 +65,82 @@ def classify_precedent(
     intervention_class: str,
     framing: str = "",
     images: list[dict[str, str]] | None = None,
-    max_tokens: int = DEFAULT_MAX_TOKENS,
-) -> PrecedentSignal | None:
-    """Classify whether this variable's target/approach has precedent.
+    max_tokens: int = MAX_TOKENS,
+) -> PrecedentSignal:
+    """Classify whether this variable's target/approach has precedent."""
+    if not attribute.document_target:
+        raise ValueError(f"{attribute.name} has no document target to classify")
+    if not insights:
+        return no_evidence_precedent(attribute)
 
-    Returns None for variables with no external evidence: with nothing retrieved we
-    cannot distinguish absent precedent from a search miss, so we decline to
-    label rather than invent coverage."""
-    if (
-        not attribute.target_resolved
-        or not attribute.document_target
-        or not insights
-    ):
-        return None
-
-    system_prompt = build_system_prompt(
-        attribute=attribute,
-        indication=indication,
-        intervention_class=intervention_class,
-        framing=framing,
-    )
-    user_message = _user_message(attribute, doc_text, insights)
-
-    contract = precedent_assessment(len(insights))
-    parsed = request_structured(
-        llm_client,
-        contract,
-        system_prompt,
-        user_message,
-        max_tokens=max_tokens,
-        images=images,
-        task="fast",
-    )
-    if not isinstance(parsed, dict) or not _has_valid_lineage(parsed, insights):
-        logger.warning(
-            "precedent_classifier produced no parsable JSON for %s; retrying once",
-            attribute.name,
-        )
-        parsed = request_structured(
-            llm_client,
-            contract,
-            system_prompt,
-            user_message,
-            max_tokens=max_tokens,
-            images=images,
-            task="fast",
-        )
-
-    if not isinstance(parsed, dict) or not _has_valid_lineage(parsed, insights):
+    def parse(parsed: object) -> PrecedentSignal:
+        if not isinstance(parsed, dict):
+            raise ValueError("no structured classification was returned")
+        precedent = str(parsed.get("precedent", "")).strip().lower()
+        outcome = str(parsed.get("outcome", "")).strip().lower()
+        reason = str(parsed.get("reason", "")).strip()
+        if precedent not in VALID_PRECEDENT or outcome not in VALID_PRECEDENT_OUTCOMES:
+            raise ValueError("precedent and outcome must come from their closed lists")
+        if not reason:
+            raise ValueError("a reason is required")
+        coverage_insights = selected_insights(parsed.get("coverage_insight_indices"), insights)
+        outcome_insights = selected_insights(parsed.get("outcome_insight_indices"), insights)
+        if precedent != "unknown" and not coverage_insights:
+            raise ValueError("a coverage other than unknown must cite its insights")
+        if outcome != "unknown" and not outcome_insights:
+            raise ValueError("an outcome other than unknown must cite its insights")
+        selected = list({
+            insight.id: insight for insight in [*coverage_insights, *outcome_insights]
+        }.values())
         return PrecedentSignal(
             attribute_ref=attribute.name,
-            precedent="unknown",
-            outcome="unknown",
-            reason="classification failed",
-            supporting_findings=[],
+            precedent=precedent,
+            outcome=outcome,
+            reason=reason,
+            doc_block_ids=list(attribute.block_ids),
+            coverage_insight_ids=[insight.id for insight in coverage_insights],
+            outcome_insight_ids=[insight.id for insight in outcome_insights],
+            supporting_insight_ids=[insight.id for insight in selected],
+            supporting_findings=supporting_findings(selected),
         )
 
-    precedent = str(parsed.get("precedent", "")).strip().lower()
-    if precedent not in VALID_PRECEDENT:
-        precedent = "unknown"
-    outcome = str(parsed.get("outcome", "")).strip().lower()
-    if outcome not in VALID_PRECEDENT_OUTCOMES:
-        outcome = "unknown"
-    reason = str(parsed.get("reason", "")).strip() or "no rationale returned"
-    coverage_insights = _selected_insights(
-        parsed, insights, key="coverage_insight_indices"
-    )
-    outcome_insights = _selected_insights(
-        parsed, insights, key="outcome_insight_indices"
-    )
-    selected: list[Insight] = []
-    selected_ids: set[str] = set()
-    for insight in [*coverage_insights, *outcome_insights]:
-        if insight.id in selected_ids:
-            continue
-        selected_ids.add(insight.id)
-        selected.append(insight)
-    supporting_findings = _dedupe_findings(
-        finding for insight in selected for finding in insight.supporting_findings
-    )
+    try:
+        return request_validated(
+            llm_client,
+            precedent_assessment(len(insights)),
+            build_system_prompt(
+                attribute=attribute,
+                indication=indication,
+                intervention_class=intervention_class,
+                framing=framing,
+            ),
+            binding_message(binding),
+            max_tokens=max_tokens,
+            parse=parse,
+            failure=f"Precedent classification failed for {attribute.name}",
+            images=images,
+            trailing_text=insights_message(insights, "Classify the precedent now."),
+            task=TASK,
+            effort=EFFORT,
+        )
+    except RECORDABLE_FAILURES as exc:
+        return PrecedentSignal(
+            attribute_ref=attribute.name,
+            precedent=NOT_ASSESSED,
+            outcome=NOT_ASSESSED,
+            reason=str(exc),
+            doc_block_ids=list(attribute.block_ids),
+            failure_code=failure_code(exc),
+        )
+
+
+def no_evidence_precedent(attribute: Attribute) -> PrecedentSignal:
+    """The record for a variable no insight reached, on both axes, with no model reason."""
     return PrecedentSignal(
         attribute_ref=attribute.name,
-        precedent=precedent,
-        outcome=outcome,
-        reason=reason,
+        precedent=NO_EVIDENCE,
+        outcome=NO_EVIDENCE,
         doc_block_ids=list(attribute.block_ids),
-        coverage_insight_ids=[insight.id for insight in coverage_insights],
-        outcome_insight_ids=[insight.id for insight in outcome_insights],
-        supporting_insight_ids=[insight.id for insight in selected],
-        supporting_findings=supporting_findings,
     )
 
 
@@ -197,71 +197,10 @@ def build_system_prompt(
         "Return coverage_insight_indices and "
         "outcome_insight_indices separately, containing ONLY the numbered insights used "
         "for each axis. outcome_insight_indices may be empty when outcome=unknown.\n\n"
+        "Each insight lists the records it rests on with their source, evidence class, "
+        "publication date and the opening of their excerpt. Read who attempted what, and "
+        "when, from those records; an excerpt marked as a search engine's summary "
+        "describes a source rather than quoting it.\n\n"
         "Discovery-track labels are retrieval provenance only; classify the stated evidence, "
         "not the track name. Return only the schema-bound response."
     )
-
-
-def _user_message(
-    attribute: Attribute,
-    doc_text: str,
-    insights: list[Insight],
-) -> str:
-    doc_text = limit_document_context(doc_text)
-    lines = [
-        "Canonical document binding (authoritative; do not reinterpret):",
-        doc_text,
-        "",
-        "External-evidence insights for this variable:",
-    ]
-    for i, insight in enumerate(insights):
-        urls = ", ".join(f.url for f in insight.supporting_findings)
-        lines.append(f"[{i}] ({insight.id}) {insight.statement}")
-        if insight.query_tracks:
-            lines.append(f"    discovery tracks: {', '.join(insight.query_tracks)}")
-        if urls:
-            lines.append(f"    sources: {urls}")
-    lines.append("\nClassify the precedent now.")
-    return "\n".join(lines)
-
-
-def _dedupe_findings(findings) -> list[Finding]:
-    seen: set[str] = set()
-    out: list[Finding] = []
-    for finding in findings:
-        if finding.url in seen:
-            continue
-        seen.add(finding.url)
-        out.append(finding)
-    return out
-
-
-def _selected_insights(
-    parsed: dict,
-    insights: list[Insight],
-    *,
-    key: str,
-) -> list[Insight]:
-    raw = parsed.get(key, []) or []
-    indices = list(
-        dict.fromkeys(
-            item
-            for item in raw
-            if isinstance(item, int)
-            and not isinstance(item, bool)
-            and 0 <= item < len(insights)
-        )
-    )
-    return [insights[index] for index in indices]
-
-
-def _has_valid_lineage(parsed: dict, insights: list[Insight]) -> bool:
-    precedent = str(parsed.get("precedent", "")).strip().lower()
-    outcome = str(parsed.get("outcome", "")).strip().lower()
-    coverage_valid = precedent == "unknown" or bool(
-        _selected_insights(parsed, insights, key="coverage_insight_indices")
-    )
-    outcome_valid = outcome == "unknown" or bool(
-        _selected_insights(parsed, insights, key="outcome_insight_indices")
-    )
-    return coverage_valid and outcome_valid

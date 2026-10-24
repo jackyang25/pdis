@@ -41,7 +41,7 @@ export function TracePanelHeader({
   return (
     // Pinned while it holds the panel's close control, so the × stays in reach however far
     // the panel below it has been scrolled.
-    <header className={cn("border-b border-border/80 px-4 py-3.5", !action && close && "sticky top-0 z-10 bg-card", className)}>
+    <header className={cn("border-b border-border/60 px-4 py-3.5", !action && close && "sticky top-0 z-10 bg-card", className)}>
       <div className="flex min-w-0 items-start justify-between gap-3">
         <div className="min-w-0">
           <p className={EYEBROW}>
@@ -77,7 +77,7 @@ export function TracePanelSection({
   className?: string;
 }) {
   return (
-    <section className={cn("border-t border-border/70 pt-4", className)}>
+    <section className={cn("border-t border-border/60 pt-4", className)}>
       <div className={cn("flex items-center gap-2", EYEBROW)}>
         {Icon && <Icon className={cn("h-3.5 w-3.5", tone && TONE_TEXT[tone])} aria-hidden="true" />}
         {label}
@@ -158,7 +158,7 @@ export function TracePassageList({
                 spansDocuments ? `, ${displayDocumentName(passage.documentId)}` : ""
               }${passage.sectionLabel ? `, ${passage.sectionLabel}` : ""}`}
               className={cn(
-                "group/passage grid w-full min-w-0 grid-cols-[1.25rem_minmax(0,1fr)_0.875rem] items-start gap-2 rounded-md border px-2 py-1.5 text-left transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/30 motion-reduce:transition-none",
+                "group/passage grid w-full min-w-0 grid-cols-[1.25rem_minmax(0,1fr)_0.875rem] items-start gap-2 rounded-md border px-2 py-1.5 text-left transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/60 motion-reduce:transition-none",
                 isMarked
                   ? "border-border bg-foreground/[0.07]"
                   : "border-transparent hover:border-border hover:bg-foreground/[0.045]",

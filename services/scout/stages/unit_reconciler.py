@@ -10,17 +10,21 @@ from __future__ import annotations
 from dataclasses import asdict, replace
 import json
 
-from shared.errors import ModelResponseError
+from shared.ai import Effort, ModelTask
 
-from ..ai import request_structured
 from ..ai_contracts import unit_reconciliation
-from ..models import Attribute, LLMClientProtocol
+from ..identity import Group, partition
+from ..models import Attribute, IdentityReconciliation, LLMClientProtocol
 
 
 # One complete extracted set per request: identity is a partition of that set,
 # including duplicates across extraction chunks. Arbitrary batching would make
 # equivalence depend on where an extraction happened to split the document.
 UNIT_SETS_PER_REQUEST = 1
+#: The reasoning tier at medium effort: one call per run, and a wrong merge removes a
+#: claim from everything downstream while a missed one only repeats it.
+TASK: ModelTask = "reasoning"
+EFFORT: Effort = "medium"
 DEFAULT_MAX_TOKENS = 8000
 
 
@@ -65,19 +69,19 @@ def reconcile_units(
     units: list[Attribute],
     llm_client: LLMClientProtocol,
     *,
-    images_by_block_id: dict[str, str] | None = None,
+    images: list[dict[str, str]] | None = None,
     max_tokens: int = DEFAULT_MAX_TOKENS,
-) -> list[Attribute]:
-    """Return a complete identity partition or fail before downstream processing.
+) -> tuple[list[Attribute], IdentityReconciliation | None]:
+    """Return the reconciled units and what the identity layer decided.
 
-    A malformed partition gets one retry, never guessed repairs or a silent
-    'deduplicated' success. Provider failures propagate through the run boundary.
-    Transient IDs are positions, not names: extraction names may still collide.
+    Zero or one unit needs no call and records nothing. A partition that stays invalid
+    after one retry, or a failed call, leaves every unit as extracted and records the
+    failure (`identity.partition`). Transient IDs are positions, not names: extraction
+    names may still collide.
     """
     if len(units) < 2:
-        return units
+        return units, None
     by_id = {f"unit-{index}": unit for index, unit in enumerate(units)}
-    contract = unit_reconciliation(list(by_id))
     payload = json.dumps([
         {
             "unit_id": unit_id,
@@ -89,60 +93,27 @@ def reconcile_units(
         for unit_id, unit in by_id.items()
     ], ensure_ascii=False)
     cited_ids = {block_id for unit in units for block_id in unit.block_ids}
-    images = [
-        {"block_id": block_id, "data_url": image}
-        for block_id, image in (images_by_block_id or {}).items()
-        if block_id in cited_ids
-    ]
-    prompt = build_system_prompt()
-    for attempt in range(2):
-        parsed = request_structured(
-            llm_client, contract,
-            prompt + ("\nThe previous response was not a complete valid partition. "
-                      "Include every ID exactly once and each representative among its members."
-                      if attempt else ""),
-            payload, max_tokens=max_tokens, images=images or None,
-        )
-        groups = _validated_groups(parsed, list(by_id))
-        if groups is not None:
-            return _merge_groups(by_id, groups)
-    raise ModelResponseError("Dynamic unit reconciliation failed: invalid partition after retry")
+    result = partition(
+        llm_client,
+        unit_reconciliation(list(by_id)),
+        build_system_prompt(),
+        payload,
+        ids=list(by_id),
+        representative_key="representative_unit_id",
+        members_key="member_unit_ids",
+        layer="document_units",
+        max_tokens=max_tokens,
+        task=TASK,
+        effort=EFFORT,
+        images=[image for image in images or [] if image["block_id"] in cited_ids] or None,
+    )
+    return _merge_groups(by_id, result.groups), result.record
 
 
-def _validated_groups(
-    parsed: object, allowed_ids: list[str],
-) -> list[tuple[str, list[str]]] | None:
-    if not isinstance(parsed, list):
-        return None
-    allowed = set(allowed_ids)
-    seen: set[str] = set()
-    groups: list[tuple[str, list[str]]] = []
-    for group in parsed:
-        if not isinstance(group, dict) or set(group) != {
-            "representative_unit_id", "member_unit_ids",
-        }:
-            return None
-        representative = group["representative_unit_id"]
-        members = group["member_unit_ids"]
-        if not isinstance(representative, str) or representative not in allowed:
-            return None
-        if not isinstance(members, list) or not members or representative not in members:
-            return None
-        for member in members:
-            if not isinstance(member, str) or member not in allowed or member in seen:
-                return None
-            seen.add(member)
-        groups.append((representative, members))
-    return groups if seen == allowed else None
-
-
-def _merge_groups(
-    by_id: dict[str, Attribute], groups: list[tuple[str, list[str]]],
-) -> list[Attribute]:
-    order = {unit_id: index for index, unit_id in enumerate(by_id)}
+def _merge_groups(by_id: dict[str, Attribute], groups: list[Group]) -> list[Attribute]:
     result: list[Attribute] = []
-    for representative, members in sorted(groups, key=lambda g: min(order[m] for m in g[1])):
-        sources = [by_id[member] for member in sorted(members, key=order.__getitem__)]
+    for representative, members in groups:
+        sources = [by_id[member] for member in members]
         spans = {
             (span.quote, tuple(span.block_ids)): span
             for source in sources for span in source.document_spans

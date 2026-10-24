@@ -6,16 +6,15 @@ from typing import Sequence
 
 from .controller import plan_requests, run_requests, validate_source_keys
 from .models import (
-    Finding,
     QueryFacets,
     RetrievalEntity,
     RetrievalIntent,
     SearchReport,
     SearchRuntime,
     SourceQueryIntent,
-    merge_findings,
+    dedupe_findings,
 )
-from .stages.searcher import DEFAULT_MAX_TOKENS, DEFAULT_MAX_USES
+from .stages.searcher import DEFAULT_MAX_TOKENS
 
 
 #: What a caller states about a search in words - the query and each scope field, by
@@ -59,7 +58,6 @@ def run_pipeline(
     *,
     runtime: SearchRuntime,
     max_tokens: int = DEFAULT_MAX_TOKENS,
-    max_uses: int = DEFAULT_MAX_USES,
     sources: tuple[str, ...] = ("web",),
     condition: str | None = None,
     intervention: str | None = None,
@@ -78,8 +76,6 @@ def run_pipeline(
         query: Free-text question or topic to search for.
         runtime: Injected capabilities available to registered source adapters.
         max_tokens: Token budget for the LLM's response.
-        max_uses: Max number of web_search tool invocations the model
-            may make per query.
         sources: Registered source adapter keys to union. Defaults to web.
         condition: Optional condition/disease, the anchor every field-addressed
             source builds its request around. Left blank, each such adapter falls
@@ -159,7 +155,6 @@ def run_pipeline(
         requests,
         runtime=runtime,
         max_tokens=max_tokens,
-        max_uses=max_uses,
         progress=(
             lambda completed, total: progress_callback(
                 "search", completed=completed, total=total
@@ -178,13 +173,4 @@ def run_pipeline(
         if outcome.status == "complete"
         for finding in outcome.findings
     ]
-
-    by_url: dict[str, Finding] = {}
-    out: list[Finding] = []
-    for finding in findings:
-        if finding.url in by_url:
-            merge_findings(by_url[finding.url], finding)
-            continue
-        by_url[finding.url] = finding
-        out.append(finding)
-    return SearchReport(findings=out, outcomes=list(outcomes))
+    return SearchReport(findings=dedupe_findings(findings), outcomes=list(outcomes))

@@ -12,27 +12,25 @@ import re
 from datetime import datetime, timezone
 from typing import Any
 
-from ..models import Finding, SearcherLLMClientProtocol
+from ..models import Finding, LLMClientProtocol
 
 logger = logging.getLogger(__name__)
 
 DEFAULT_MAX_TOKENS = 4000
-DEFAULT_MAX_USES = 5
 
 
 def search(
     query: str,
-    llm_client: SearcherLLMClientProtocol,
+    llm_client: LLMClientProtocol,
     *,
     max_tokens: int = DEFAULT_MAX_TOKENS,
-    max_uses: int = DEFAULT_MAX_USES,
 ) -> list[Finding]:
     """Run one web search and return a list of Findings.
 
     Raises any exception from the underlying LLM client. Callers decide
     how to handle failure.
     """
-    response = llm_client.search_web(query, max_tokens=max_tokens, max_uses=max_uses)
+    response = llm_client.search_web(query, max_tokens=max_tokens)
     retrieved_at = datetime.now(timezone.utc)
     return _parse_response_to_findings(response, query=query, retrieved_at=retrieved_at)
 
@@ -79,6 +77,8 @@ def _parse_response_to_findings(
                     query=query,
                     retrieved_at=retrieved_at,
                     excerpt=excerpt,
+                    # The model's sentence about the page, not the page.
+                    excerpt_kind="generated",
                     published_at=None,
                     source="web",
                 )

@@ -81,7 +81,7 @@ export function KnowledgeContent({ block }: { block: KnowledgeBlock }) {
   if (block.type === "links") {
     return (
       <ContentGroup title={block.title}>
-        <div className="mt-6 divide-y divide-border border-y border-border">
+        <div className="mt-6 divide-y divide-border/60 border-y border-border/60">
           {block.items.map((item) => (
             <ReferenceLink key={item.href} {...item} />
           ))}
@@ -91,7 +91,7 @@ export function KnowledgeContent({ block }: { block: KnowledgeBlock }) {
   }
   return (
     <ContentGroup title={block.title}>
-      <div className="mt-6 border-y border-border">
+      <div className="mt-6 border-y border-border/60">
         {block.items.map((item) => (
           <Faq key={item.question} question={item.question}>{item.answer}</Faq>
         ))}
@@ -123,9 +123,9 @@ function Step({ number, title, children }: { number: string; title: string; chil
 
 function DefinitionRows({ rows }: { rows: readonly (readonly [string, string])[] }) {
   return (
-    <dl className="mt-4 border-t border-border">
+    <dl className="mt-4 border-t border-border/60">
       {rows.map(([term, description]) => (
-        <div key={term} className="grid gap-2 border-b border-border py-4 sm:grid-cols-[minmax(0,13rem)_minmax(0,1fr)] sm:gap-6">
+        <div key={term} className="grid gap-2 border-b border-border/60 py-4 sm:grid-cols-[minmax(0,13rem)_minmax(0,1fr)] sm:gap-6">
           <dt className="min-w-0 break-words text-sm font-medium text-foreground">{term}</dt>
           <dd className="min-w-0 max-w-[75ch] break-words text-sm leading-relaxed text-muted-foreground">{description}</dd>
         </div>
@@ -166,7 +166,7 @@ function Warning({ title, children }: { title: string; children: React.ReactNode
 
 function ReferenceLink({ href, title, description }: { href: string; title: string; description: string }) {
   return (
-    <a href={href} target="_blank" rel="noreferrer" className="flex items-center justify-between gap-4 py-4 text-sm transition-colors hover:bg-accent focus-visible:outline-offset-2 motion-reduce:transition-none">
+    <a href={href} target="_blank" rel="noreferrer" className="flex items-center justify-between gap-4 py-4 text-sm transition-colors hover:bg-accent rounded-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/60 motion-reduce:transition-none">
       <span className="grid min-w-0 gap-1 sm:grid-cols-[13rem_minmax(0,1fr)] sm:gap-6">
         <span className="font-medium text-foreground">{title}</span>
         <span className="text-muted-foreground">{description}</span>
@@ -178,8 +178,8 @@ function ReferenceLink({ href, title, description }: { href: string; title: stri
 
 function Faq({ question, children }: { question: string; children: React.ReactNode }) {
   return (
-    <details className="group/faq border-b border-border py-3.5 last:border-b-0">
-      <summary className="flex cursor-pointer list-none items-center justify-between gap-4 rounded-sm text-sm font-medium focus-visible:outline-offset-2 [&::-webkit-details-marker]:hidden">
+    <details className="group/faq border-b border-border/60 py-3.5 last:border-b-0">
+      <summary className="flex cursor-pointer list-none items-center justify-between gap-4 rounded-sm text-sm font-medium rounded-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/60 [&::-webkit-details-marker]:hidden">
         {question}
         <ChevronDown aria-hidden="true" className="h-4 w-4 shrink-0 text-muted-foreground transition-transform duration-base motion-reduce:transition-none group-open/faq:rotate-180" />
       </summary>

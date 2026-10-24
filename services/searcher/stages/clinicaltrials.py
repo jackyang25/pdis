@@ -12,111 +12,97 @@ failed outcome without affecting other adapters.
 
 from __future__ import annotations
 
-import json
 import logging
-import threading
-import time
-import urllib.error
 import urllib.parse
-import urllib.request
 from datetime import datetime, timezone
-from functools import lru_cache
 
-from ..models import DevelopmentRecord, Finding
+from ..calls import provider_call
+from ..dates import iso_partial_date
+from ..models import DevelopmentRecord, Finding, SearchRuntime
+from ..transport import fetch_json, user_agent
 
 logger = logging.getLogger(__name__)
 
 API_URL = "https://clinicaltrials.gov/api/v2/studies"
 REQUEST_TIMEOUT_SECONDS = 35  # match PubMed: tolerate rare slow calls (e.g. WARP latency)
-MAX_RESULTS = 20
 MAX_EXCERPT_CHARS = 6000
 
-# CT.gov publishes no hard rate limit but asks clients to be considerate. The
-# scout fans out many queries in parallel, so space request STARTS
-# process-wide (same pattern as the PubMed backend), not per-thread.
-_RATE_LOCK = threading.Lock()
-_FETCH_LOCK = threading.Lock()
-_NEXT_ALLOWED = 0.0
-RATE_INTERVAL = 0.12  # ~8 requests/sec across all threads
-MAX_RETRIES_ON_429 = 2
-
-
-def _throttle() -> None:
-    """Block until at least RATE_INTERVAL has passed since the last request,
-    globally across all threads."""
-    global _NEXT_ALLOWED
-    with _RATE_LOCK:
-        now = time.monotonic()
-        wait = _NEXT_ALLOWED - now
-        if wait > 0:
-            time.sleep(wait)
-            now = time.monotonic()
-        _NEXT_ALLOWED = now + RATE_INTERVAL
-
-
+#: The parts of a study record this lane reads, and nothing else. A full record carries
+#: every location, outcome measure and result table: 100 full studies came back as 7 MB
+#: against 0.4 MB projected (measured live), for fields no stage reads.
+STUDY_FIELDS = "|".join(
+    (
+        "protocolSection.identificationModule",
+        "protocolSection.statusModule",
+        "protocolSection.designModule.phases",
+        "protocolSection.descriptionModule.briefSummary",
+        "protocolSection.conditionsModule.conditions",
+        "protocolSection.armsInterventionsModule",
+        "protocolSection.sponsorCollaboratorsModule.leadSponsor",
+        "hasResults",
+    )
+)
 
 
 def fetch_clinicaltrials_studies(
+    runtime: SearchRuntime,
     *,
+    rate_group: str,
+    interval_seconds: float,
     condition: str,
     intervention: str,
-    term: str,
     max_results: int,
     region: str = "",
+    first_posted_since: str = "",
 ) -> list[dict]:
-    """Return a bounded structured candidate set.
+    """Return the provider's own top `max_results` studies, in its order.
 
-    The lock makes the memoized fetch single-flight. Scout plans one request per
-    field, but fields in one run usually share the same registry filters; only
-    the first request should reach the provider.
+    Made at most once per run for one set of filters: Scout plans one request per field,
+    and fields in one run usually share the same registry filters. The list is a copy,
+    because the answer is shared; its records are shared too and are read, never altered.
     """
-    with _FETCH_LOCK:
-        return _fetch_studies(condition, intervention, term, max_results, region)
-
-
-@lru_cache(maxsize=512)
-def _fetch_studies(
-    condition: str,
-    intervention: str,
-    term: str,
-    max_results: int,
-    region: str = "",
-) -> list[dict]:
-    """Fetch raw studies for a structured (condition/intervention) or free-text
-    query. Memoized by the full structured request.
-    """
-    if not (condition or intervention or term):
+    if not (condition or intervention):
         return []
-    params = {"pageSize": str(max_results), "format": "json"}
+    params = {
+        "pageSize": str(max_results),
+        "format": "json",
+        "fields": STUDY_FIELDS,
+    }
     if condition:
         params["query.cond"] = condition
     if intervention:
         params["query.intr"] = intervention
-    if term:
-        params["query.term"] = term
     if region:
         # The provider's own location field. A region in `query.term` would match
         # studies that mention the place, not studies running there.
         params["query.locn"] = region
+    if first_posted_since:
+        # The provider applies the window, so the page holds the top studies inside it
+        # rather than the top studies overall with the old ones discarded afterwards.
+        params["filter.advanced"] = (
+            f"AREA[StudyFirstPostDate]RANGE[{first_posted_since},MAX]"
+        )
     url = f"{API_URL}?{urllib.parse.urlencode(params)}"
-    request = urllib.request.Request(
-        url,
-        headers={"User-Agent": "pdis-scout/0.1 (mailto:devnull@example.com)"},
+
+    def load() -> list[dict]:
+        data = fetch_json(
+            url,
+            provider="ClinicalTrials.gov",
+            headers={"User-Agent": user_agent(runtime.contact_email)},
+            timeout=REQUEST_TIMEOUT_SECONDS,
+        )
+        return (data.get("studies", []) if isinstance(data, dict) else []) or []
+
+    return list(
+        provider_call(
+            runtime,
+            rate_group=rate_group,
+            interval_seconds=interval_seconds,
+            operation="studies",
+            arguments=params,
+            load=load,
+        )
     )
-    for attempt in range(MAX_RETRIES_ON_429 + 1):
-        _throttle()
-        try:
-            with urllib.request.urlopen(request, timeout=REQUEST_TIMEOUT_SECONDS) as response:
-                data = json.loads(response.read())
-            return data.get("studies", []) or []
-        except urllib.error.HTTPError as exc:
-            if exc.code == 429 and attempt < MAX_RETRIES_ON_429:
-                time.sleep(RATE_INTERVAL * (2 ** attempt))
-                continue
-            raise
-        except (urllib.error.URLError, TimeoutError):
-            raise
-    raise RuntimeError("unreachable")
 
 
 def clinicaltrial_to_finding(study: dict, query: str) -> Finding | None:
@@ -140,7 +126,7 @@ def clinicaltrial_to_finding(study: dict, query: str) -> Finding | None:
     lead_sponsor = sponsor_module.get("leadSponsor") or {}
 
     title = (
-        ident.get("briefTitle") or ident.get("officialTitle") or f"Trial {nct_id}"
+        ident.get("briefTitle") or ident.get("officialTitle") or nct_id
     ).strip()
     status = (status_mod.get("overallStatus") or "").strip()
     phases = ", ".join(_phase_label(value) for value in (design.get("phases") or []))
@@ -175,13 +161,23 @@ def clinicaltrial_to_finding(study: dict, query: str) -> Finding | None:
     if excerpt and len(excerpt) > MAX_EXCERPT_CHARS:
         excerpt = excerpt[:MAX_EXCERPT_CHARS].rstrip() + "..."
 
+    published_at, precision = iso_partial_date(
+        (status_mod.get("studyFirstPostDateStruct") or {}).get("date")
+    )
     return Finding(
         url=f"https://clinicaltrials.gov/study/{nct_id}",
         title=full_title,
         query=query,
         retrieved_at=retrieved_at,
         excerpt=excerpt,
-        published_at=_parse_date(_last_update(status_mod)),
+        excerpt_kind="structured_fields",
+        # First posted, not last updated: a registry record's publication is when it
+        # appeared, and reading the latest edit let a decade-old trial pass a window
+        # because someone corrected its contact details last month.
+        published_at=published_at,
+        published_precision=precision,
+        identifiers={"nct": nct_id},
+        record_key=f"clinicaltrials:{nct_id}",
         source="clinicaltrials",
         development_records=[
             DevelopmentRecord(
@@ -288,28 +284,6 @@ def _phase_label(value: object) -> str:
     }
     text = str(value or "").strip()
     return labels.get(text, text.replace("_", " ").title())
-
-
-def _last_update(status_mod: dict) -> str:
-    for key in ("lastUpdatePostDateStruct", "startDateStruct"):
-        struct = status_mod.get(key) or {}
-        date = (struct.get("date") or "").strip()
-        if date:
-            return date
-    return ""
-
-
-def _parse_date(raw: str) -> datetime | None:
-    if not raw:
-        return None
-    parts = raw.split("-")
-    try:
-        year = int(parts[0])
-        month = int(parts[1]) if len(parts) > 1 else 1
-        day = int(parts[2]) if len(parts) > 2 else 1
-        return datetime(year, month, day, tzinfo=timezone.utc)
-    except (ValueError, IndexError):
-        return None
 
 
 def _clean_text(text: str) -> str:

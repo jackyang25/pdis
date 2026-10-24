@@ -153,7 +153,6 @@ class WHOGuidelinesTextTests(unittest.TestCase):
             request,
             SearchRuntime(llm_client=None, integrations={"tooluniverse": connector}),
             max_tokens=100,
-            max_uses=1,
         )
 
     def test_a_guideline_carries_its_page_text(self) -> None:

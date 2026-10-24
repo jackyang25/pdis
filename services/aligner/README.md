@@ -58,19 +58,34 @@ One label, opposite meanings for the investment.
 
 ## What a run does
 
-Resolves comparisons, parses every document, then for each comparison:
+Resolves comparisons, parses every document - parse only: no Aligner stage reads a
+section label, so no section-mapping call is made - then for each comparison:
 
 1. **Reads the reference document's requirements** — one call, because how many
    requirements a document states is a fact about the whole document. Each
-   requirement is atomic and cites the passage that states it.
+   requirement is atomic and cites the passage that states it. Every item the model
+   lists is kept: whether two are one requirement is the extraction's judgement, never
+   a comparison of their normalized wording.
 2. **Judges each requirement against the other document** — one call each, fanned
    out. Nothing is packed: a document that meets four targets would read as
-   compliant on the fifth.
+   compliant on the fifth. The requirement is sent after the document and its images,
+   so everything before it is a prefix shared by the comparison's requests.
+
+Every comparison's requirements are read before any is judged, and then every
+requirement of every comparison is judged in one queue, so `requirements` and
+`compare` progress each count once to their total — a three-document run's bar does not
+restart for its second comparison. Both stages run on the reasoning tier at medium
+effort. Extraction's budget scales with the reference document it reads, up to the
+reasoning tier's retry ceiling; judgement has a fixed one. A reply cut off at its token
+limit is retried once at low effort with the same budget; a second truncation stops the
+run with `response_truncated`. Each document a comparison sends whole is measured against
+`shared.request_budget` before either stage runs, and refused with `request_too_large`.
+Blocks are rendered by `shared.source_blocks` with their headings and numbered lines.
 
 ### What honouring a requirement means
 
-It depends on the kind of document, and the config's `document_roles` line is what says
-which kind this is:
+It depends on the kind of document, and the config's `document_roles.<type>.honours`
+says which test applies; the verdict prompt itself names no document type:
 
 - A **profile** — an iTPP or cTPP — honours a requirement by **stating a value** that
   satisfies it. Committing to numbers is its job.
@@ -86,7 +101,8 @@ does not address stability."
 
 Nothing was added to fix it — no sixth verdict, no second axis, no third comparison. The
 document's role already reached the prompt; it was simply not allowed to change what the
-verdicts meant.
+verdicts meant. The honouring test now sits beside the role's description in config, so a
+new document type states its own test without editing the prompt.
 
 ### The five verdicts
 
@@ -199,10 +215,10 @@ knows how many documents a run has or which types compare:
 
 ```yaml
 document_roles:      # how each type is described; `default` is required
-  itpp: …
-  ctpp: …
-  ipdp: …
-  default: …
+  itpp: {description: …, honours: …}
+  ctpp: {description: …, honours: …}
+  ipdp: {description: …, honours: …}
+  default: {description: …, honours: …}
 
 edges:               # which ordered pairs compare, and what each asks
   - reference: itpp
@@ -240,11 +256,15 @@ nothing looks identical to one that found nothing wrong:
 | Documents resolve no declared comparison | Refused, naming what Aligner does compare |
 | Two documents of the same type | Refused; screening several candidates at once is a different tool |
 
+The result contract refuses what would read as a clean run that was not one: a
+comparison with no findings, comparisons other than the ones the config resolves for the
+result's documents, and requirement IDs out of their comparison's `r-001, r-002, …`
+sequence.
+
 ## Usage
 
-Import `run_pipeline`, `load_config`, `resolve_edges`, `describe_document`,
-`describe_edges`, the result models, and `alignment_result_to_dict` from
-`services.aligner`.
+Import `run_pipeline`, `load_config`, `resolve_edges`, `document_role`,
+`describe_edges`, and the result models from `services.aligner`.
 
 | Direction | Value |
 |---|---|

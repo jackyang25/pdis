@@ -56,7 +56,7 @@ test("the estimate is a budget, so it rounds up rather than to the middle", () =
   // is worse served than one who finished early, so these came from observed
   // upper ends rather than averages.
   const scout = WORKSPACE_TOOLS.find((tool) => tool.id === "scout");
-  assert.equal(scout?.activity, "20 minutes");
+  assert.equal(scout?.activity, "35 minutes");
 });
 
 test("a tool's mark is presented the same way wherever it identifies that tool", () => {
@@ -203,7 +203,7 @@ test("every judging tool names its territory and its neighbour's", () => {
   };
   // Inspector's scope is now stated positively, by its authored authority.
   const inspectorPage = readFileSync(path.resolve(import.meta.dirname, "..", "app", "inspector", "page.tsx"), "utf8");
-  assert.match(inspectorPage, /against its authored rubrics/);
+  assert.match(inspectorPage, /description=\{toolAuthority\("inspector"\)\}/);
   // Aligner likewise names its authority positively, reusing the catalog sentence.
   const alignerPage = readFileSync(path.resolve(import.meta.dirname, "..", "app", "aligner", "page.tsx"), "utf8");
   assert.match(alignerPage, /description=\{toolAuthority\("aligner"\)\}/);
@@ -211,7 +211,7 @@ test("every judging tool names its territory and its neighbour's", () => {
   // a second sentence on every card for a distinction that only matters once a reader
   // has chosen one - so the card says what the tool judges, and the page it opens says
   // where that stops.
-  for (const [id, [owns, disowns]] of Object.entries(TERRITORY)) {
+  for (const id of Object.keys(TERRITORY)) {
     assert.ok(
       WORKSPACE_TOOLS.some((entry) => entry.id === id),
       `${id} is no longer catalogued`,

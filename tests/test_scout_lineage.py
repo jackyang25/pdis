@@ -63,7 +63,6 @@ from services.scout.stages.precedent_classifier import classify_precedent
 from services.scout.stages.query_extractor import (
     _parse_queries,
     _target_retrieval_descriptor,
-    _target_retrieval_text,
     extract_queries_for_variable,
 )
 from services.scout.stages.intent_builder import build_retrieval_intents
@@ -126,7 +125,7 @@ class StaticClient:
         self.image_calls.append(images or [])
         self.token_budgets.append(max_tokens)
         payload = normalize_conformity_fixture(
-            self.response, system_prompt, user_message
+            self.response, system_prompt, user_message + _kwargs.get("trailing_text", "")
         )
         return structured_fixture(payload, schema)
 
@@ -171,7 +170,7 @@ class SequenceClient(StaticClient):
         if not self.responses:
             raise AssertionError("unexpected extra model call")
         payload = normalize_conformity_fixture(
-            self.responses.pop(0), system_prompt, user_message
+            self.responses.pop(0), system_prompt, user_message + _kwargs.get("trailing_text", "")
         )
         return structured_fixture(payload, schema)
 
@@ -642,6 +641,7 @@ class DocumentContextValidationTests(unittest.TestCase):
         )
 
     def test_uncited_mismatch_cannot_block_a_run(self) -> None:
+        """An uncited verdict is retried, then recorded as no verdict - never ``uncertain``."""
         client = StaticClient(
             {
                 "status": "mismatch",
@@ -657,7 +657,9 @@ class DocumentContextValidationTests(unittest.TestCase):
             indication="HIV",
         )
 
-        self.assertEqual(validation.status, "uncertain")
+        self.assertEqual(client.calls, 2)
+        self.assertEqual(validation.status, "not_assessed")
+        self.assertEqual(validation.failure_code, "invalid_model_response")
         self.assertEqual(validation.doc_block_ids, [])
 
     def test_cited_mismatch_has_actionable_error(self) -> None:
@@ -1030,7 +1032,6 @@ class RetrievalPlanningTests(unittest.TestCase):
             registry.document_refs,
             ("doc/b-0002", "doc/b-0003"),
         )
-        self.assertEqual(registry.option("ranking"), "all_input_queries")
         counterfactual_literature = next(
             task
             for task in tasks
@@ -1174,19 +1175,48 @@ class RetrievalPlanningTests(unittest.TestCase):
             counterfactual_queries_per_variable=0,
             precedent_queries_per_variable=0,
             adjacent_queries_per_variable=0,
+            queries_per_variable=1,
         )
+        document_context = (
+            "[block:doc/b-0002]\nAt least 80% at 6 months.\n\n"
+            "[block:doc/b-0003]\nAt least 90% at 12 months."
+        )
+        # Two linked targets raise the general budget to two queries.
+        uncovered = StaticClient([
+            {"query": "general efficacy evidence", "doc_block_ids": []},
+            {"query": "malaria vaccine efficacy overview", "doc_block_ids": []},
+        ])
+        general_only = extract_queries_for_variable(
+            attribute,
+            targets,
+            config,
+            uncovered,
+            indication="malaria",
+            scope=RetrievalScopeLedger.of(condition=("malaria", "header")),
+            document_context=document_context,
+        )
+        # Coverage is retried once; what the retry still leaves uncovered keeps only
+        # the model's general query. Code never writes a query of its own.
+        self.assertEqual(uncovered.calls, 2)
+        self.assertEqual(
+            [query.text for query in general_only],
+            ["general efficacy evidence", "malaria vaccine efficacy overview"],
+        )
+        self.assertEqual([query.target_ids for query in general_only], [[], []])
+
         queries = extract_queries_for_variable(
             attribute,
             targets,
             config,
-            StaticClient([{"query": "general efficacy evidence", "doc_block_ids": []}]),
+            StaticClient([
+                {"query": "malaria vaccine protective efficacy at 6 months",
+                 "doc_block_ids": [], "target_ids": [targets[0].id]},
+                {"query": "malaria vaccine protective efficacy at 12 months",
+                 "doc_block_ids": [], "target_ids": [targets[1].id]},
+            ]),
             indication="malaria",
             scope=RetrievalScopeLedger.of(condition=("malaria", "header")),
-            queries_per_variable=1,
-            document_context=(
-                "[block:doc/b-0002]\nAt least 80% at 6 months.\n\n"
-                "[block:doc/b-0003]\nAt least 90% at 12 months."
-            ),
+            document_context=document_context,
         )
 
         self.assertEqual(len(queries), 2)
@@ -1194,22 +1224,8 @@ class RetrievalPlanningTests(unittest.TestCase):
             {target_id for query in queries for target_id in query.target_ids},
             {target.id for target in targets},
         )
-        target_queries = [query for query in queries if query.target_ids]
-        self.assertTrue(
-            all("protective efficacy" in query.text for query in target_queries)
-        )
-        self.assertTrue(all("malaria infection" in query.text for query in target_queries))
-        self.assertTrue(
-            all("reported numeric results" in query.text for query in target_queries)
-        )
-        self.assertFalse(
-            any("80" in query.text or "90" in query.text for query in target_queries)
-        )
-        self.assertFalse(
-            any(
-                "threshold" in query.text or "optimal" in query.text
-                for query in target_queries
-            )
+        self.assertEqual(
+            [query.doc_block_ids for query in queries], [["doc/b-0002"], ["doc/b-0003"]],
         )
         descriptors = [_target_retrieval_descriptor(target) for target in targets]
         self.assertEqual(descriptors[0]["dimensions"]["time_horizon"], "6 months")
@@ -1251,7 +1267,6 @@ class RetrievalPlanningTests(unittest.TestCase):
         )
 
         descriptor = _target_retrieval_descriptor(target)
-        query_text = _target_retrieval_text(target)
 
         self.assertEqual(
             descriptor["dimensions"]["endpoint"],
@@ -1260,8 +1275,7 @@ class RetrievalPlanningTests(unittest.TestCase):
         self.assertEqual(
             descriptor["dimensions"]["time_horizon"], "extended storage period"
         )
-        self.assertIn("+8°C", query_text)
-        self.assertIn("storage temperature tolerance", query_text)
+        self.assertEqual(descriptor["dimensions"]["measure"], "storage temperature tolerance")
 
         dose_profile = semantic_profile("dose volume below 0.5 mL/dose")
         dose_target = QuantitativeTarget(
@@ -1315,7 +1329,7 @@ class RetrievalPlanningTests(unittest.TestCase):
         )
         self.assertNotIn(
             "AIV anti-infective malaria vaccine",
-            _target_retrieval_text(target),
+            json.dumps(descriptor),
         )
 
         source_profile = semantic_profile("protective efficacy")
@@ -1372,6 +1386,7 @@ class RetrievalPlanningTests(unittest.TestCase):
             counterfactual_queries_per_variable=0,
             precedent_queries_per_variable=0,
             adjacent_queries_per_variable=0,
+            queries_per_variable=1,
         )
         invalid = [{
             "query": "device stability above 8°C reported results",
@@ -1393,7 +1408,6 @@ class RetrievalPlanningTests(unittest.TestCase):
             ]),
             indication="example condition",
             scope=RetrievalScopeLedger.of(condition=("malaria", "header")),
-            queries_per_variable=1,
             document_context="[block:document/b-0004]\nTemperature tolerance greater than 8°C.",
         )
 
@@ -1434,6 +1448,7 @@ class RetrievalPlanningTests(unittest.TestCase):
             counterfactual_queries_per_variable=0,
             precedent_queries_per_variable=0,
             adjacent_queries_per_variable=0,
+            queries_per_variable=1,
         )
         invalid = [{
             "query": "dose volume below 0,5 mL reported results",
@@ -1448,7 +1463,6 @@ class RetrievalPlanningTests(unittest.TestCase):
             SequenceClient([invalid, invalid]),
             indication="example condition",
             scope=RetrievalScopeLedger.of(condition=("malaria", "header")),
-            queries_per_variable=1,
             document_context="[block:document/b-0005]\nDose volume below 0.5 mL/dose.",
         )
 
@@ -1522,14 +1536,21 @@ class DocumentContextTests(unittest.TestCase):
             ]
         )
 
-        units = extract_units(
+        image = {
+            "block_id": "document/b-0002",
+            "data_url": "data:image/png;base64,AA==",
+            "detail": "high",
+        }
+        units, record = extract_units(
             "[block:document/b-0002]\nRTS,S approval is targeted for 2030.",
             intervention_class="vaccine",
             source_type="ipdp",
             indication="malaria",
             llm_client=client,
-            images_by_block_id={"document/b-0002": "data:image/png;base64,AA=="},
+            images=[image, {**image, "block_id": "document/b-0099"}],
         )
+        # One unit has nothing to compare, so no identity call and no record.
+        self.assertIsNone(record)
 
         self.assertEqual(units[0].block_ids, ["document/b-0002"])
         self.assertEqual(units[0].definition_mode, "dynamic")
@@ -1545,15 +1566,8 @@ class DocumentContextTests(unittest.TestCase):
         self.assertEqual(units[0].entities[0].name, "RTS,S")
         self.assertEqual(units[0].entities[0].entity_type, "vaccine")
         self.assertTrue(units[0].target_resolved)
-        self.assertEqual(
-            client.image_calls[0],
-            [
-                {
-                    "block_id": "document/b-0002",
-                    "data_url": "data:image/png;base64,AA==",
-                }
-            ],
-        )
+        # Only the visual of a block in the chunk is sent, labelled by its block ID.
+        self.assertEqual(client.image_calls[0], [image])
 
     def test_reasoning_binding_excludes_adjacent_table_cell_content(self) -> None:
         blocks = [
@@ -1733,15 +1747,8 @@ class ReasoningLineageTests(unittest.TestCase):
         self.assertEqual(result.doc_block_ids, ["document/b-0003"])
 
     def test_assessment_preserves_document_target_without_web_evidence(self) -> None:
-        client = StaticClient(
-            {
-                "strength": "unknown",
-                "doc_target": "at least 80% efficacy",
-                "doc_block_ids": ["document/b-0003"],
-                "supporting_insight_indices": [],
-                "reason": "No web evidence was found for this target.",
-            }
-        )
+        """No insight is `no_evidence`, recorded without a call: not the model's `unknown`."""
+        client = StaticClient({})
 
         result = assess_evidence(
             self.attribute,
@@ -1752,7 +1759,8 @@ class ReasoningLineageTests(unittest.TestCase):
             intervention_class="vaccine",
         )
 
-        self.assertEqual(result.strength, "unknown")
+        self.assertEqual(result.strength, "no_evidence")
+        self.assertEqual(result.reason, "")
         self.assertEqual(result.doc_target, "Target efficacy is at least 80%.")
         self.assertEqual(result.doc_block_ids, ["document/b-0003"])
         self.assertEqual(client.calls, 0)
@@ -1790,83 +1798,82 @@ class ReasoningLineageTests(unittest.TestCase):
 
     def test_drift_discards_hallucinated_document_block_ids(self) -> None:
         client = StaticClient(
-            [
-                {
-                    "index": 0,
-                    "relation": "confirms",
-                    "reason": "The endpoint supports the stated target.",
-                    "doc_block_ids": ["document/b-0003", "invented/b-9999"],
-                }
-            ]
+            {
+                "relation": "confirms",
+                "reason": "The endpoint supports the stated target.",
+                "doc_block_ids": ["document/b-0003", "invented/b-9999"],
+            }
         )
 
         result = classify_drift(
-            [self.document],
-            [self.first],
+            self.document,
+            self.first,
             client,
             indication="test",
             intervention_class="vaccine",
         )
 
-        self.assertEqual(result[0].doc_block_ids, ["document/b-0003"])
+        self.assertEqual(result.doc_block_ids, ["document/b-0003"])
 
     def test_each_insight_is_classified_in_its_own_request(self) -> None:
         """A per-insight relation must not be judged alongside unrelated insights."""
         class _RecordingClient(StaticClient):
             def __init__(self) -> None:
-                super().__init__([{
-                    "index": 0,
+                super().__init__({
                     "relation": "confirms",
                     "reason": "The endpoint supports the stated target.",
                     "doc_block_ids": ["document/b-0003"],
-                }])
-                self.request_sizes: list[int] = []
+                })
+                self.trailing: list[str] = []
 
             def call_structured(self, system_prompt, user_message, max_tokens, **kwargs):
-                self.request_sizes.append(
-                    kwargs["schema"]["properties"]["matches"]["items"]
-                    ["properties"]["index"]["maximum"] + 1
-                )
+                self.trailing.append(kwargs.get("trailing_text", ""))
                 return super().call_structured(
                     system_prompt, user_message, max_tokens, **kwargs
                 )
 
         client = _RecordingClient()
 
-        result = classify_drift(
-            [self.document],
-            [self.first, self.second],
-            client,
-            indication="test",
-            intervention_class="vaccine",
-        )
+        result = [
+            classify_drift(
+                self.document,
+                insight,
+                client,
+                indication="test",
+                intervention_class="vaccine",
+            )
+            for insight in (self.first, self.second)
+        ]
 
         self.assertEqual(len(result), 2)
-        self.assertEqual(client.request_sizes, [1, 1])
+        # Each request carries exactly its own insight, after the shared binding.
+        self.assertEqual(len(client.trailing), 2)
+        self.assertIn(self.first.statement, client.trailing[0])
+        self.assertNotIn(self.second.statement, client.trailing[0])
+        self.assertIn(self.second.statement, client.trailing[1])
 
     def test_drift_fails_closed_without_valid_document_lineage(self) -> None:
         client = StaticClient(
-            [
-                {
-                    "index": 0,
-                    "relation": "confirms",
-                    "reason": "The endpoint supports the stated target.",
-                    "doc_block_ids": ["invented/b-9999"],
-                }
-            ]
+            {
+                "relation": "confirms",
+                "reason": "The endpoint supports the stated target.",
+                "doc_block_ids": ["invented/b-9999"],
+            }
         )
 
         result = classify_drift(
-            [self.document],
-            [self.first],
+            self.document,
+            self.first,
             client,
             indication="test",
             intervention_class="vaccine",
         )
 
-        self.assertEqual(result[0].relation, "unrelated")
-        self.assertEqual(result[0].doc_block_ids, [])
-        self.assertIn("lineage", result[0].reason)
+        self.assertEqual(client.calls, 2)
+        self.assertEqual(result.relation, "not_assessed")
+        self.assertEqual(result.failure_code, "invalid_model_response")
+        self.assertEqual(result.doc_block_ids, [])
+        self.assertIn("cite document blocks", result.reason)
 
     def test_conformity_rejects_url_not_owned_by_selected_insight(self) -> None:
         client = StaticClient(
@@ -2034,7 +2041,10 @@ class ReasoningLineageTests(unittest.TestCase):
 
         class NoMeasurementClient:
             def call_structured(self, system_prompt, user_message, max_tokens, **_kwargs):
-                source = re.search(r"\[source:(sp-[a-f0-9]+)\]", user_message)
+                source = re.search(
+                    r"\[source:(sp-[a-f0-9]+)\]",
+                    user_message + _kwargs.get("trailing_text", ""),
+                )
                 assert source is not None
                 return {"sources": [{
                     "source_id": source.group(1),
@@ -2809,6 +2819,8 @@ class ReasoningLineageTests(unittest.TestCase):
                 ),
                 finding=record_finding,
                 text=excerpt,
+                record_id="doi:" + url.removeprefix("https://doi.org/"),
+                identity_status="canonical",
             )
 
         first = passage_for(
@@ -2880,12 +2892,16 @@ class ReasoningLineageTests(unittest.TestCase):
                 insight=overall_insight,
                 finding=overall_finding,
                 text=overall_quote,
+                record_id="doi:10.1000/example",
+                identity_status="canonical",
             ),
             _SourcePassage(
                 id="sp-subgroup",
                 insight=subgroup_insight,
                 finding=subgroup_finding,
                 text=subgroup_quote,
+                record_id="doi:10.1000/example",
+                identity_status="canonical",
             ),
         ]
         unrelated_finding = finding(
@@ -2902,6 +2918,8 @@ class ReasoningLineageTests(unittest.TestCase):
             ),
             finding=unrelated_finding,
             text=unrelated_finding.excerpt,
+            record_id="doi:10.1000/other",
+            identity_status="canonical",
         )
         # One record's passages travel together; an unrelated record does not
         # join their mapping context.
@@ -3586,7 +3604,10 @@ class ReasoningLineageTests(unittest.TestCase):
                         ),
                         schema,
                     )
-                source = re.search(r"\[source:(sp-[a-f0-9]+)\]", user_message)
+                source = re.search(
+                    r"\[source:(sp-[a-f0-9]+)\]",
+                    user_message + _kwargs.get("trailing_text", ""),
+                )
                 assert source is not None
                 return {
                     "sources": [
@@ -3622,9 +3643,11 @@ class ReasoningLineageTests(unittest.TestCase):
         # A rejected mapping is this pipeline's failure, not the model judging
         # the evidence ambiguous.
         self.assertEqual(ledgers[0].source_dispositions[0].status, "not_assessed")
+        # The code is the shared vocabulary; the failed check stays named in the prose.
         self.assertEqual(
-            ledgers[0].source_dispositions[0].failure_code, "source_quote_not_found"
+            ledgers[0].source_dispositions[0].failure_code, "invalid_model_response"
         )
+        self.assertIn("source_quote_not_found", ledgers[0].source_dispositions[0].reason)
 
     def test_missing_candidate_relevance_fails_closed_after_retry(self) -> None:
         target = QuantitativeTarget(
@@ -3645,7 +3668,10 @@ class ReasoningLineageTests(unittest.TestCase):
 
             def call_structured(self, system_prompt, user_message, max_tokens, **_kwargs):
                 self.calls += 1
-                source = re.search(r"\[source:(sp-[a-f0-9]+)\]", user_message)
+                source = re.search(
+                    r"\[source:(sp-[a-f0-9]+)\]",
+                    user_message + _kwargs.get("trailing_text", ""),
+                )
                 assert source is not None
                 return {
                     "sources": [

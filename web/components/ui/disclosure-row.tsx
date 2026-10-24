@@ -55,7 +55,7 @@ export function DisclosureRow({
     // verdict and its count, so the closed row already answers most of what a reader came
     // for; opening one is for the single group they want the requirements behind.
     <details className="group/row" open={defaultOpen}>
-      <summary className="flex cursor-pointer select-none items-center gap-2 py-1.5 outline-none focus-visible:ring-2 focus-visible:ring-ring/20 [&::-webkit-details-marker]:hidden">
+      <summary className="flex cursor-pointer select-none items-center gap-2 py-1.5 outline-none focus-visible:ring-2 focus-visible:ring-ring/60 [&::-webkit-details-marker]:hidden">
         <ChevronDown className="h-3.5 w-3.5 shrink-0 text-muted-foreground transition-transform group-open/row:rotate-180 motion-reduce:transition-none" />
         {tone && <ToneDot tone={tone} />}
         <span className="text-xs font-medium text-foreground">{label}</span>

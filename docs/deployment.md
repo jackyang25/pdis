@@ -57,7 +57,12 @@ limit: the full memory budget is reserved. Nomad's CPU allocation is in MHz, not
 a count of cores. See the [Nomad resource specification](https://developer.hashicorp.com/nomad/docs/job-specification/resources).
 
 Both environments temporarily limit processing to one active analysis; additional
-runs wait for capacity.
+runs wait for capacity. At most eight runs wait (`MAX_WAITING_RUNS` in
+`api/execution.py`); beyond that a run is refused with 503 before it starts. A run
+whose browser disconnects stops at its next progress update, and a waiting one
+leaves the queue without starting. Ask attachments and priority readings take a
+separate pool of four slots and are refused with 503 when it is full. Each uploaded
+file is limited to 50 MB and one request to 150 MB (`api/uploads.py`).
 Review checkpoints do not occupy an active processing slot. This allocation adds
 headroom for slide rendering, retained images and parallel model requests; it is
 a starting budget, not a guarantee for every document combination.

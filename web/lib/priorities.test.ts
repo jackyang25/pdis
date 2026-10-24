@@ -56,6 +56,7 @@ function inspection(): InspectionReviewView {
         variable_name: null, optional: false, cited_block_ids: ["plan/b-1"], rank: 0 },
     ],
     consistency_status: "complete",
+    consistency_failure_code: null,
     assessment_status: "complete",
     org: null, source_type: null, intervention_class: null, indication: null,
     blocks: ["plan/b-1", "plan/b-2", "plan/b-3"].map((id) => ({ id, doc_id: "plan" })) as never,
@@ -223,7 +224,7 @@ test("Aligner carries an upstream flag as a code note, never as a model's statem
 test("Scout names a field exactly as its Fields tab does", () => {
   const [incidence] = scoutPriorityFindings(scout());
   assert.equal(incidence.subject, displayAttributeLabel("vaccine.hiv_incidence"));
-  assert.equal(incidence.subject, "HIV Incidence");
+  assert.equal(incidence.subject, "HIV incidence");
 });
 
 test("Scout keeps each axis as its own verdict, and code's counts out of the statements", () => {
@@ -252,6 +253,22 @@ test("Scout keeps a contradiction that names no field, rather than dropping it",
   const program = scoutPriorityFindings(scout()).find((finding) => finding.id === "program");
   assert.ok(program, "the program-wide contradiction vanished");
   assert.deepEqual(program.verdicts, ["Conflicts: 1 insight"]);
+});
+
+test("Scout says once that a field was left out at review, and nothing it did not do", () => {
+  const result = scout();
+  result.not_searched_fields = ["vaccine.hiv_incidence"];
+  result.assessments = [{ ...result.assessments[0], strength: "not_searched", reason: "" }];
+  result.precedents = [{
+    attribute_ref: "vaccine.hiv_incidence", precedent: "not_searched", outcome: "not_searched",
+    reason: "", doc_block_ids: [], coverage_insight_ids: [], outcome_insight_ids: [],
+    supporting_insight_ids: [], supporting_findings: [], failure_code: "",
+  }];
+  result.matches = result.matches.filter((match) => match.insight.attribute_ref !== "vaccine.hiv_incidence");
+  result.conformity = [];
+  const [incidence] = scoutPriorityFindings(result);
+  assert.deepEqual(incidence.verdicts, ["Not searched"]);
+  assert.deepEqual(incidence.statements, []);
 });
 
 // --- Screener ----------------------------------------------------------------

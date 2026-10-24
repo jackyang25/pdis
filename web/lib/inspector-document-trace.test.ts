@@ -60,16 +60,6 @@ function finding(
   };
 }
 
-/** A unit is its assessment now, so this only names the arguments. */
-function unit(
-  variableName: string | null,
-  verdict: Verdict,
-  citedBlockIds: string[] = [],
-  optional = false,
-): Assessment {
-  return finding(verdict, citedBlockIds, { variable_name: variableName, optional });
-}
-
 function section(
   name: string,
   mappedBlockIds: string[],
@@ -93,6 +83,7 @@ function result(overrides: Partial<InspectionResult> = {}): InspectionResult {
     rubric: { id: "test", revision: null, updated_on: null, display_name: "Test", authority: "Test", scope: "Test", stage_guidance: "", mirrors: null, evidence_scope: "mapped_section", sources: [], requirements: [] },
     document_findings: [],
     consistency_status: "complete",
+    consistency_failure_code: null,
     assessment_status: "complete",
     org: "bmgf",
     source_type: "itpp",

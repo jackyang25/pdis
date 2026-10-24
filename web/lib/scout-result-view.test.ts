@@ -10,21 +10,24 @@
  * compares text and not marker spacing.
  */
 
+import { formatMeasure, formatMeasurePair } from "./measure-format.ts";
 import assert from "node:assert/strict";
 import test from "node:test";
 
 import {
   RELATION_READING_ORDER,
   calibrationView,
+  distinctSourceCount,
   exclusionReasonLines,
-  formatMeasurePair,
+  retrievalScopeParts,
+  unreconciledSets,
   citation,
   documentTargetRows,
-  formatMeasure,
   insightRegistry,
   needsFindingFallback,
   relationGroups,
   runHeadline,
+  unassessedChecks,
 } from "./scout-result-view.ts";
 import type { Conformity, Match, Variable } from "./api.ts";
 
@@ -138,6 +141,7 @@ function match(relation: Match["relation"], id: string): Match {
   return {
     relation,
     reason: "",
+    failure_code: relation === "not_assessed" ? "provider_error" : "",
     insight: {
       id,
       statement: `statement ${id}`,
@@ -153,7 +157,7 @@ function match(relation: Match["relation"], id: string): Match {
 }
 
 test("decisive relations come first, then context, then off-topic", () => {
-  assert.deepEqual(RELATION_READING_ORDER, ["contradicts", "confirms", "extends", "unrelated"]);
+  assert.deepEqual(RELATION_READING_ORDER, ["contradicts", "confirms", "extends", "unrelated", "not_assessed"]);
 });
 
 test("the relations that settle something are listed first", () => {
@@ -183,7 +187,9 @@ test("a relation with nothing in it draws no group", () => {
 });
 
 test("every match lands in exactly one group", () => {
-  const matches = [match("extends", "a"), match("extends", "b"), match("unrelated", "c")];
+  // Including one no relation was obtained for: a group order missing it would drop the
+  // insight from the field without a trace.
+  const matches = [match("extends", "a"), match("extends", "b"), match("unrelated", "c"), match("not_assessed", "d")];
   const grouped = relationGroups(matches).flatMap((group) => group.matches);
   assert.equal(grouped.length, matches.length);
 });
@@ -444,6 +450,7 @@ function variable(name: string, overrides: Partial<Variable> = {}): Variable {
     target_resolved: true,
     target_resolution_reason: "",
     evidence_domain: "clinical",
+    supplies_scope: "",
     entities: [],
     quantitative_target_ids: [],
     quantitative_statement_dispositions: [],
@@ -483,6 +490,45 @@ test("a field with no stated target counts as not stated, not as clean", () => {
   assert.equal(headline.fieldCount, 2);
 });
 
+test("a field whose grounding was not assessed has its own bucket, not unknown", () => {
+  // "We looked and could not tell" and "the check did not run" are different answers, and
+  // the counts still have to sum to the fields.
+  const headline = runHeadline([
+    row("drug.efficacy", {
+      assessment: {
+        attribute_ref: "drug.efficacy", strength: "not_assessed", reason: "", doc_target: "",
+        doc_block_ids: [], supporting_insight_ids: [], supporting_findings: [],
+        failure_code: "response_truncated",
+      },
+    }),
+    row("drug.safety"),
+  ]);
+  assert.equal(headline.groundingCounts.not_assessed, 1);
+  assert.equal(headline.groundingCounts.unknown, 1);
+  assert.equal(
+    Object.values(headline.groundingCounts).reduce((sum, count) => sum + count, 0),
+    headline.fieldCount,
+  );
+});
+
+test("a field left out at review has its own bucket, and the buckets still sum", () => {
+  const headline = runHeadline([
+    row("drug.efficacy", {
+      assessment: {
+        attribute_ref: "drug.efficacy", strength: "not_searched", reason: "", doc_target: "",
+        doc_block_ids: [], supporting_insight_ids: [], supporting_findings: [], failure_code: "",
+      },
+    }),
+    row("drug.safety"),
+  ]);
+  assert.equal(headline.groundingCounts.not_searched, 1);
+  assert.equal(headline.notSearchedCount, 1);
+  assert.equal(
+    Object.values(headline.groundingCounts).reduce((sum, count) => sum + count, 0),
+    headline.fieldCount,
+  );
+});
+
 test("an unfavourable precedent is named, since it is one of 18", () => {
   const headline = runHeadline([
     row("drug.safety", {
@@ -496,6 +542,7 @@ test("an unfavourable precedent is named, since it is one of 18", () => {
         outcome_insight_ids: [],
         supporting_insight_ids: [],
         supporting_findings: [],
+        failure_code: "",
       },
     }),
   ]);
@@ -570,4 +617,94 @@ test("a reviewer's own words survive as their own line", () => {
 
 test("a measurement with nothing recorded produces nothing", () => {
   assert.deepEqual(exclusionReasonLines({}), { checks: [], judgment: "", other: [] });
+});
+
+// --- checks that could not be completed --------------------------------------
+
+test("every check a stage could not complete is counted by what it was about", () => {
+  // A run with failed checks must not read as a completed one, and the count is derived
+  // from the lists themselves rather than carried beside them.
+  const failed = { failure_code: "provider_error" as const };
+  const checks = unassessedChecks({
+    matches: [match("not_assessed", "a"), match("not_assessed", "b"), match("extends", "c")],
+    assessments: [{ strength: "not_assessed" }, { strength: "thin" }],
+    precedents: [{ precedent: "not_assessed", ...failed }, { precedent: "direct" }],
+    development_landscape: [{ target_relationship: "not_assessed" }],
+    safety_observations: [{ target_relationship: "unrelated" }, { target_relationship: "not_assessed" }],
+  });
+  assert.deepEqual(checks.parts, [
+    "2 evidence relations",
+    "1 field grounding",
+    "1 precedent check",
+    "2 record relations",
+  ]);
+  assert.equal(checks.total, 6);
+});
+
+test("a run whose checks all completed reports nothing", () => {
+  const checks = unassessedChecks({
+    matches: [match("unrelated", "a")],
+    assessments: [{ strength: "unknown" }],
+    precedents: [{ precedent: "unknown" }],
+    development_landscape: [{ target_relationship: "unknown" }],
+    safety_observations: [],
+  });
+  assert.equal(checks.total, 0);
+  assert.deepEqual(checks.parts, []);
+});
+
+test("a source is counted once per record, however many links reached it", () => {
+  // Keyed by record identity, and by URL only where a saved finding states none. Two pages
+  // for one trial are one source; a measurement is counted through the finding it came from.
+  const finding = (url: string, record_key?: string) => ({
+    url, title: "T", query: "q", retrieved_at: "", excerpt: null, published_at: null, source: "pubmed",
+    ...(record_key ? { record_key } : {}),
+  });
+  const result = {
+    matches: [
+      { insight: { supporting_findings: [finding("https://a.test/1", "pubmed:1"), finding("https://a.test/1-mirror", "pubmed:1")] } },
+      { insight: { supporting_findings: [finding("https://b.test/", ""), finding("https://b.test/")] } },
+    ],
+    assessments: [{ supporting_findings: [finding("https://a.test/1", "pubmed:1")] }],
+    precedents: [],
+    conformity: [{ measurements: [{ url: "https://a.test/1-mirror" }, { url: "https://c.test/" }] }],
+    development_landscape: [],
+    safety_observations: [],
+  } as unknown as Parameters<typeof distinctSourceCount>[0];
+  assert.equal(distinctSourceCount(result), 3);
+});
+
+test("the search scope names every dimension, and which ones nobody narrowed", () => {
+  // Unset is a deliberate widening, not a gap, so it reads as "any region" rather than
+  // disappearing; a document-derived value says so and keeps the blocks it was read from.
+  const parts = retrievalScopeParts({ entries: [
+    { dimension: "region", value: "Kenya", provenance: "document", block_ids: ["doc/b-3"] },
+    { dimension: "condition", value: "tuberculosis", provenance: "header", block_ids: [] },
+    { dimension: "intervention", value: "", provenance: "unset", block_ids: [] },
+  ] });
+  assert.deepEqual(parts, [
+    { dimension: "condition", text: "Tuberculosis", blockIds: [] },
+    { dimension: "intervention", text: "any intervention", blockIds: [] },
+    { dimension: "region", text: "Kenya (from the document)", blockIds: ["doc/b-3"] },
+  ]);
+  assert.equal(
+    retrievalScopeParts({ entries: [{ dimension: "region", value: "Sub-Saharan Africa", provenance: "config_default", block_ids: [] }] })[0].text,
+    "Sub-Saharan Africa (configured default)",
+  );
+  assert.deepEqual(retrievalScopeParts(undefined), []);
+});
+
+test("a set whose duplicates were not merged is named, and only that set", () => {
+  // `not_reconciled` means the identity call failed and the set went on unmerged, so its
+  // duplicates may be counted separately. A layer that merged nothing decided that.
+  const record = (layer: "document_units" | "quantitative_targets" | "insights" | "projections", status: "reconciled" | "not_reconciled", scope = "") =>
+    ({ layer, scope, status, items: 3, merged: 0, failure_code: status === "not_reconciled" ? "provider_error" as const : "" as const, reason: "" });
+  assert.deepEqual(unreconciledSets([
+    record("document_units", "reconciled"),
+    record("quantitative_targets", "not_reconciled"),
+    record("insights", "not_reconciled", "vaccine.dose_volume"),
+    record("projections", "not_reconciled"),
+  ]), ["numeric targets", "insights for Dose volume", "development and safety records"]);
+  assert.deepEqual(unreconciledSets([record("insights", "reconciled", "x")]), []);
+  assert.deepEqual(unreconciledSets(undefined), []);
 });

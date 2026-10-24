@@ -1,0 +1,66 @@
+# Evaluation cases: real documents re-run through each tool by `python -m scripts.evaluate`.
+#
+# Filenames are relative to the directory passed as --documents, below an optional
+# per-case `folder`. Documents and results are never committed. A case's context keys
+# select configuration exactly as the tool's form does; `documents` is a list of
+# filenames, except Aligner's, which maps each document type to its file.
+cases:
+  - name: rsv-inspector
+    tool: inspector
+    org: bmgf
+    source_type: itpp
+    intervention_class: vaccine
+    indication: respiratory_syncytial_virus
+    applicability_facts:
+      public_sector_vaccine: "yes"
+    folder: RSV Vaccine
+    documents:
+      - RSV Maternal Vaccine iTPP 13 May 2022.docx
+
+  - name: rsv-aligner
+    tool: aligner
+    org: bmgf
+    intervention_class: vaccine
+    indication: respiratory_syncytial_virus
+    folder: RSV Vaccine
+    documents:
+      itpp: RSV Maternal Vaccine iTPP 13 May 2022.docx
+      ctpp: INV096779_2025_cTPP_MaxvaxRSVMaternalVaccine.docx
+      ipdp: INV096779__2025_IPDP_Vaccine_Maxvax.docx
+
+  - name: rsv-scout
+    tool: scout
+    org: bmgf
+    source_type: itpp
+    intervention_class: vaccine
+    indication: respiratory_syncytial_virus
+    folder: RSV Vaccine
+    documents:
+      - RSV Maternal Vaccine iTPP 13 May 2022.docx
+
+  - name: rsv-drafter
+    tool: drafter
+    org: bmgf
+    intervention_class: vaccine
+    indication: respiratory_syncytial_virus
+
+  - name: contraception-screener
+    tool: screener
+    org: bmgf
+    gate: lcs
+    intervention_class: drug
+    indication: female_contraception
+    folder: Contraception Drug
+    documents:
+      - CDMO Identification Report - INV-074353 30 Sept 2025.pdf
+      - COGs_BDO-Kroll_BMGF_Dare Slides_10October2025_v2.pptx
+      - Dare_Cupric_Sulfate_Assessment_Final.docx (1).pdf
+      - Dare_Ferrous_Gluconate_Review_Final.docx.pdf
+      - Dare_ZincSulfate_Review_Final.docx.pdf
+      - DARE-NHC INV-074353 TPP Sep 30 2025.docx
+      - DARE-NHC User Insights Research Summary INV-074353.pdf
+      - Initial COGS Estimate - INV-074353 30 Sept 2025.pdf
+      - INV-074353 LCS Stage Gate Summary.pdf
+      - Materials Selection Report - INV-074353 30 Sept 2025.pdf
+      - Non-Hormonal Continuous Use iTPP_v1.1 Internal 07Sep2022.docx
+      - PDID IPDP - INV074353 30 Sept 2025.docx

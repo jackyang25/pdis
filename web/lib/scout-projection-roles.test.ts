@@ -93,6 +93,6 @@ test("the reading order covers every relationship the contract declares", () => 
   // A relationship missing from the order would silently drop its records from the list.
   assert.deepEqual(
     [...RELATIONSHIP_READING_ORDER].sort(),
-    ["adjacent", "analogous", "direct", "unknown", "unrelated"],
+    ["adjacent", "analogous", "direct", "not_assessed", "unknown", "unrelated"],
   );
 });

@@ -23,7 +23,7 @@ function chatHarness(upload: () => Promise<unknown>) {
         const index = cursor++;
         return slots[index] ??= { current: initial };
       },
-      useMemo: (factory: () => unknown) => factory(), useEffect: () => {},
+      useMemo: (factory: () => unknown) => factory(), useCallback: (callback: unknown) => callback, useEffect: () => {},
     },
     "@/lib/api": { API_BASE: "", uploadAssistantContext: upload },
     "@ai-sdk/react": { useChat: () => ({ messages, status: "ready", stop: () => {},

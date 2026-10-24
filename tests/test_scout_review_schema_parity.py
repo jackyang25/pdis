@@ -8,7 +8,11 @@ from services.scout.ai_contracts import document_quantitative_ledger_batch
 class ReviewSchemaParityTest(unittest.TestCase):
     def test_document_qualifiers_require_citations_only_when_asserted(self):
         contract = document_quantitative_ledger_batch(["context-1"], ["unit-1"], ["field-1"])
-        target = contract.schema["properties"]["reviews"]["items"]["properties"]["targets"]["items"]["properties"]
+        review = next(
+            option["properties"] for option in contract.schema["properties"]["reviews"]["items"]["anyOf"]
+            if "target" in option["properties"]["classification"]["enum"]
+        )
+        target = review["targets"]["items"]["properties"]
         for branch in target["semantic_profile"]["properties"]["population"]["anyOf"]:
             asserted = branch["properties"]["state"]["enum"][0] in {"specified", "other"}
             refs = branch["properties"]["source_refs"]

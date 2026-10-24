@@ -22,6 +22,8 @@ import re
 from dataclasses import dataclass
 from typing import Any
 
+from shared.schemas import non_empty_text
+
 from services.searcher import (
     ENTITY_TYPES,
     SEARCH_ENTITIES_DESCRIPTION,
@@ -102,7 +104,7 @@ def offer_parameters() -> dict[str, Any]:
                 "items": {
                     "type": "object",
                     "properties": {
-                        "name": {"type": "string", "minLength": 1, "description": SEARCH_ENTITY_FIELDS["name"]},
+                        "name": non_empty_text(description=SEARCH_ENTITY_FIELDS["name"]),
                         "entity_type": {
                             "type": "string", "enum": sorted(ENTITY_TYPES),
                             "description": SEARCH_ENTITY_FIELDS["entity_type"],

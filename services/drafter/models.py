@@ -10,6 +10,9 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Protocol
 
+from shared import ai as _ai
+from shared.ai import Effort, FailureCode, ModelTask, Verbosity
+
 CONFIGS_DIR = Path(__file__).parent / "configs"
 
 
@@ -25,7 +28,11 @@ class LLMClientProtocol(Protocol):
         schema_name: str,
         schema: dict[str, Any],
         images: list[dict[str, str]] | None = None,
-        task: str = "reasoning",
+        trailing_text: str = "",
+        task: ModelTask = "reasoning",
+        effort: Effort | None = None,
+        verbosity: Verbosity | None = None,
+        cache_key: str | None = None,
     ) -> dict[str, Any] | None: ...
 
 
@@ -53,9 +60,22 @@ SUGGESTION_KINDS = ("range", "statement", "insufficient")
 #: what is being asked for.
 BASES = ("comparable_product", "published_guidance")
 LEANS_ON = ("comparable_products", "guidance", "both")
+#: Which basis a suggestion leans on follows from what it cites, so it is read off the
+#: cited observations rather than asked for: a model naming it separately could name one
+#: basis and cite the other, and the contract then refused an answer whose citations
+#: were sound.
+LEANS_ON_BY_BASES: dict[frozenset[str], str] = {
+    frozenset({"comparable_product"}): "comparable_products",
+    frozenset({"published_guidance"}): "guidance",
+    frozenset({"comparable_product", "published_guidance"}): "both",
+}
 STATUSES = ("complete", "failed")
 #: Pipeline failures, recorded by code and never offered to a model.
 FAILURE_CODES = ("search_planning_failed", "evidence_unavailable", "suggestion_failed")
+#: The failures raised by a model or provider call, each carrying one of `CAUSE_CODES`
+#: (`shared.ai.FAILURE_CODES`). `evidence_unavailable` is concluded from counts, not raised.
+RAISED_FAILURES = ("search_planning_failed", "suggestion_failed")
+CAUSE_CODES = _ai.FAILURE_CODES
 
 
 # --- result ------------------------------------------------------------------------------
@@ -66,6 +86,9 @@ class ObservedValue:
     lower: float | None
     upper: float | None
     unit: str
+    #: The words of the observation's quote that state the number, exactly as written.
+    #: Code checks only that they are in the quote; what they mean is the reader's.
+    text: str
 
 
 @dataclass(frozen=True)
@@ -96,6 +119,8 @@ class SourceError:
 class GroupSummary:
     """Comparable values sharing one stated unit. Units are never converted or pooled."""
     unit: str
+    #: The observations the values came from, in order: lineage is listed, never counted.
+    observation_ids: tuple[str, ...]
     count: int
     minimum: float
     maximum: float
@@ -119,6 +144,8 @@ class Suggestion:
 class Failure:
     code: str
     message: str
+    #: Why the call failed, for the two failures a call raises; None for `evidence_unavailable`.
+    cause: FailureCode | None = None
 
 
 @dataclass(frozen=True)
@@ -134,6 +161,8 @@ class VariableDraft:
     suggestion: Suggestion | None
     #: Sources retrieved for this variable whose reading failed twice and were set aside.
     unread_findings: int = 0
+    #: Quotes a reader offered that their excerpt does not contain, so were not kept.
+    unverified_quotes: int = 0
 
 
 @dataclass(frozen=True)

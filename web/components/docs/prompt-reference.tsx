@@ -6,7 +6,7 @@ import { Button } from "@/components/ui/button";
 
 import { Skeleton } from "@/components/ui/skeleton";
 import { CONTENT_ARRIVAL_MOTION } from "@/lib/motion";
-import { isPromptAnchorFor, promptAnchor, type ToolKey } from "@/lib/prompt-reference";
+import { isPromptAnchorFor, loadPromptReference, promptAnchor, type ToolKey } from "@/lib/prompt-reference";
 import { cn } from "@/lib/utils";
 
 type PromptEntry = {
@@ -44,8 +44,7 @@ type Reference = {
 };
 
 // Roughly 100 KB of instruction text that almost nobody opens, so it is fetched
-// on first expansion instead of shipping inside the page bundle.
-const REFERENCE_URL = "/prompt-reference.json";
+// on first expansion instead of shipping inside the page bundle, once for every section.
 
 export function PromptReference({ tool }: { tool: ToolKey }) {
   const [reference, setReference] = useState<Reference | null>(null);
@@ -60,9 +59,7 @@ export function PromptReference({ tool }: { tool: ToolKey }) {
     setStatus("loading");
     inFlight.current = (async () => {
       try {
-        const response = await fetch(REFERENCE_URL);
-        if (!response.ok) throw new Error(String(response.status));
-        setReference((await response.json()) as Reference);
+        setReference(await loadPromptReference<Reference>());
         setStatus("idle");
       } catch {
         setStatus("failed");
@@ -148,7 +145,7 @@ export function PromptReference({ tool }: { tool: ToolKey }) {
           {status === "loading" ? "Loading instructions…" : "Show the instructions"}
         </Button>
       ) : (
-        <div className={cn("mt-4 divide-y divide-border border-y border-border", CONTENT_ARRIVAL_MOTION)}>
+        <div className={cn("mt-4 divide-y divide-border/60 border-y border-border/60", CONTENT_ARRIVAL_MOTION)}>
           {stages.map((stage) => {
             const prompts = reference.prompts.filter(
               (prompt) => prompt.tool === tool && prompt.stage === stage,
@@ -254,7 +251,7 @@ function Configurations({ entries }: { entries: ConfigurationEntry[] }) {
         Domain content the prompts above insert at run time, and the authored source
         each configuration mirrors.
       </p>
-      <div className="mt-3 divide-y divide-border border-y border-border">
+      <div className="mt-3 divide-y divide-border/60 border-y border-border/60">
         {entries.map((entry) => (
           <details
             key={`${entry.org}-${entry.source_type}-${entry.intervention_class}`}

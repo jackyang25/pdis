@@ -13,17 +13,15 @@ stage. The rule is:
 Stages declare which case they are with a module-level ``<ITEMS>_PER_REQUEST``
 constant carrying its justification, and call the matching helper below. Speed
 comes from :func:`map_ordered` fan-out, never from packing unrelated items into
-one prompt.
-
-One documented exception exists: ``conformity.LEDGER_UNITS_PER_REQUEST`` batches
-per-unit decisions because the same constant also bounds how much document the
-model may read. Splitting those two roles changes token cost or the prompt, so it
-is tracked at that constant rather than silently resolved here.
+one prompt. :func:`map_ordered` also owns fan-out progress, so a stage reports
+``completed``/``total`` without keeping its own counter and lock.
 """
 
 from __future__ import annotations
 
-from concurrent.futures import ThreadPoolExecutor
+import contextvars
+import threading
+from concurrent.futures import FIRST_EXCEPTION, ThreadPoolExecutor, wait
 from typing import Callable, Hashable, Iterable, Sequence, TypeVar
 
 _T = TypeVar("_T")
@@ -139,13 +137,50 @@ def map_ordered(
     run: Callable[[_T], _R],
     *,
     workers: int,
+    on_progress: Callable[[int, int], None] | None = None,
 ) -> list[_R]:
     """Run ``run`` over ``items`` concurrently, returning results in input order.
 
     Ordered results keep a stage's output independent of completion order, so
-    fan-out changes throughput and nothing else.
+    fan-out changes throughput and nothing else. ``on_progress(completed, total)``
+    is called once per finished item, serialised, so the count only rises.
+
+    Each call runs in a copy of the caller's context, so request-scoped context
+    variables (a request ID in logs) reach the worker threads. The first failure
+    cancels every call not yet started and is re-raised; a failed run does not go
+    on spending model calls whose results would be discarded.
     """
     if not items:
         return []
-    with ThreadPoolExecutor(max_workers=max(1, min(workers, len(items)))) as executor:
-        return list(executor.map(run, items))
+    total = len(items)
+    lock = threading.Lock()
+    completed = 0
+
+    def task(item: _T) -> _R:
+        nonlocal completed
+        result = run(item)
+        if on_progress is not None:
+            with lock:
+                completed += 1
+                on_progress(completed, total)
+        return result
+
+    executor = ThreadPoolExecutor(max_workers=max(1, min(workers, total)))
+    try:
+        futures = [
+            executor.submit(contextvars.copy_context().run, task, item)
+            for item in items
+        ]
+        done, _ = wait(futures, return_when=FIRST_EXCEPTION)
+        failed = next(
+            (future for future in futures if future in done and future.exception()),
+            None,
+        )
+        if failed is not None:
+            raise failed.exception()  # type: ignore[misc]
+        return [future.result() for future in futures]
+    except BaseException:
+        executor.shutdown(wait=True, cancel_futures=True)
+        raise
+    finally:
+        executor.shutdown(wait=True)

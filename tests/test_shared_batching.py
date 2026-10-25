@@ -125,7 +125,7 @@ class MapOrderedTests(unittest.TestCase):
 
         with self.assertRaisesRegex(RuntimeError, "provider failed"):
             map_ordered(list(range(50)), first_fails, workers=1)
-        self.assertLess(len(ran), 5)
+        self.assertEqual(ran, [0])
 
     def test_a_progress_callback_that_raises_cancels_the_rest(self) -> None:
         """A run cancelled from its progress callback must not keep spending calls."""
@@ -139,7 +139,7 @@ class MapOrderedTests(unittest.TestCase):
 
         with self.assertRaises(Cancelled):
             map_ordered(list(range(50)), ran.append, workers=1, on_progress=stop)
-        self.assertLess(len(ran), 5)
+        self.assertEqual(ran, [0])
 
     def test_context_variables_reach_worker_threads(self) -> None:
         request_id = contextvars.ContextVar("request_id", default="unset")

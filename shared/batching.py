@@ -155,14 +155,23 @@ def map_ordered(
     total = len(items)
     lock = threading.Lock()
     completed = 0
+    # Set by the first failure, so a worker that frees up before the caller wakes to
+    # cancel starts nothing more. What it skips is discarded with the failed run.
+    stopped = threading.Event()
 
-    def task(item: _T) -> _R:
+    def task(item: _T) -> _R | None:
         nonlocal completed
-        result = run(item)
-        if on_progress is not None:
-            with lock:
-                completed += 1
-                on_progress(completed, total)
+        if stopped.is_set():
+            return None
+        try:
+            result = run(item)
+            if on_progress is not None:
+                with lock:
+                    completed += 1
+                    on_progress(completed, total)
+        except BaseException:
+            stopped.set()
+            raise
         return result
 
     executor = ThreadPoolExecutor(max_workers=max(1, min(workers, total)))

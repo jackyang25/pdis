@@ -203,7 +203,8 @@ class PromptAndSchemaTests(unittest.TestCase):
 
         self.assertEqual(len({call["system"] for call in sent}), 1)
         self.assertEqual(len({call["message"] for call in sent}), 1)
-        self.assertEqual(
+        # Units fan out, so their calls arrive in either order.
+        self.assertCountEqual(
             [call["trailing_text"].splitlines()[0] for call in sent],
             ["Assess: Efficacy", "Assess: Safety"],
         )
@@ -323,7 +324,8 @@ class OneCallPerUnitTests(unittest.TestCase):
     def test_a_failed_unit_stops_the_run_rather_than_publishing_a_hole(self) -> None:
         from shared.errors import ModelResponseError
 
-        with self.assertRaisesRegex(ModelResponseError, "could not assess Efficacy in Profile"):
+        # Both units fail and they run concurrently, so either may be the one named.
+        with self.assertRaisesRegex(ModelResponseError, "could not assess (Efficacy|Safety) in Profile"):
             _assess_single_section(
                 section_spec=_section(),
                 section_blocks=[_block("document:b1", "Profile")],

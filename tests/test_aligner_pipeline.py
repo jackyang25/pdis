@@ -195,7 +195,8 @@ class PipelineTests(unittest.TestCase):
             {block_id.split("/")[0] for block_id in call["offered"]}
             for call in client.extractions
         ]
-        self.assertEqual(read_for_extraction, [{"profile"}, {"candidate"}])
+        # Extractions fan out, so they arrive in either order.
+        self.assertCountEqual(read_for_extraction, [{"profile"}, {"candidate"}])
 
     def test_every_finding_carries_both_sides_of_its_lineage(self) -> None:
         result, _ = self.align("itpp", "ctpp")

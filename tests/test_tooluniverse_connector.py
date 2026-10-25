@@ -687,7 +687,8 @@ class ToolUniverseConnectorTests(unittest.TestCase):
             [finding.retrieval_paths[-1].operation for finding in findings],
             [request.operation for request in requests],
         )
-        self.assertEqual(
+        # The lanes run concurrently, so the connector hears them in either order.
+        self.assertCountEqual(
             [call[1] for call in connector.calls],
             [
                 {"medical_condition": "malaria", "limit": 10},

@@ -82,5 +82,7 @@ def _sources(variable: dict[str, Any], basis_ids: list[str]) -> str:
     lines = []
     for identifier in basis_ids:
         observation = by_id[identifier]
-        lines.append(f"{observation['title']} ({observation['source_label']}) {observation['url']}".strip())
+        # The year, which every stated date has: a month or day would claim more than some state.
+        about = ", ".join(filter(None, (observation["source_label"], (observation["published_at"] or "")[:4])))
+        lines.append(f"{observation['title']} ({about}) {observation['url']}".strip())
     return "\n".join(dict.fromkeys(lines))

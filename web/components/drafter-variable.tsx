@@ -116,7 +116,7 @@ function EvidenceEntry({ source }: { source: EvidenceSource }) {
     <SourceEntry
       title={source.title || source.url}
       href={source.url}
-      meta={[source.source_label, source.cited ? "Cited by the suggestion" : ""].filter(Boolean).join(" · ")}
+      meta={[source.source_label, source.published, source.cited ? "Cited by the suggestion" : ""].filter(Boolean).join(" · ")}
     >
       {source.passages.map((passage) => {
         const detail = [passage.products.join(", "), passage.figure].filter(Boolean).join(" · ");

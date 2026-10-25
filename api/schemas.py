@@ -1149,6 +1149,10 @@ class DraftObservationOut(BaseModel):
     quote: str
     value: DraftObservedValueOut | None
     numeric_eligible: bool
+    #: The first day the source's stated date allows, or null where it stated none.
+    published_at: str | None
+    #: How much of `published_at` the source stated: `day`, `month` or `year`; empty when undated.
+    published_precision: str
 
 
 class DraftGroupSummaryOut(BaseModel):

@@ -80,7 +80,9 @@ const ANALYSIS_VERSIONS = {
   // 3: a number carries the quote's own words for it (`value.text`), and each figure group
   // names the observations it was computed from. A v2 number was never checked against its
   // quote, so it cannot be read as one that was.
-  drafter: 3,
+  // 4: each observation carries its source's publication date at the stated precision, which
+  // the suggestion weighed. A v3 file has none, and its silence would read as "undated".
+  drafter: 4,
 } as const satisfies Record<ResultType, number>;
 
 type SourceDocument = {

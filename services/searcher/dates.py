@@ -55,3 +55,15 @@ def latest_day(start: date, precision: str) -> date:
     if precision == "month":
         return date(start.year, start.month, calendar.monthrange(start.year, start.month)[1])
     return start
+
+
+def published_label(published_at: date | None, precision: str) -> str:
+    """A publication date as a model is shown it: at the precision the source stated it,
+    or that it stated none. Scout's judging stages and Drafter's suggestion read the same."""
+    if published_at is None:
+        return "not stated by the source"
+    if precision == "year":
+        return f"{published_at.year} (year only)"
+    if precision == "month":
+        return f"{published_at.year}-{published_at.month:02d} (month only)"
+    return published_at.isoformat()

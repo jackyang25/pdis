@@ -13,6 +13,7 @@ import type {
   DraftVariable,
 } from "./api.ts";
 import { formatMeasure, formatMeasurePair } from "./measure-format.ts";
+import { formatPublishedMonth } from "./published-date.ts";
 import { matchesQuery } from "./result-search.ts";
 
 export type DrafterPanelId = "suggested" | "insufficient" | "failed";
@@ -86,6 +87,8 @@ export type EvidenceSource = {
   url: string;
   title: string;
   source_label: string;
+  /** When the source says it was published, at the precision it stated; null when it did not. */
+  published: string | null;
   cited: boolean;
   passages: EvidencePassage[];
 };
@@ -107,6 +110,7 @@ export function evidenceSources(variable: DraftVariable, basis: DraftBasis): Evi
       url: observation.url,
       title: observation.title,
       source_label: observation.source_label,
+      published: formatPublishedMonth(observation.published_at, observation.published_precision),
       cited: false,
       passages: [],
     };

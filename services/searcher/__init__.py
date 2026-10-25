@@ -43,7 +43,7 @@ from .models import (
     merge_findings,
     outcomes_to_dicts,
 )
-from .dates import PUBLISHED_PRECISIONS
+from .dates import PUBLISHED_PRECISIONS, published_label
 from .connectors import TavilyHTTPConnector, ToolUniverseHTTPConnector
 from .sources.tavily import TAVILY_INTEGRATION
 from .controller import (
@@ -105,6 +105,7 @@ __all__ = [
     "merge_findings",
     "outcomes_to_dicts",
     "plan_requests",
+    "published_label",
     "run_requests",
     "run_pipeline",
     "source_keys",

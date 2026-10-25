@@ -367,6 +367,12 @@ function assertDrafterReadable(result: unknown): void {
     // so every figure on screen can be traced back to a quote.
     for (const observation of variable.observations) {
       if (observation.value && !observation.value.text?.trim()) fail("drafter", "a number does not name the words that state it");
+      // A date states its precision and an undated source states none, so a year is never
+      // shown as a day and a missing date never as a known one.
+      const dated = observation.published_at !== null;
+      if (dated ? !PUBLISHED_PRECISIONS.has(observation.published_precision) : observation.published_precision !== "") {
+        fail("drafter", "an observation's publication date does not state its precision");
+      }
     }
     const eligible = new Set(variable.observations.filter((observation) => observation.numeric_eligible).map((observation) => observation.id));
     for (const group of requireArray("drafter", variable.statistics, "figures") as DraftVariable["statistics"]) {
@@ -408,6 +414,7 @@ function assertDrafterReadable(result: unknown): void {
 
 /** The service's `FAILURE_CODES` and its leans-on pairing, mirrored for a file handed to us. */
 const DRAFT_FAILURE_CODES = new Set(["search_planning_failed", "evidence_unavailable", "suggestion_failed"]);
+const PUBLISHED_PRECISIONS = new Set<string>(["day", "month", "year"]);
 const LEANS_ON_BASES = {
   comparable_products: ["comparable_product"],
   guidance: ["published_guidance"],

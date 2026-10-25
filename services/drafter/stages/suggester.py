@@ -15,7 +15,9 @@ refuses after the call was paid for.
 from __future__ import annotations
 
 from collections.abc import Sequence
+from datetime import date
 
+from services.searcher import published_label
 from shared.ai import Effort, ModelTask, request_validated
 from shared.references import reference_array
 from shared.schemas import blank_text, non_empty_text
@@ -50,6 +52,9 @@ def build_system_prompt() -> str:
         "evidence of what a comparable product achieved or of what published guidance asks; cite "
         "the ones your suggestion actually leans on. Only observations marked as figures may supply "
         "a number; the others are context. Never state a number the evidence does not support. "
+        "Each observation says when its source was published, or that it did not. Guidance is "
+        "revised, so where two pieces of guidance ask different things, lean on the more recent. "
+        "A comparable product's result does not expire: an older product is still a comparator. "
         "Every answer gives a rationale of one or two sentences: for a range or a statement, "
         "naming the evidence it leans on; for insufficient, saying what the evidence lacks. "
         "The rationale is read by the team, who never see observation IDs: name evidence by "
@@ -146,14 +151,16 @@ def _schema(observation_ids: list[str]) -> dict:
 def _message(variable, observations, statistics, *, indication, intervention_term) -> str:
     """The variable, each observation as the reader recorded it, and the computed figures.
 
-    Each observation says what was measured, the number the reader took from its quote and
-    whether that number may supply a figure; each figure says which observations it was
+    Each observation says what was measured, when its source was published, the number the
+    reader took from its quote and whether that number may supply a figure; each figure says which observations it was
     computed from, so a number in the figures can be traced to the quotes behind it.
     """
     lines = []
     for observation in observations:
         who = observation.product or observation.source_label
-        parts = [f"[{observation.id}] {observation.basis}", who, observation.source_label]
+        published = date.fromisoformat(observation.published_at) if observation.published_at else None
+        parts = [f"[{observation.id}] {observation.basis}", who, observation.source_label,
+                 f"published: {published_label(published, observation.published_precision)}"]
         if observation.measure:
             parts.append(f"measures: {observation.measure}")
         line = " · ".join(parts) + f': "{observation.quote}"'

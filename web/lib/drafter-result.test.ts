@@ -16,6 +16,7 @@ function suggested(name: string, overrides: Partial<DraftVariable> = {}): DraftV
       id: `${name}:o1`, basis: "comparable_product", url: "https://example.org", title: "Trial A",
       source_label: "PubMed", product: "RTS,S", measure: "efficacy", quote: "56%",
       value: { value: 56, lower: null, upper: null, unit: "%", text: "stated" }, numeric_eligible: true,
+      published_at: "2021-04-01", published_precision: "month",
     }],
     statistics: [],
     suggestion: {
@@ -56,6 +57,17 @@ test("the saved-file contract holds kinds, bases and failures to the server's ru
   assert.throws(() => RESULT_CONTRACTS.drafter(draft(noBasis)), /basis/);
 });
 
+test("the saved-file contract refuses a date without its precision, or a precision without a date", () => {
+  for (const [published_at, published_precision] of [["2021-04-01", ""], [null, "year"]] as const) {
+    const variable = suggested("vaccine.efficacy");
+    variable.observations = [{ ...variable.observations[0], published_at, published_precision }];
+    assert.throws(() => RESULT_CONTRACTS.drafter(draft(variable)), /publication date/);
+  }
+  const undated = suggested("vaccine.efficacy");
+  undated.observations = [{ ...undated.observations[0], published_at: null, published_precision: "" }];
+  assert.doesNotThrow(() => RESULT_CONTRACTS.drafter(draft(undated)));
+});
+
 test("a draft round-trips through a result file as soon as the run finishes", () => {
   const result = draft();
   const file = packDrafterResult(result, RUN);
@@ -84,10 +96,10 @@ test("the counts of what a reading set aside are counts", () => {
   assert.throws(() => RESULT_CONTRACTS.drafter(draft(suggested("vaccine.efficacy", { unread_findings: 1.5 }))), /unread_findings is a count/);
 });
 
-test("a draft saved before its numbers were checked against their quotes is re-run, not read", () => {
+test("a draft saved before its sources carried their dates is re-run, not read", () => {
   const file = packDrafterResult(draft(), RUN);
-  assert.equal(file.analysis_version, 3);
-  assert.throws(() => unpackDrafterResult({ ...file, analysis_version: 2 }), /re-run the drafter analysis/);
+  assert.equal(file.analysis_version, 4);
+  assert.throws(() => unpackDrafterResult({ ...file, analysis_version: 3 }), /re-run the drafter analysis/);
 });
 
 test("a saved number names the words that state it, and a figure the observations it came from", () => {

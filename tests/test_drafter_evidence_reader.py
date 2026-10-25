@@ -77,6 +77,14 @@ class ReadFindingTests(unittest.TestCase):
         self.assertEqual(found[0].value.text, "56%")
         self.assertEqual(found[0].source_label, "Pubmed")
 
+    def test_an_observation_carries_its_sources_date_at_the_stated_precision(self):
+        source = finding()
+        source.published_at, source.published_precision = datetime(2021, 4, 1, tzinfo=timezone.utc), "month"
+        dated, _ = self.read(source, {"observations": [item("RTS,S efficacy against clinical malaria was 56%")]})
+        self.assertEqual((dated[0].published_at, dated[0].published_precision), ("2021-04-01", "month"))
+        undated, _ = self.read(finding(), {"observations": [item("RTS,S efficacy against clinical malaria was 56%")]})
+        self.assertEqual((undated[0].published_at, undated[0].published_precision), (None, ""))
+
     def test_a_number_whose_words_are_not_in_its_quote_is_kept_as_words_and_counted(self):
         """Nothing else confirms that a value is the number its quote states."""
         quote = "RTS,S efficacy against clinical malaria was 56%"

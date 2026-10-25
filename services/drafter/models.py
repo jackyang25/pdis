@@ -106,6 +106,12 @@ class Observation:
     #: True only for a comparable product's value from a verbatim literature, registry or
     #: regulatory excerpt - the text that may supply a number.
     numeric_eligible: bool
+    #: When the source says it was published, as an ISO day - the first day its stated date
+    #: allows - or None where it stated none. Guidance is revised and a suggestion weighs
+    #: that, so the date travels with the quote rather than staying behind in the search.
+    published_at: str | None
+    #: How much of `published_at` the source stated: `day`, `month` or `year`; empty when undated.
+    published_precision: str
 
 
 @dataclass(frozen=True)

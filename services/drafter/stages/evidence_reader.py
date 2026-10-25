@@ -102,6 +102,8 @@ class ReadObservation:
     quote: str
     value: ObservedValue | None
     numeric_eligible: bool
+    published_at: str | None
+    published_precision: str
 
 
 @dataclass(frozen=True)
@@ -240,6 +242,8 @@ def _reading(items: list, finding: Finding, excerpt: str) -> tuple[Reading, list
             quote=quote,
             value=value,
             numeric_eligible=item["basis"] == "comparable_product" and value is not None and lane_supplies_numbers,
+            published_at=finding.published_at.date().isoformat() if finding.published_at else None,
+            published_precision=finding.published_precision,
         ))
     return Reading(observations, len(missing) + len(unstated)), missing, unstated
 

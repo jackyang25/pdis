@@ -19,6 +19,7 @@ export const RELEASES: readonly Release[] = [
     version: "0.8.0",
     title: "More reliable results, clearer pages",
     sections: [
+      { changes: ["Rerun Inspector, Scout and Drafter to use this version: their results saved by earlier versions cannot be imported."] },
       {
         title: "Results",
         changes: [
@@ -33,6 +34,13 @@ export const RELEASES: readonly Release[] = [
         changes: [
           "At the review checkpoint, choose which fields to search. Fewer fields make a faster run.",
           "Review explanations are written in plain words.",
+        ],
+      },
+      {
+        title: "Drafter",
+        changes: [
+          "Each source shows when it was published, and where two pieces of guidance disagree, the suggestion leans on the newer.",
+          "Each suggestion’s explanation names the products and sources it rests on.",
         ],
       },
       {

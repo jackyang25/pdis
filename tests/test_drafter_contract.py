@@ -15,6 +15,8 @@ def observation(identifier: str, basis: str = "comparable_product") -> dict:
         "value": {"value": 56.0, "lower": None, "upper": None, "unit": "%", "text": "56%"}
         if basis == "comparable_product" else None,
         "numeric_eligible": basis == "comparable_product",
+        "published_at": "2021-04-01" if basis == "comparable_product" else None,
+        "published_precision": "month" if basis == "comparable_product" else "",
     }
 
 
@@ -130,6 +132,20 @@ class ContractTests(unittest.TestCase):
         variable = suggested()
         variable["observations"][1]["numeric_eligible"] = True
         self.assertRefused(result(variable))
+
+    def test_an_observation_states_its_publication_date_at_a_known_precision_or_none(self):
+        for field, value in (("published_precision", ""), ("published_precision", "season"),
+                             ("published_at", "April 2021"), ("published_at", None)):
+            with self.subTest(field=field, value=value):
+                variable = suggested()
+                variable["observations"][0][field] = value
+                self.assertRefused(result(variable))
+        variable = suggested()
+        del variable["observations"][0]["published_at"]
+        self.assertRefused(result(variable))
+        undated = suggested()
+        undated["observations"][1]["published_precision"] = "year"
+        self.assertRefused(result(undated))
 
     def test_variable_names_are_unique(self):
         self.assertRefused(result(suggested(), suggested()))

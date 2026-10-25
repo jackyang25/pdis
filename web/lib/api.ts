@@ -1686,6 +1686,9 @@ export type DraftObservation = {
   /** `text` is the quote's own words for the number, which code checked are in the quote. */
   value: { value: number | null; lower: number | null; upper: number | null; unit: string; text: string } | null;
   numeric_eligible: boolean;
+  /** The first day the source's stated date allows; null where it stated none. */
+  published_at: string | null;
+  published_precision: "day" | "month" | "year" | "";
 };
 
 export type DraftGroupSummary = {

@@ -19,7 +19,7 @@ from __future__ import annotations
 import copy
 from typing import Iterable
 
-from services.searcher import Finding, dedupe_findings, lane_class
+from services.searcher import Finding, dedupe_findings, lane_class, published_label
 
 from .context import limit_document_context
 from .models import Insight
@@ -42,19 +42,6 @@ EXCERPT_KIND_LABELS = {
 }
 
 
-def published_label(finding: Finding) -> str:
-    """The publication date at the precision the source stated it, or that it stated none."""
-    if finding.published_at is None:
-        return "not stated by the source"
-    day = finding.published_at.date()
-    precision = finding.published_precision or "day"
-    if precision == "year":
-        return f"{day.year} (year only)"
-    if precision == "month":
-        return f"{day.year}-{day.month:02d} (month only)"
-    return day.isoformat()
-
-
 def render_finding(finding: Finding) -> str:
     """One supporting record: what it is, when it is from, and how it opens."""
     lane = finding.source
@@ -62,7 +49,7 @@ def render_finding(finding: Finding) -> str:
     lines = [
         f"    - {finding.title or finding.url}",
         f"      source: {label} ({lane_class(lane)} evidence) | published: "
-        f"{published_label(finding)} | {finding.url}",
+        f"{published_label(finding.published_at and finding.published_at.date(), finding.published_precision)} | {finding.url}",
     ]
     excerpt = " ".join((finding.excerpt or "").split())
     if excerpt:

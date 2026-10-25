@@ -15,12 +15,13 @@ from tests.drafter_support import ScriptedClient
 EFFICACY = AttributeDefinition("vaccine.efficacy", "Protective efficacy.", "clinical")
 
 
-def observed(identifier: str, value: float | None, unit: str = "%", basis: str = "comparable_product", eligible: bool = True) -> Observation:
+def observed(identifier: str, value: float | None, unit: str = "%", basis: str = "comparable_product",
+             eligible: bool = True, published: tuple[str | None, str] = ("2021-04-01", "month")) -> Observation:
     return Observation(
         id=identifier, basis=basis, url="https://example.org", title="Source", source_label="PubMed",
         product="Product", measure="efficacy", quote=f"efficacy {value}{unit}",
         value=ObservedValue(value, None, None, unit, f"{value}{unit}") if value is not None else None,
-        numeric_eligible=eligible,
+        numeric_eligible=eligible, published_at=published[0], published_precision=published[1],
     )
 
 
@@ -80,6 +81,16 @@ class SuggesterTests(unittest.TestCase):
         self.assertIn("read as 60 % (context, not a figure)", message)
         self.assertIn("from o1, o2", message)
         self.assertNotIn("  ", message)
+
+    def test_each_observation_says_when_its_source_was_published_and_guidance_prefers_the_newer(self):
+        held = [observed("o1", 56), observed("g1", None, basis="published_guidance", eligible=False, published=(None, ""))]
+        _, client = self.suggest(reply(), observations=held)
+        system, message = client.calls[0][0], client.calls[0][1]
+        # At the precision the source stated: a month-only date is never read as a day.
+        self.assertIn("published: 2021-04 (month only)", message)
+        self.assertIn("published: not stated by the source", message)
+        self.assertIn("lean on the more recent", system)
+        self.assertIn("an older product is still a comparator", system)
 
     def test_each_kind_is_its_own_variant_in_the_schema(self):
         variants = _schema(["o1"])["properties"]["suggestion"]["anyOf"]

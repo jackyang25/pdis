@@ -13,7 +13,6 @@ from datetime import datetime, timezone
 
 from services.scout.insight_evidence import (
     VERDICT_EXCERPT_CHARS,
-    published_label,
     render_insight_evidence,
 )
 from services.scout.models import Attribute, DocumentSpan, Insight
@@ -65,11 +64,12 @@ class RenderingTests(unittest.TestCase):
         insight.supporting_findings = [_finding(source="web", excerpt_kind="generated")]
         self.assertIn("not the source's own words", render_insight_evidence(insight, label="[0]"))
 
-    def test_an_undated_record_says_so(self) -> None:
-        self.assertEqual(published_label(_finding(published_at=None)), "not stated by the source")
-        self.assertEqual(
-            published_label(_finding(published_precision="year")), "2023 (year only)",
-        )
+    def test_a_record_is_dated_at_its_stated_precision_or_says_it_is_undated(self) -> None:
+        insight = _insight()
+        insight.supporting_findings = [_finding(published_at=None)]
+        self.assertIn("published: not stated by the source", render_insight_evidence(insight, label="[0]"))
+        insight.supporting_findings = [_finding(published_precision="year")]
+        self.assertIn("published: 2023 (year only)", render_insight_evidence(insight, label="[0]"))
 
 
 class _Recorder:

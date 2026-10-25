@@ -9,8 +9,10 @@ they sit beside - and never a judgement of what a suggestion means.
 from __future__ import annotations
 
 from dataclasses import asdict
+from datetime import date
 from typing import Any
 
+from services.searcher import PUBLISHED_PRECISIONS
 from shared.quotes import quote_in_text
 
 from .assembly import summarise
@@ -102,6 +104,7 @@ def _figures(observations: list[dict[str, Any]]) -> list[dict[str, Any]]:
                                 unit=str(value.get("unit") or ""), text=str(value.get("text") or ""))
             if value is not None else None,
             numeric_eligible=bool(observation.get("numeric_eligible")),
+            published_at=None, published_precision="",
         ))
     # As stored: a saved result holds its lineage as a list, not a tuple.
     return [{**asdict(group), "observation_ids": list(group.observation_ids)} for group in summarise(held)]
@@ -119,6 +122,19 @@ def _observation(observation: dict[str, Any], name: str) -> None:
         observation.get("basis") != "comparable_product" or observation.get("value") is None
     ):
         raise ValueError(f"{name}: only a comparable product's stated value may enter statistics")
+    if "published_at" not in observation or "published_precision" not in observation:
+        raise ValueError(f"{name}: an observation states when its source was published, or that it did not")
+    published_at, precision = observation["published_at"], observation["published_precision"]
+    if published_at is None:
+        if precision:
+            raise ValueError(f"{name}: an undated observation has no date precision")
+        return
+    try:
+        date.fromisoformat(published_at)
+    except (TypeError, ValueError):
+        raise ValueError(f"{name}: an observation's publication date is an ISO day") from None
+    if precision not in PUBLISHED_PRECISIONS:
+        raise ValueError(f"{name}: an observation's date states its precision")
 
 
 def check_suggestion(suggestion: dict[str, Any], name: str, observations: dict[str, dict]) -> None:

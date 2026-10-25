@@ -31,7 +31,7 @@ class ExportTests(unittest.TestCase):
         self.assertEqual(rows[0], ["Variable", "Suggested target", "Based on", "Sources"])
         self.assertEqual(rows[1][1], "Minimum: 50%\nPreferred: 75%")
         self.assertEqual(rows[1][2], "Comparable products and published guidance")
-        self.assertIn("Trial A (PubMed)", rows[1][3])
+        self.assertIn("Trial A (PubMed, 2021)", rows[1][3])
         self.assertEqual(rows[2][1:3], ["Not set", "Not enough evidence"])
         self.assertEqual(rows[3][1:3], ["Not set", "Could not be suggested"])
 

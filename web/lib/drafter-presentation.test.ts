@@ -82,9 +82,11 @@ function withEvidence(): DraftVariable {
     observations: [
       { id: "vaccine.efficacy:o1", basis: "comparable_product", url: "https://pubmed.org/1", title: "RTS,S phase 3",
         source_label: "PubMed", product: "RTS,S", measure: "efficacy", quote: "efficacy was 56%",
-        value: { value: 56, lower: null, upper: null, unit: "%", text: "stated" }, numeric_eligible: true },
+        value: { value: 56, lower: null, upper: null, unit: "%", text: "stated" }, numeric_eligible: true,
+        published_at: "2021-01-01", published_precision: "year" },
       { id: "vaccine.efficacy:g1", basis: "published_guidance", url: "https://who.int/ppc", title: "Malaria vaccine PPC",
-        source_label: "WHO", product: "WHO", measure: "", quote: "at least 75% efficacy", value: null, numeric_eligible: false },
+        source_label: "WHO", product: "WHO", measure: "", quote: "at least 75% efficacy", value: null, numeric_eligible: false,
+        published_at: null, published_precision: "" },
     ],
     suggestion: { kind: "range", minimum: "50%", preferred: "75%", statement: "", rationale: "Comparable vaccines reached 56%; WHO prefers 75%.",
       leans_on: "both", basis_ids: ["vaccine.efficacy:o1", "vaccine.efficacy:g1"] },
@@ -98,6 +100,13 @@ test("the two kinds of evidence are listed apart, each counted", () => {
   assert.match(html, /Comparable products<\/span><span[^>]*>1</);
   assert.match(html, /Published guidance<\/span><span[^>]*>1</);
   assert.match(html, /Minimum 50% · Preferred 75%/);
+});
+
+test("each source names when it was published, at the precision it stated, and nothing when undated", () => {
+  const html = render({ variable: withEvidence() });
+  // A year-only date is never shown to the month, or it reads as a January publication.
+  assert.match(html, /PubMed · 2021 · Cited by the suggestion/);
+  assert.match(html, /WHO · Cited by the suggestion/);
 });
 
 test("a variable nothing spoke to says so in the tool's own words", () => {

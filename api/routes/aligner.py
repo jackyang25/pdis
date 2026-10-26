@@ -13,11 +13,12 @@ import tempfile
 from dataclasses import asdict
 
 from fastapi import APIRouter, File, Form, HTTPException, UploadFile
-from fastapi.responses import StreamingResponse
+from fastapi.responses import Response, StreamingResponse
 
 from services.aligner import (
     AlignmentDocument,
     DocumentInput,
+    export_docx,
     load_config,
     resolve_edges,
     run_pipeline,
@@ -27,12 +28,14 @@ from services.chunker import find_config as find_chunker_config
 from api.deps import MissingCredentialError, get_openai_client
 from api.schemas import (
     AlignerEdgesResponse,
+    AlignerExportRequest,
     AlignerRunResponse,
     AlignmentEdgeSpecOut,
     AlignmentResultOut,
 )
 from api.streaming import run_with_progress
 from api.uploads import document_upload_parts, read_uploads, require_distinct_doc_ids
+from api.word_export import word_export
 
 router = APIRouter()
 
@@ -147,3 +150,9 @@ async def run_aligner(
                     os.unlink(temp_path)
 
     return StreamingResponse(run_with_progress(work), media_type="application/x-ndjson")
+
+
+@router.post("/export")
+def export_aligner(request: AlignerExportRequest) -> Response:
+    """An alignment as Word tables, one per comparison, built from the result the browser holds."""
+    return word_export("aligner", export_docx, request.result.model_dump())

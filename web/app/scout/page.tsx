@@ -6,8 +6,10 @@ import { usePublishReviewContext, type ReviewSelection } from "@/lib/assistant-r
 
 import { useTraceFocus } from "@/lib/trace-focus";
 import {
+  type CSSProperties,
   memo,
   useCallback,
+  useContext,
   useDeferredValue,
   useEffect,
   useId,
@@ -194,6 +196,7 @@ import {
   reviewQuantitativeCandidateGroup,
 } from "@/lib/quantitative-review";
 import {
+  DocumentSourceContext,
   DocumentSourceProvider,
   DocumentSourceTrace,
 } from "@/components/document-source-trace";
@@ -2296,6 +2299,12 @@ const FieldGrid = memo(function FieldGrid({
                   filename: runFilename("scout"),
                   data: () => packScoutResult(result, held),
                 }}
+                // A review checkpoint is still being decided, so only a final result exports.
+                word={result.phase === "final" ? {
+                  tool: "scout",
+                  result,
+                  onError: (message) => useScoutSession.getState().setError(message),
+                } : undefined}
               />
             </>
           }
@@ -2517,33 +2526,31 @@ function ContextualProjectionNote({
 }
 
 /**
- * How many announcements were read, how many named a program, and how many readings failed.
+ * What the announcements could not tell the landscape, said only when it changes how to read it.
  *
- * Stated because the landscape cannot say it. An announcement naming no program leaves no
- * row, so a weak reading and a quiet week produce the same empty view. The pair separates
- * them: "18 announcements read, 4 named a program" is a different fact from "4 read, 4
- * named", and only one of them means the retrieval found little.
- *
- * A failed reading is named apart, because it says nothing about the announcement: a
- * program it would have named may be missing. Hidden at zero - nothing failed to report.
+ * A reading that failed may hide a program, which is a limit on the landscape, so it is a
+ * caveat. With no program at all, the count of announcements read is what separates a weak
+ * reading from a quiet week. Beside a landscape of programs the counts said nothing a reader
+ * acts on, and stood as a boxed note under every run.
  */
-function AnnouncementReading({ stats }: { stats?: FunnelStats }) {
+function AnnouncementReading({ stats, programs }: { stats?: FunnelStats; programs: number }) {
   const read = stats?.announcements_read ?? 0;
-  if (read === 0) return null;
-  const named = stats?.announcements_named ?? 0;
   const failed = stats?.announcements_failed ?? 0;
+  if (failed > 0) {
+    return (
+      <div className="mx-5 my-4 sm:mx-6">
+        <CaveatNotice label="Announcements not read">
+          <Computed>{failed.toLocaleString()}</Computed> announcement{failed === 1 ? "" : "s"} could not be
+          read, so a program {failed === 1 ? "it names" : "they name"} may be missing here.
+        </CaveatNotice>
+      </div>
+    );
+  }
+  if (read === 0 || programs > 0) return null;
   return (
     <InterfaceNote className="mx-5 mb-4 sm:mx-6">
-      <Computed>{read.toLocaleString()}</Computed> announcement
-      {read === 1 ? "" : "s"} read,{" "}
-      <Computed>{named.toLocaleString()}</Computed> named a program
-      {failed > 0 && (
-        <>
-          , <Computed>{failed.toLocaleString()}</Computed> could not be read
-        </>
-      )}
-      . An announcement naming none has no row here
-      {failed > 0 && ", and one that could not be read may hide a program"}.
+      <Computed>{read.toLocaleString()}</Computed> announcement{read === 1 ? " was" : "s were"} read,
+      and none named a development program.
     </InterfaceNote>
   );
 }
@@ -2682,7 +2689,7 @@ function DevelopmentLandscape({
       {visible.length === 0 && (
         <EmptyState className="m-5 sm:m-6" message="No development records match this view" />
       )}
-      <AnnouncementReading stats={stats} />
+      <AnnouncementReading stats={stats} programs={programs.length} />
     </section>
   );
 }
@@ -2976,7 +2983,8 @@ function FieldRow({
   // source table row and each carrying its own blocks. `assessment.doc_target` is only
   // ever a copy of `Variable.document_target` (verified in `evidence_assessor.py`), so
   // rendering the spans shows the same text once, as rows.
-  const targetRows = documentTargetRows(documentSpans);
+  const { blocksById } = useContext(DocumentSourceContext);
+  const targetRows = documentTargetRows(documentSpans, blocksById);
   return (
     <details className="group/expand border-b border-border/60 last:border-b-0">
       <summary className={cn(EXPANDABLE_ROW, "justify-between")}>
@@ -3262,43 +3270,39 @@ function TargetRows({
   blockIds: string[];
 }) {
   if (rows.length === 0) return null;
-  const bounded = rows.some((row) => row.kind === "bounded");
   return (
     <section>
       <div className="flex flex-wrap items-baseline justify-between gap-x-4">
         <SectionLabel>Target stated in document</SectionLabel>
         {rows.length === 0 && <DocumentSourceTrace blockIds={blockIds} />}
       </div>
-      {bounded && (
-        <div className="mt-2 hidden grid-cols-[minmax(0,0.8fr)_minmax(0,1.6fr)_minmax(0,1.6fr)_7rem] gap-x-4 pb-1 sm:grid">
-          <span className={EYEBROW}>Variable</span>
-          <span className={EYEBROW}>Minimum</span>
-          <span className={EYEBROW}>Optimistic</span>
-        </div>
-      )}
       <div className="divide-y divide-border/60">
         {rows.map((row, index) =>
-          row.kind === "bounded" ? (
+          row.kind === "table" ? (
             <div
               key={index}
-              /* A fixed trailing column for the trigger. Sharing the optimistic cell left
-                 it fighting the longest text on the row for space, so its label broke across
-                 two lines and the row grew taller than its siblings. */
-              // `items-start`, so the trigger sits on the row's first line rather than
-              // floating in the middle of a cell three lines tall.
-              className="grid items-start gap-x-4 gap-y-0.5 py-2 sm:grid-cols-[minmax(0,0.8fr)_minmax(0,1.6fr)_minmax(0,1.6fr)_7rem]"
+              /* The first cell names the row, so it is narrower; the rest are the document's
+                 values. A fixed trailing column for the trigger: sharing the last cell left
+                 it fighting the longest text on the row, so its label broke across two lines.
+                 `items-start`, so the trigger sits on the row's first line. */
+              style={{ "--values": Math.max(row.cells.length - 1, 1) } as CSSProperties}
+              className="grid items-start gap-x-4 gap-y-1 py-2 sm:grid-cols-[minmax(0,0.8fr)_repeat(var(--values),minmax(0,1.6fr))_7rem]"
             >
-              <p className="text-xs font-medium text-foreground">
-                {row.variable}
-              </p>
-              <Quoted size="prominent" className="mt-0">
-                <span className={cn(EYEBROW, "sm:hidden")}>Minimum </span>
-                {row.minimum || "—"}
-              </Quoted>
-              <Quoted size="prominent" className="mt-0">
-                <span className={cn(EYEBROW, "sm:hidden")}>Optimistic </span>
-                {row.optimistic || "—"}
-              </Quoted>
+              {row.cells.map((cell, cellIndex) => (
+                <div key={cellIndex} className="min-w-0">
+                  {/* The column's own title line - "Minimum", not the guidance under it - with
+                      the whole heading a hover away. On every row rather than once above the
+                      table, because rows from one field can come from different tables. */}
+                  <p className="truncate text-[11px] leading-5 text-muted-foreground" title={cell.header}>
+                    {cell.label}
+                  </p>
+                  {cellIndex === 0 ? (
+                    <p className="text-xs font-medium text-foreground">{cell.value || "—"}</p>
+                  ) : (
+                    <Quoted size="prominent" className="mt-0">{cell.value || "—"}</Quoted>
+                  )}
+                </div>
+              ))}
               {/* Against the right edge, matching the numeric-target rows below, which
                   pack their triggers the same way. */}
               <span className="justify-self-end">

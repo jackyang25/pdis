@@ -1226,6 +1226,26 @@ class DrafterExportRequest(BaseModel):
     result: DraftResultOut
 
 
+# --- Word exports --------------------------------------------------------------------------
+# Each carries the final result the browser holds, in the shape its run returned it.
+
+
+class InspectorExportRequest(BaseModel):
+    result: InspectionResultOut
+
+
+class AlignerExportRequest(BaseModel):
+    result: AlignmentResultOut
+
+
+class ScreenerExportRequest(BaseModel):
+    result: GateReviewOut
+
+
+class ScoutExportRequest(BaseModel):
+    result: ScoutRunResponse
+
+
 class AskMessage(BaseModel):
     role: Literal["user", "assistant"]
     content: str

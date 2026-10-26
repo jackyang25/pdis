@@ -7,10 +7,11 @@ import tempfile
 from dataclasses import asdict
 
 from fastapi import APIRouter, File, Form, HTTPException, UploadFile
-from fastapi.responses import StreamingResponse
+from fastapi.responses import Response, StreamingResponse
 
 from services.scout import (
     FieldSelectionError,
+    export_docx,
     result_from_target_review,
     ScoutResult,
     assessments_to_dicts,
@@ -43,6 +44,7 @@ from api.schemas import (
     QuantitativeLedgerOut,
     RetrievalScopeOut,
     ScoutContinueRequest,
+    ScoutExportRequest,
     ScoutRunResponse,
     SafetyObservationOut,
     SearchTraceOut,
@@ -51,6 +53,7 @@ from api.schemas import (
 )
 from api.streaming import run_with_progress
 from api.uploads import document_upload_parts, read_uploads, require_distinct_doc_ids
+from api.word_export import word_export
 
 router = APIRouter()
 
@@ -227,3 +230,9 @@ async def continue_scout(payload: ScoutContinueRequest) -> StreamingResponse:
         ).model_dump()
 
     return StreamingResponse(run_with_progress(work), media_type="application/x-ndjson")
+
+
+@router.post("/export")
+def export_scout(request: ScoutExportRequest) -> Response:
+    """A final evidence review as Word tables, built from the result the browser holds."""
+    return word_export("scout", export_docx, request.result.model_dump())

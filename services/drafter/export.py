@@ -6,13 +6,10 @@ rests on, so the table carries its provenance into the document it ends up in.
 
 from __future__ import annotations
 
-import io
 from typing import Any
 
-from docx import Document
-from docx.shared import Pt
-
 from shared.vocabulary import display_label
+from shared.word_export import Table, WordReport, count_summary, word_document
 
 from .contract import validate_result_contract
 
@@ -22,31 +19,27 @@ NOT_SET = "Not set"
 
 def export_docx(result: dict[str, Any]) -> bytes:
     validate_result_contract(result)
-    document = Document()
-    document.add_heading("Draft iTPP targets", level=1)
-    context = f"{result['display_name']} · {display_label(result['indication'])}"
-    document.add_paragraph(context)
-    document.add_paragraph(
-        "Suggested by PDIS Drafter from comparable products' results and published guidance. "
-        "Every target is a suggestion to check and edit; each row lists the sources it rests on."
+    variables = result["variables"]
+    rows = [(variable["label"], *_row(variable)) for variable in variables]
+    failed = sum(variable["status"] == "failed" for variable in variables)
+    insufficient = sum(
+        variable["status"] != "failed" and variable["suggestion"]["kind"] == "insufficient" for variable in variables
     )
-    table = document.add_table(rows=1, cols=len(COLUMNS))
-    table.style = "Table Grid"
-    for cell, heading in zip(table.rows[0].cells, COLUMNS, strict=True):
-        cell.text = heading
-        for run in cell.paragraphs[0].runs:
-            run.bold = True
-    for variable in result["variables"]:
-        target, basis, sources = _row(variable)
-        cells = table.add_row().cells
-        for cell, text in zip(cells, (variable["label"], target, basis, sources), strict=True):
-            cell.text = text
-            for paragraph in cell.paragraphs:
-                for run in paragraph.runs:
-                    run.font.size = Pt(9)
-    buffer = io.BytesIO()
-    document.save(buffer)
-    return buffer.getvalue()
+    return word_document(WordReport(
+        title="Draft iTPP targets",
+        context=f"{result['display_name']} · {display_label(result['indication'])}",
+        about=(
+            "Suggested by PDIS Drafter from comparable products' results and published guidance. "
+            "Every target is a suggestion to check and edit; each row lists the sources it rests on."
+        ),
+        # A failure is no model's finding, so it is counted only when there is one.
+        summary=count_summary(len(variables), ("variable", "variables"), (
+            (len(variables) - failed - insufficient, "Suggested"),
+            (insufficient, "Not enough evidence"),
+            *([(failed, "Could not be suggested")] if failed else []),
+        )),
+        tables=[Table(columns=COLUMNS, rows=rows, widths=(2, 3, 2, 4))],
+    ))
 
 
 LEANS_ON_LABEL = {

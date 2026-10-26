@@ -17,6 +17,7 @@
  */
 
 import type {
+  ContentBlock,
   Conformity,
   EvidenceAssessment,
   Finding,
@@ -33,6 +34,7 @@ import type {
   QuantitativeTarget,
 } from "./api.ts";
 import { RUN_SCOPE_DIMENSIONS } from "./api.ts";
+import { documentTableCells, tableHeaderLabel } from "./document-block-presentation.ts";
 import { countLabel } from "./count-label.ts";
 import { displayLabel } from "./display-label.ts";
 import { displayAttributeLabel } from "./scout-labels.ts";
@@ -115,17 +117,13 @@ export function exclusionReasonLines(measurement: {
  */
 export type TargetRow =
   | {
-      kind: "bounded";
-      /** The row's own name, e.g. "Product" or "Duration". */
-      variable: string;
-      minimum: string;
-      optimistic: string;
+      kind: "table";
+      /** The table row's cells: each column's title line, its whole heading, and the value. */
+      cells: { label: string; header: string; value: string }[];
       quote: string;
       blockIds: string[];
     }
   | { kind: "prose"; text: string; quote: string; blockIds: string[] };
-
-const BOUNDED_MARKERS = { lead: "Variable:", minimum: ", Minimum:", optimistic: ", Optimistic:" };
 
 /**
  * The target as rows, one per source span.
@@ -135,57 +133,37 @@ const BOUNDED_MARKERS = { lead: "Variable:", minimum: ", Minimum:", optimistic: 
  * already separated, and each carrying its own `block_ids`. Rendering the concatenation
  * was what produced a 995-character paragraph where the document had four table rows.
  *
- * Where a span is Chunker's serialization of a TPP table row
- * (`Variable: … , Minimum: … , Optimistic: …`) it is split into those three cells. That is
- * reading a delimited format this suite writes, not interpreting prose - and it is checked
- * rather than trusted: if the three parts do not account for the whole span, the row falls
- * back to prose. A row can lose formatting; it cannot lose text.
+ * A span that is a whole table row is shown as that row's cells, read from the cells the
+ * parser recorded for its block, never from the span's wording. This read the wording
+ * before, by the markers ", Minimum:" and ", Optimistic:", and a template whose columns were
+ * headed "Minimum The minimal target should be…" fell through to the raw paragraph. Any other
+ * span - part of a row, or prose - stays as the document's words.
  */
 export function documentTargetRows(
   spans: Variable["document_spans"] | undefined,
+  blocksById: ReadonlyMap<string, ContentBlock> = new Map(),
 ): TargetRow[] {
   return (spans ?? []).map((span) => {
     const quote = span.quote ?? "";
     const blockIds = span.block_ids ?? [];
-    const bounded = splitBounded(quote);
-    return bounded
-      ? { kind: "bounded", ...bounded, quote, blockIds }
+    const block = blockIds.length === 1 ? blocksById.get(blockIds[0]) : undefined;
+    // Whitespace aside: a quote reads a cell's line break as a space.
+    const row = block && collapse(block.content) === collapse(quote) ? documentTableCells(block) : null;
+    return row
+      ? { kind: "table", cells: row.cells.map((cell) => ({ label: tableHeaderLabel(cell.header), header: collapse(cell.header), value: cell.value.trim() })), quote, blockIds }
       : { kind: "prose", text: quote.trim(), quote, blockIds };
   });
 }
 
-function splitBounded(
-  quote: string,
-): { variable: string; minimum: string; optimistic: string } | null {
-  const text = quote.trim();
-  if (!text.startsWith(BOUNDED_MARKERS.lead)) return null;
-  const minimumAt = text.indexOf(BOUNDED_MARKERS.minimum);
-  if (minimumAt < 0) return null;
-  const optimisticAt = text.indexOf(BOUNDED_MARKERS.optimistic, minimumAt);
-  if (optimisticAt < 0) return null;
-  const variable = text.slice(BOUNDED_MARKERS.lead.length, minimumAt).trim();
-  const minimum = text
-    .slice(minimumAt + BOUNDED_MARKERS.minimum.length, optimisticAt)
-    .trim();
-  const optimistic = text.slice(optimisticAt + BOUNDED_MARKERS.optimistic.length).trim();
-  if (!variable || (!minimum && !optimistic)) return null;
-  // The three cells must account for every word of the span. Checked by removing the
-  // markers from the original and comparing what is left, rather than by reassembling:
-  // reassembly compared marker *spacing* too, and the documents contain "injections. ,
-  // Optimistic:" - a space before the comma - so a faithful split was rejected over
-  // punctuation whitespace. This compares the text, which is what must not be lost.
-  const withoutMarkers = normalize(
-    text
-      .replace(BOUNDED_MARKERS.lead, " ")
-      .replace(BOUNDED_MARKERS.minimum, " ")
-      .replace(BOUNDED_MARKERS.optimistic, " "),
-  );
-  const cells = normalize([variable, minimum, optimistic].join(" "));
-  return withoutMarkers === cells ? { variable, minimum, optimistic } : null;
+function collapse(text: string): string {
+  return text.replace(/\s+/g, " ").trim();
 }
 
-function normalize(value: string): string {
-  return value.replace(/\s+/g, " ").trim();
+/** The target in one line: a table row's values, prose as written. */
+export function documentTargetText(rows: TargetRow[]): string {
+  return rows
+    .map((row) => (row.kind === "table" ? row.cells.map((cell) => cell.value).filter(Boolean).join(" · ") : row.text))
+    .join(" ");
 }
 
 // --- Relationships ----------------------------------------------------------
@@ -306,13 +284,21 @@ const IDENTITY_SET_LABEL: Record<IdentityReconciliation["layer"], string> = {
 export function unreconciledSets(
   reconciliations: IdentityReconciliation[] | undefined,
 ): string[] {
-  return (reconciliations ?? [])
-    .filter((record) => record.status === "not_reconciled")
-    .map((record) =>
-      record.layer === "insights" && record.scope
-        ? `${IDENTITY_SET_LABEL.insights} for ${displayAttributeLabel(record.scope)}`
-        : IDENTITY_SET_LABEL[record.layer],
-    );
+  const failed = (reconciliations ?? []).filter((record) => record.status === "not_reconciled");
+  // Insight sets are one per field, so they are named once with their fields: "insights for
+  // Indication, Product and Efficacy", not "insights for" again before every field.
+  const fields = failed
+    .filter((record) => record.layer === "insights" && record.scope)
+    .map((record) => displayAttributeLabel(record.scope));
+  const named = new Set<string>();
+  return failed.flatMap((record) => {
+    const label = record.layer === "insights" && record.scope
+      ? `${IDENTITY_SET_LABEL.insights} for ${new Intl.ListFormat("en", { type: "conjunction" }).format(fields)}`
+      : IDENTITY_SET_LABEL[record.layer];
+    if (named.has(label)) return [];
+    named.add(label);
+    return [label];
+  });
 }
 
 // --- Checks that could not be completed --------------------------------------

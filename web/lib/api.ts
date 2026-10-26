@@ -1762,20 +1762,31 @@ export async function runDrafter(
   return streamRequest("/api/drafter/run", form, onStage);
 }
 
+/** The tools whose final result exports to Word, each at `/api/<tool>/export`. */
+export type WordExportTool = "inspector" | "aligner" | "screener" | "scout" | "drafter";
+
 /**
- * A final draft as a Word table; the server refuses a draft still in review.
+ * A final result as a Word file, built by the server from the result held here. The server
+ * names the file and refuses a result it will not export, such as a Scout review checkpoint.
  *
- * The server names the file, so the browser never restates a document extension.
+ * Sent without its retained images: the file names where each passage sits and quotes no
+ * picture, and an image-bearing result is many megabytes it does not need.
  */
-export async function exportDrafterDocx(result: DraftResult): Promise<{ blob: Blob; filename: string }> {
-  const res = await reach(`${API_BASE}/api/drafter/export`, {
+export async function exportWordDocument(
+  tool: WordExportTool,
+  result: { blocks?: ContentBlock[] } | DraftResult,
+): Promise<{ blob: Blob; filename: string }> {
+  const body = "blocks" in result && Array.isArray(result.blocks)
+    ? { ...result, blocks: result.blocks.map((block) => ({ ...block, image: null })) }
+    : result;
+  const res = await reach(`${API_BASE}/api/${tool}/export`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ result }),
+    body: JSON.stringify({ result: body }),
   });
   if (!res.ok) throw await responseError(res, "Export failed");
   const named = /filename="([^"]+)"/.exec(res.headers.get("Content-Disposition") ?? "");
-  return { blob: await res.blob(), filename: named?.[1] ?? "pdis-drafter" };
+  return { blob: await res.blob(), filename: named?.[1] ?? `pdis-${tool}.docx` };
 }
 
 // --- Ask: read-only, grounded chat over any result object ---

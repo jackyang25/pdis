@@ -7,6 +7,7 @@ import {
   documentBlockSpacing,
   documentTableCells,
   documentTableRowContinues,
+  tableHeaderLabel,
   documentTracePanelMode,
   documentTraceRailMode,
 } from "./document-block-presentation.ts";
@@ -191,4 +192,10 @@ test("a header ends at its own words, not at the separator before the value", ()
       content_end: 20, value_start: 17, value_end: 20 }],
   }, "Minimum target.: 70%"))?.cells[0];
   assert.equal(cell?.headerEnd, 15);
+});
+
+test("a heading in short is its own first line", () => {
+  assert.equal(tableHeaderLabel("Minimum\nThe minimal target should be considered."), "Minimum");
+  assert.equal(tableHeaderLabel("Variable"), "Variable");
+  assert.equal(tableHeaderLabel("\n  Optimistic \nguidance"), "Optimistic");
 });

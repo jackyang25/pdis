@@ -496,6 +496,11 @@ const AlignmentView = memo(function AlignmentView({
               filename: runFilename("aligner"),
               data: () => packAlignerResult(result, held),
             }}
+            word={{
+              tool: "aligner",
+              result: result.alignment,
+              onError: (message) => useAlignerSession.getState().setError(message),
+            }}
           />
         </>
       }

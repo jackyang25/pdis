@@ -4,6 +4,7 @@ import { Plus } from "lucide-react";
 
 import { DownloadButton } from "@/components/download-button";
 import { Button } from "@/components/ui/button";
+import { WordExportButton, type WordExport } from "@/components/word-export-button";
 
 type Download = {
   filename: string;
@@ -14,6 +15,8 @@ type Download = {
 type Props = {
   onNewAnalysis: () => void;
   download?: Download;
+  /** The same final result as a Word file, beside its JSON. */
+  word?: WordExport;
 };
 
 /**
@@ -33,7 +36,7 @@ export function NewAnalysisButton({ onClick, disabled }: { onClick: () => void; 
 }
 
 /** Shared actions for immutable, portable tool results. */
-export function FinalResultActions({ onNewAnalysis, download }: Props) {
+export function FinalResultActions({ onNewAnalysis, download, word }: Props) {
   return (
     <>
       <NewAnalysisButton onClick={onNewAnalysis} />
@@ -44,6 +47,7 @@ export function FinalResultActions({ onNewAnalysis, download }: Props) {
           label="Download JSON"
         />
       )}
+      {word && <WordExportButton {...word} />}
     </>
   );
 }

@@ -488,7 +488,7 @@
                 {
                   "id": "result",
                   "title": "Portable inspection",
-                  "summary": "All reviews, applicability decisions and rubric snapshots travel with one retained source document. Selecting a review changes only the view, never the export or Ask context.",
+                  "summary": "All reviews, applicability decisions and rubric snapshots travel with one retained source document, downloadable as a result or exported to Word. Selecting a review changes only the view, never the export or Ask context.",
                   "kind": "output",
                   "layer": "Result",
                   "inputs": [
@@ -603,7 +603,7 @@
                 {
                   "id": "result",
                   "title": "Portable result",
-                  "summary": "Every requirement, its verdict, and the passages on both sides form one downloadable result.",
+                  "summary": "Every requirement, its verdict, and the passages on both sides form one downloadable result, also exported to Word.",
                   "kind": "output",
                   "layer": "Result",
                   "outputs": [
@@ -847,7 +847,7 @@
                 {
                   "id": "result",
                   "title": "Portable evidence result",
-                  "summary": "All traces, independent axes, review decisions, and source documents are packaged together.",
+                  "summary": "All traces, independent axes, review decisions, and source documents are packaged together; a final result also exports to Word.",
                   "kind": "output",
                   "layer": "Result",
                   "outputs": [
@@ -975,7 +975,7 @@
                 {
                   "id": "result",
                   "title": "Portable gate review",
-                  "summary": "Every question the gate asks, each in one of four states, with the passages behind the answers and the source documents beside them.",
+                  "summary": "Every question the gate asks, each in one of four states, with the passages behind the answers and the source documents beside them, downloadable or exported to Word.",
                   "kind": "output",
                   "layer": "Result",
                   "inputs": [
@@ -1110,7 +1110,7 @@
                   "title": "Final draft",
                   "kind": "output",
                   "layer": "Result",
-                  "summary": "Every variable with its suggested target, what it leans on and its sources, saved as a portable result and exportable as a Word table.",
+                  "summary": "Every variable with its suggested target, what it leans on and its sources, saved as a portable result and exported to Word.",
                   "inputs": [
                     "Every suggested variable"
                   ],

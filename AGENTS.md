@@ -750,6 +750,12 @@ no priority card, no verdicts and no score, and reads no other tool's output.
   site: `AddResultOutcome` is a return value a page may discard, and four of six did, so a
   fifth run finished, cost its time, and then silently failed to appear. A page may still
   check the limit *before* running, which saves the run, but the message is the store's.
+- Every final result exports to Word the same way: the browser sends it to
+  `/api/<tool>/export`, the tool's `export.py` decides the rows - in its page's order and
+  words, labels pinned to the web's by `test_word_exports.py` - and `shared/word_export.py`
+  decides the layout, once. An export flattens only what the result carries; a reading the
+  page derives on read, such as Aligner's chain warnings, is not re-implemented server-side.
+  A Scout review checkpoint does not export.
 - Review drafts are portable client state but are not downloadable final results.
   Final results are immutable: import, export, and Ask never recalculate them.
 - Imports accept only the current final-result envelope, and report which version

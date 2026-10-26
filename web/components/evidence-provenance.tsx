@@ -49,7 +49,6 @@ export function EvidenceProvenance({ insight }: { insight: Insight }) {
       <ProvenancePanel
           eyebrow="Sources"
           title="What this insight rests on"
-          description="Every source that carried this statement, and the search that returned each one."
           onClose={() => setOpen(false)}
       >
           {/* Labelled, because this panel holds two kinds of thing. A panel with one kind

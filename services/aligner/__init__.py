@@ -26,9 +26,11 @@ from .models import (
     requirement_id,
     resolve_edges,
 )
+from .export import export_docx
 from .pipeline import run_pipeline
 
 __all__ = [
+    "export_docx",
     "ALIGNMENT_VERDICTS",
     "LLMClientProtocol",
     "AlignmentConfig",

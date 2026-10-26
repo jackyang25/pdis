@@ -23,13 +23,14 @@ import {
   unreconciledSets,
   citation,
   documentTargetRows,
+  documentTargetText,
   insightRegistry,
   needsFindingFallback,
   relationGroups,
   runHeadline,
   unassessedChecks,
 } from "./scout-result-view.ts";
-import type { Conformity, Match, Variable } from "./api.ts";
+import type { Conformity, ContentBlock, Match, Variable } from "./api.ts";
 
 // --- formatMeasure ----------------------------------------------------------
 
@@ -61,71 +62,64 @@ function span(quote: string, blockIds: string[] = ["b-1"]) {
   return { quote, block_ids: blockIds };
 }
 
-const REAL_ROW =
-  "Variable: Product, Minimum: Long-acting injectable (LAI) with oral run-in, ≤ 3mL per " +
-  "injection, LAI administration of ≤4 injections. , Optimistic: A one-time LAI, ≤3mL per " +
-  "injection, single injection containing 3-4 drugs";
+/** A parser-owned table row, its text and cells as Chunker records them. */
+function tableRow(id: string, cells: [string, string][]): ContentBlock {
+  let content = "";
+  const tableCells = cells.map(([header, value], column_index) => {
+    if (content) content += ", ";
+    const content_start = content.length;
+    content += `${header}: `;
+    const value_start = content.length;
+    content += value;
+    return { column_index, header, value, content_start, content_end: content.length, value_start, value_end: content.length };
+  });
+  return {
+    id, doc_id: "doc", ordinal: 0, block_type: "table_row", content, heading_stack: [], section_label: null,
+    structural_meta: { column_headers: cells.map(([header]) => header), table_cells: tableCells }, style_hint: {}, image: null,
+  } as ContentBlock;
+}
 
-test("a table row splits into its three cells", () => {
-  const [row] = documentTargetRows([span(REAL_ROW)]);
-  assert.equal(row.kind, "bounded");
-  if (row.kind !== "bounded") return;
-  assert.equal(row.variable, "Product");
-  assert.match(row.minimum, /^Long-acting injectable/);
-  assert.match(row.optimistic, /^A one-time LAI/);
+// A real template: the column headings run to a sentence, which defeated the old marker split.
+const ROW = tableRow("b-1", [
+  ["Variable", "Presentation"],
+  ["Minimum\nThe minimal target should be considered as a potential go/no go decision point.", "Multi-dose vial"],
+  ["Optimistic\nThe optimistic target should reflect what is needed.", "Multi-dose vial"],
+]);
+const blocks = new Map([[ROW.id, ROW]]);
+
+test("a whole table row is shown as its recorded cells, under the document's own headings", () => {
+  const [row] = documentTargetRows([span(ROW.content)], blocks);
+  assert.equal(row.kind, "table");
+  if (row.kind !== "table") return;
+  assert.deepEqual(row.cells.map((cell) => cell.value), ["Presentation", "Multi-dose vial", "Multi-dose vial"]);
+  assert.match(row.cells[1].header, /^Minimum The minimal target/);
+  assert.equal(row.cells[1].label, "Minimum");
+  assert.equal(row.quote, ROW.content);
+  assert.ok(ROW.content.includes("\n"), "the fixture's headings carry the template's line break");
 });
 
-test("a space before the comma does not defeat the split", () => {
-  // The real documents contain "injections. , Optimistic:". A guard that compared
-  // reassembled marker spacing rejected this and fell back to a 995-character paragraph.
-  const [row] = documentTargetRows([span(REAL_ROW)]);
-  assert.equal(row.kind, "bounded");
+test("a row quoted with its line breaks read as spaces is still that row", () => {
+  const [row] = documentTargetRows([span(ROW.content.replace(/\s+/g, " "))], blocks);
+  assert.equal(row.kind, "table");
 });
 
-test("every cell appears verbatim inside its own span", () => {
-  // The invariant that makes the split faithful rather than clever.
-  const [row] = documentTargetRows([span(REAL_ROW)]);
-  if (row.kind !== "bounded") throw new Error("expected a bounded row");
-  for (const cell of [row.variable, row.minimum, row.optimistic]) {
-    assert.ok(REAL_ROW.includes(cell), `${cell.slice(0, 40)}… is not in the span`);
-  }
-});
-
-test("the span is retained whole on every row, split or not", () => {
-  const rows = documentTargetRows([span(REAL_ROW), span("Plain prose about adherence.")]);
-  assert.deepEqual(rows.map((row) => row.quote), [REAL_ROW, "Plain prose about adherence."]);
-});
-
-test("prose that is not a table row stays prose", () => {
-  const [row] = documentTargetRows([span("Under this use case, a combination of oral and LAIs…")]);
-  assert.equal(row.kind, "prose");
-});
-
-test("a partial marker set falls back to prose rather than guessing", () => {
+test("part of a row, prose, or a block not held stays the document's words", () => {
   const rows = documentTargetRows([
-    span("Variable: Product, Minimum: something, but no optimistic marker"),
-    span("Minimum: 3 years, Optimistic: 5 years"),
-    span("Variable: , Minimum: , Optimistic: "),
-  ]);
+    span("Multi-dose vial"),
+    span("Under this use case, a combination of oral and LAIs…"),
+    span(ROW.content, ["b-missing"]),
+  ], blocks);
   assert.deepEqual(rows.map((row) => row.kind), ["prose", "prose", "prose"]);
 });
 
-test("text after the last marker is kept, not truncated", () => {
-  const rows = documentTargetRows([
-    span("Variable: A, Minimum: one, Optimistic: two, and a trailing clause"),
-  ]);
-  const row = rows[0];
-  assert.equal(row.kind, "bounded");
-  if (row.kind !== "bounded") return;
-  assert.equal(row.optimistic, "two, and a trailing clause");
+test("one line of the target reads a table row by its values", () => {
+  const rows = documentTargetRows([span(ROW.content), span("Plain prose.")], blocks);
+  assert.equal(documentTargetText(rows), "Presentation · Multi-dose vial · Multi-dose vial Plain prose.");
 });
 
 test("one row per span, each keeping its own blocks", () => {
   // Four table rows made one paragraph before; they are four citations, not one.
-  const rows = documentTargetRows([
-    span("Variable: Product, Minimum: a, Optimistic: b", ["b-27"]),
-    span("Variable: Duration, Minimum: c, Optimistic: d", ["b-28"]),
-  ]);
+  const rows = documentTargetRows([span("a", ["b-27"]), span("b", ["b-28"])]);
   assert.equal(rows.length, 2);
   assert.deepEqual(rows.map((row) => row.blockIds), [["b-27"], ["b-28"]]);
 });
@@ -703,8 +697,9 @@ test("a set whose duplicates were not merged is named, and only that set", () =>
     record("document_units", "reconciled"),
     record("quantitative_targets", "not_reconciled"),
     record("insights", "not_reconciled", "vaccine.dose_volume"),
+    record("insights", "not_reconciled", "vaccine.efficacy"),
     record("projections", "not_reconciled"),
-  ]), ["numeric targets", "insights for Dose volume", "development and safety records"]);
+  ]), ["numeric targets", "insights for Dose volume and Efficacy", "development and safety records"]);
   assert.deepEqual(unreconciledSets([record("insights", "reconciled", "x")]), []);
   assert.deepEqual(unreconciledSets(undefined), []);
 });

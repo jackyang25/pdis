@@ -34,6 +34,7 @@ export const RELEASES: readonly Release[] = [
         changes: [
           "At the review checkpoint, choose which fields to search. Fewer fields make a faster run.",
           "If one field’s evidence cannot be read, that field is marked Not assessed and the rest of the run finishes, instead of the whole run stopping.",
+          "A field’s stated target reads as its table row, the evidence map’s boxes no longer cut text off, and a source that failed every search says why once.",
           "Review explanations are written in plain words.",
         ],
       },
@@ -48,6 +49,7 @@ export const RELEASES: readonly Release[] = [
         title: "Everywhere",
         changes: [
           "Report a problem with any finding: an email opens with the finding’s details filled in.",
+          "Export to Word from Inspector, Aligner, Screener and Scout, as Drafter already could: one layout for every tool, with each finding, its status and where it was read from.",
           "Clicking a highlighted passage in a PDF opens its details, and each tool’s Documents view opens on a layer with marks.",
           "The Documents view reads more cleanly: tables show every column without scrolling sideways, and each cited passage names its document and section in full.",
           "Clearer error messages, a visible keyboard focus, and one consistent look for buttons, counts and lists.",

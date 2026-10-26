@@ -4,11 +4,18 @@ import { useState } from "react";
 import { FileText, Loader2 } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
-import { exportDrafterDocx, type DraftResult } from "@/lib/api";
+import { exportWordDocument, type WordExportTool } from "@/lib/api";
 import { saveBlob } from "@/lib/save-file";
 
-/** A final draft as a Word table, built by the server from the same final result. */
-export function DrafterExportButton({ result, onError }: { result: DraftResult; onError: (message: string) => void }) {
+export type WordExport = {
+  tool: WordExportTool;
+  /** The final result, in the shape its run returned it. */
+  result: Parameters<typeof exportWordDocument>[1];
+  onError: (message: string) => void;
+};
+
+/** A final result as a Word file, built by the server from the same result: one button for every tool. */
+export function WordExportButton({ tool, result, onError }: WordExport) {
   const [busy, setBusy] = useState(false);
   return (
     <Button
@@ -18,10 +25,10 @@ export function DrafterExportButton({ result, onError }: { result: DraftResult; 
       onClick={async () => {
         setBusy(true);
         try {
-          const { blob, filename } = await exportDrafterDocx(result);
+          const { blob, filename } = await exportWordDocument(tool, result);
           saveBlob(blob, filename);
         } catch (error) {
-          onError(`Could not export the draft: ${(error as Error).message}`);
+          onError(`Could not export to Word: ${(error as Error).message}`);
         } finally {
           setBusy(false);
         }
@@ -29,7 +36,7 @@ export function DrafterExportButton({ result, onError }: { result: DraftResult; 
     >
       {/* The same mark and spacing as the JSON download beside it. */}
       {busy ? <Loader2 aria-hidden="true" className="animate-spin" /> : <FileText aria-hidden="true" />}
-      Export Word table
+      Export to Word
     </Button>
   );
 }

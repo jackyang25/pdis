@@ -7,12 +7,13 @@ import tempfile
 from dataclasses import asdict
 
 from fastapi import APIRouter, File, Form, HTTPException, UploadFile
-from fastapi.responses import StreamingResponse
+from fastapi.responses import Response, StreamingResponse
 
 from services.screener import (
     DocumentInput,
     SUPPORTED_DOCUMENT_SUFFIXES,
     available_gates,
+    export_docx,
     find_config,
     resolve_questions,
     run_pipeline,
@@ -20,6 +21,7 @@ from services.screener import (
 
 from api.deps import MissingCredentialError, get_openai_client
 from api.schemas import (
+    ScreenerExportRequest,
     ScreenerGatesResponse,
     ScreenerRunResponse,
     GateReviewOut,
@@ -27,6 +29,7 @@ from api.schemas import (
 )
 from api.streaming import run_with_progress
 from api.uploads import document_upload_parts, read_uploads, require_distinct_doc_ids
+from api.word_export import word_export
 
 router = APIRouter()
 
@@ -124,3 +127,9 @@ async def run_screener(
                     os.unlink(temp_path)
 
     return StreamingResponse(run_with_progress(work), media_type="application/x-ndjson")
+
+
+@router.post("/export")
+def export_screener(request: ScreenerExportRequest) -> Response:
+    """A gate review as Word tables, by state and discipline, built from the result the browser holds."""
+    return word_export("screener", export_docx, request.result.model_dump())

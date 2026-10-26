@@ -6,7 +6,6 @@ import { useShallow } from "zustand/react/shallow";
 import { CollapsibleCard } from "@/components/collapsible-card";
 import { ContextFields } from "@/components/configuration-fields";
 import { EmptyState } from "@/components/empty-state";
-import { DrafterExportButton } from "@/components/drafter-export-button";
 import { DrafterSignalHelp } from "@/components/drafter-signal-help";
 import { DrafterVariableRow } from "@/components/drafter-variable";
 import { FinalResultActions } from "@/components/final-result-actions";
@@ -165,8 +164,8 @@ const DraftView = memo(function DraftView({
           <FinalResultActions
             onNewAnalysis={onNewAnalysis}
             download={held && { filename: runFilename("drafter"), data: () => packDrafterResult(result, held) }}
+            word={{ tool: "drafter", result, onError }}
           />
-          <DrafterExportButton result={result} onError={onError} />
         </>
       }
     >

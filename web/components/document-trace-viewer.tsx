@@ -19,6 +19,7 @@ import {
   documentBlockSpacing,
   documentTableCells,
   documentTableRowContinues,
+  tableHeaderLabel,
   type DocumentBlockSpacing,
   documentTracePanelMode,
   documentTraceRailMode,
@@ -386,8 +387,9 @@ function BlockText<TKind extends string, TRef>({
                 cell.valueStart,
                 cell.valueEnd,
               );
-              // In full on a table's first row, in one line after: enough to name the column
-              // for a reader who arrives mid-table. Never shortened where a result marks it.
+              // In full on a table's first row; after it, the heading's own title line, enough
+              // to name the column for a reader who arrives mid-table. Never shortened where a
+              // result marks it.
               const brief = continuesTable
                 && !headerSegments.some((segment) => segment.annotationIds.length > 0);
               return (
@@ -401,13 +403,15 @@ function BlockText<TKind extends string, TRef>({
                       className={cn("mb-1 text-xs leading-5 text-muted-foreground", brief && "truncate")}
                       title={brief ? cell.header : undefined}
                     >
-                      <TraceSegmentText
-                        blockId={traceBlock.block.id}
-                        segments={headerSegments}
-                        annotationsById={annotationsById}
-                        activeAnnotationIds={activeAnnotationIds}
-                        onSelect={onSelect}
-                      />
+                      {brief ? tableHeaderLabel(cell.header) : (
+                        <TraceSegmentText
+                          blockId={traceBlock.block.id}
+                          segments={headerSegments}
+                          annotationsById={annotationsById}
+                          activeAnnotationIds={activeAnnotationIds}
+                          onSelect={onSelect}
+                        />
+                      )}
                     </dt>
                   )}
                   <dd className="m-0 whitespace-pre-wrap text-[13px] leading-5 tabular-nums text-foreground/85">

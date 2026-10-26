@@ -67,11 +67,14 @@ type EvidenceFlowNode = Node<EvidenceMapNode, EvidenceMapNodeKind>;
 // Fit the whole projection without the large empty margin used by overview diagrams.
 const FIT_PADDING = 0.06;
 
+// Tall enough for what a node holds at its clamps - a label row, two lines of title, two of
+// summary and a meta line, about 136px - so the column never squeezes the clamped text and
+// cuts a line through. At 106 a source node lost its meta line mid-word.
 const NODE_SIZE: Record<EvidenceMapNodeKind, { width: number; height: number }> = {
-  document: { width: 220, height: 110 },
-  field: { width: 250, height: 136 },
-  insight: { width: 250, height: 116 },
-  source: { width: 220, height: 106 },
+  document: { width: 220, height: 140 },
+  field: { width: 250, height: 140 },
+  insight: { width: 250, height: 140 },
+  source: { width: 220, height: 140 },
 };
 
 // A relation's mark and its edge are the same tone in two forms: the mark takes a class,
@@ -108,7 +111,7 @@ function EvidenceNode({ data, selected }: NodeProps<EvidenceFlowNode>) {
         </div>
         {relationTone && <ToneDot tone={relationTone} />}
       </div>
-      <p className="mt-2 line-clamp-2 text-xs font-semibold leading-[1.35] text-foreground">
+      <p className="mt-2 line-clamp-2 shrink-0 text-xs font-semibold leading-[1.35] text-foreground">
         {data.title}
       </p>
       {/* The card already carries `summaryMode`; it was only being read in the detail
@@ -116,9 +119,9 @@ function EvidenceNode({ data, selected }: NodeProps<EvidenceFlowNode>) {
           and `InterfaceNote` would break a two-line clamp on a graph node, so the card
           marks the one case a reader can act on and the panel does the rest. */}
       {data.summaryMode === "reading" ? (
-        <Reading className="mt-1 line-clamp-2 leading-[1.45]">{data.summary}</Reading>
+        <Reading className="mt-1 line-clamp-2 shrink-0 leading-[1.45]">{data.summary}</Reading>
       ) : (
-        <p className="mt-1 line-clamp-2 text-[11px] leading-[1.45] text-muted-foreground">
+        <p className="mt-1 line-clamp-2 shrink-0 text-[11px] leading-[1.45] text-muted-foreground">
           {data.preview ?? data.summary}
         </p>
       )}

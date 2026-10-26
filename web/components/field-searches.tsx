@@ -99,6 +99,10 @@ function LaneGroup({ group }: { group: SearchLaneGroup }) {
       : group.findingCount === 0
         ? "nothing returned"
         : countLabel(group.findingCount, "source");
+  // One failure the whole lane shares - a source that was down - is said once above its
+  // searches. Under each one it was the same line five times.
+  const errors = new Set(failed.map((trace) => trace.error || "This search failed."));
+  const sharedError = failed.length > 1 && errors.size === 1 ? [...errors][0] : null;
 
   return (
     <details className="group/row">
@@ -113,6 +117,14 @@ function LaneGroup({ group }: { group: SearchLaneGroup }) {
         <span className="text-[11px] text-muted-foreground">{note}</span>
       </summary>
       <ul className={cn("space-y-1.5 pb-2 pl-5", DISCLOSURE_MOTION)}>
+        {sharedError && (
+          <li className="flex items-start gap-2 text-[11px] leading-relaxed text-muted-foreground">
+            <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0 text-[hsl(var(--tone-warning))]" aria-hidden="true" />
+            <span className="min-w-0 break-words">
+              {failed.length === group.searches.length ? "Every search below failed" : `${failed.length} searches below failed`}: {sharedError}
+            </span>
+          </li>
+        )}
         {group.searches.map((trace, index) => (
           <li key={`${trace.query}-${index}`}>
             {/* The query verbatim, in the monospace the app uses for a machine string.
@@ -123,7 +135,7 @@ function LaneGroup({ group }: { group: SearchLaneGroup }) {
             {trace.status === "skipped" && trace.applicability_reason && (
               <InterfaceNote variant="content" className="mt-1">{trace.applicability_reason}</InterfaceNote>
             )}
-            {trace.status === "failed" && <div className="mt-1 flex items-start gap-2 text-[11px] leading-relaxed text-muted-foreground">
+            {trace.status === "failed" && !sharedError && <div className="mt-1 flex items-start gap-2 text-[11px] leading-relaxed text-muted-foreground">
               <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0 text-[hsl(var(--tone-warning))]" aria-hidden="true" />
               <span className="min-w-0 break-words">{trace.error || "This search failed."}</span>
             </div>}

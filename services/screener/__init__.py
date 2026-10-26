@@ -33,9 +33,11 @@ from .models import (
     load_config,
     resolve_questions,
 )
+from .export import export_docx
 from .pipeline import SUPPORTED_DOCUMENT_SUFFIXES, run_pipeline
 
 __all__ = [
+    "export_docx",
     "SUPPORTED_DOCUMENT_SUFFIXES",
     "DisciplineReview",
     "DisciplineSpec",

@@ -11,11 +11,11 @@ from shared.vocabulary import indications_for
 from api.deps import MissingCredentialError, get_openai_client, get_search_runtime
 from api.schemas import DrafterExportRequest, DrafterRunResponse, DraftResultOut
 from api.streaming import run_with_progress
+from api.word_export import word_export
 
 router = APIRouter()
 
 SOURCE_TYPE = "itpp"
-DOCX_MEDIA_TYPE = "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
 
 
 @router.post("/run")
@@ -52,12 +52,4 @@ async def run_drafter(
 @router.post("/export")
 def export_drafter(request: DrafterExportRequest) -> Response:
     """A draft as a Word table, each target marked as a suggestion with its sources."""
-    try:
-        data = export_docx(request.result.model_dump())
-    except ValueError as exc:
-        raise HTTPException(status_code=422, detail=str(exc)) from exc
-    return Response(
-        content=data,
-        media_type=DOCX_MEDIA_TYPE,
-        headers={"Content-Disposition": 'attachment; filename="pdis-drafter.docx"'},
-    )
+    return word_export("drafter", export_docx, request.result.model_dump())

@@ -879,15 +879,16 @@ test("the document's stated target is quoted wherever it is shown", () => {
   // the treatment for the tool's own words, so the card was presenting the reader's
   // document as though the tool had written it.
   //
-  // `row.variable` stays plain on purpose: it is the row's heading, and the field title
-  // above it - also the document's word - is not quoted either. A heading names the thing;
-  // the quote is what the thing says.
+  // A table row's first cell stays plain on purpose: it is the row's heading, and the field
+  // title above it - also the document's word - is not quoted either. A heading names the
+  // thing; the quote is what the thing says.
   const page = read("app", "scout", "page.tsx");
   const block = page.slice(
     page.indexOf("<SectionLabel>Target stated in document</SectionLabel>"),
   );
   const body = block.slice(0, block.indexOf("</section>"));
-  for (const field of ["row.minimum", "row.optimistic", "row.text"]) {
+  assert.match(body, /<Quoted[^>]*>\{cell\.value/, "a table row's values are not rendered as quotations");
+  for (const field of ["row.text"]) {
     const at = body.indexOf(`{${field}`);
     assert.ok(at > 0, `${field} is no longer rendered here`);
     assert.match(

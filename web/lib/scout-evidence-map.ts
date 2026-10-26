@@ -17,6 +17,7 @@ import type {
   ScoutResponse,
 } from "./api";
 import { countLabel } from "./count-label.ts";
+import { documentTargetRows, documentTargetText } from "./scout-result-view.ts";
 
 export { displayAttributeLabel };
 
@@ -374,7 +375,8 @@ export function buildScoutEvidenceMap(
       kind: "document",
       eyebrow: "Document target",
       title: "Extracted target",
-      summary: variable.document_target,
+      // A table row by its values: its text repeats every column header.
+      summary: documentTargetText(documentTargetRows(variable.document_spans, new Map((result.blocks ?? []).map((block) => [block.id, block])))) || variable.document_target,
       summaryMode: "quoted",
       meta: countLabel(variable.block_ids?.length ?? 0, "block"),
       blockIds: variable.block_ids,

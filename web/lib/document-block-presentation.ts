@@ -104,6 +104,18 @@ export function documentTableCells(block: ContentBlock): DocumentTableRow | null
 }
 
 /**
+ * A column heading's own title: its first line.
+ *
+ * Template headings are a title and a line of guidance - "Minimum" over "The minimal target
+ * should be considered as a potential go/no go decision point." - so where a heading is shown
+ * in short, its first line is the document's own short form, and the whole heading stays a
+ * hover away. A heading on one line is itself.
+ */
+export function tableHeaderLabel(header: string): string {
+  return header.split(/\r?\n/).map((line) => line.trim()).find(Boolean) ?? "";
+}
+
+/**
  * Whether a table row carries on the table of the row before it, by the same column headers.
  *
  * The parser repeats the headers in every row, so each row's cells can be cited alone. A

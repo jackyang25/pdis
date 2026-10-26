@@ -15,6 +15,10 @@
 #  2. Three images per build, not one: `-api`, `-web`, and `-tooluniverse`.
 #  3. The web image builds from the repository root rather than `web/`, because
 #     it copies published artifacts out of `shared/`. See web/Dockerfile.
+#
+# The two pipelines that build images run on a large build node (`node: type: large`,
+# as SRE advised): three images, the API's with LibreOffice, outgrew the default node's
+# disk and failed with "no space left on device".
 
 kind: pipeline
 name: Verify
@@ -62,6 +66,10 @@ image_pull_secrets:
 ---
 kind: pipeline
 name: Test Build
+
+# Three image builds outgrow the default node's disk; see the note at the top.
+node:
+  type: large
 
 steps:
   - name: dry run api
@@ -130,6 +138,10 @@ image_pull_secrets:
 ---
 kind: pipeline
 name: Build and Deploy to Acc
+
+# Three image builds outgrow the default node's disk; see the note at the top.
+node:
+  type: large
 
 steps:
   - name: build api

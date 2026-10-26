@@ -197,6 +197,7 @@ class OpenAIClient:
         tools: list[dict[str, Any]] | None = None,
         max_tokens: int = 4000,
         task: ModelTask = "reasoning",
+        effort: Effort | None = None,
     ) -> Iterator[ChatDelta]:
         """Stream text; publish tool calls only after the full turn succeeds.
 
@@ -205,7 +206,7 @@ class OpenAIClient:
         The context manager closes the provider stream on failure or cancellation.
         """
         with self.client.responses.stream(
-            **self._chat_request(messages, tools, max_tokens, task),
+            **self._chat_request(messages, tools, max_tokens, task, effort),
         ) as stream:
             for event in stream:
                 if event.type in ("response.output_text.delta", "response.refusal.delta"):
@@ -227,8 +228,9 @@ class OpenAIClient:
         tools: list[dict[str, Any]] | None,
         max_tokens: int,
         task: ModelTask,
+        effort: Effort | None,
     ) -> dict[str, Any]:
-        return {
+        request: dict[str, Any] = {
             "model": self.model_for(task),
             "input": _chat_input(messages),
             "max_output_tokens": max_tokens,
@@ -242,6 +244,9 @@ class OpenAIClient:
                 for tool in tools or []
             ],
         }
+        if effort is not None:
+            request["reasoning"] = {"effort": effort}
+        return request
 
     def search_web(
         self,

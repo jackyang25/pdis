@@ -8,11 +8,24 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from api.routes.assistant import router, sse
-from services.assistant import Chunk, answer_stream
+from services.assistant import Chunk, answer_stream, limits
 from shared.chat import ChatDelta, ChatTurn, ToolCall
 
 
 class AssistantStreamTests(unittest.TestCase):
+    def test_every_turn_carries_the_assistants_call_policy(self):
+        policies = []
+
+        class Client:
+            def chat_stream(self, messages, **kwargs):
+                policies.append((kwargs["task"], kwargs["effort"]))
+                yield ChatDelta(turn=ChatTurn("", (
+                    ToolCall("call-1", "read_result", '{"path":"title"}'),
+                ), object())) if len(policies) == 1 else ChatDelta(turn=ChatTurn("Done", (), object()))
+
+        list(answer_stream(Client(), {"title": "Trial plan"}, [{"role": "user", "content": "Title?"}]))
+        self.assertEqual(policies, [(limits.TASK, limits.EFFORT)] * 2)
+
     def test_agent_executes_completed_calls_and_carries_continuation_only_within_a_request(self):
         continuation = object()  # The agent must not interpret provider state.
         requests = []

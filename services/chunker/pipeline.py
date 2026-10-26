@@ -25,7 +25,6 @@ from .stages.image_assets import attach_image_assets, image_asset_from_bytes
 from .stages.mapper import label_blocks
 from .stages.parser import parse_document
 
-DEFAULT_MAX_OUTPUT_TOKENS = 16000
 # Conversation attachments add images to the default structured-document set.
 # They do not inherit a tool's explicit text-extraction capability.
 ATTACHMENT_MEDIA_PREFIXES = ("image/",)
@@ -41,7 +40,6 @@ def run_pipeline(
     *,
     config: DocumentTypeConfig | None = None,
     llm_client: LLMClientProtocol | None = None,
-    max_tokens: int = DEFAULT_MAX_OUTPUT_TOKENS,
     org: str | None = None,
     source_type: str | None = None,
     intervention_class: str | None = None,
@@ -66,7 +64,7 @@ def run_pipeline(
     if config is not None and llm_client is not None:
         if progress_callback:
             progress_callback("label")
-        blocks = label_blocks(blocks, config, llm_client, max_tokens=max_tokens)
+        blocks = label_blocks(blocks, config, llm_client)
     _stamp_header(
         blocks,
         config,
@@ -156,7 +154,6 @@ def run_pipeline_batch(
     *,
     config: DocumentTypeConfig | None = None,
     llm_client_factory=None,
-    max_tokens: int = DEFAULT_MAX_OUTPUT_TOKENS,
     max_workers: int = 4,
     indication: str | None = None,
 ) -> list[PipelineResult]:
@@ -167,7 +164,6 @@ def run_pipeline_batch(
         config / llm_client_factory: if either is None, the mapper is skipped.
             `llm_client_factory` is a zero-arg callable returning a fresh
             OpenAIClient per worker (avoids sharing a client across threads).
-        max_tokens: mapper token budget.
         max_workers: parallel worker count.
 
     Returns:
@@ -180,7 +176,6 @@ def run_pipeline_batch(
                     job[1],
                     config=config,
                     llm_client_factory=llm_client_factory,
-                    max_tokens=max_tokens,
                     indication=indication,
                 ),
         workers=max_workers,
@@ -193,7 +188,6 @@ def _run_one(
     *,
     config: DocumentTypeConfig | None,
     llm_client_factory,
-    max_tokens: int,
     indication: str | None = None,
 ) -> PipelineResult:
     result = PipelineResult(file_path=file_path, doc_id=doc_id)
@@ -206,9 +200,7 @@ def _run_one(
     if config is not None and llm_client_factory is not None:
         try:
             llm_client = llm_client_factory()
-            result.blocks = label_blocks(
-                result.blocks, config, llm_client, max_tokens=max_tokens
-            )
+            result.blocks = label_blocks(result.blocks, config, llm_client)
         except Exception as exc:
             result.mapping_error = str(exc)
 
@@ -221,7 +213,6 @@ def map_blocks_batch(
     *,
     config: DocumentTypeConfig,
     llm_client_factory,
-    max_tokens: int = DEFAULT_MAX_OUTPUT_TOKENS,
     max_workers: int = 4,
 ) -> list[PipelineResult]:
     """Run the mapper over many already-parsed documents in parallel.
@@ -230,7 +221,6 @@ def map_blocks_batch(
         jobs: list of (doc_id, blocks) pairs where blocks are the parser output.
         config: mapper config (single config applied to all jobs).
         llm_client_factory: zero-arg callable returning a fresh OpenAIClient per worker.
-        max_tokens: mapper token budget.
         max_workers: parallel worker count.
 
     Returns:
@@ -244,7 +234,6 @@ def map_blocks_batch(
                     job[1],
                     config=config,
                     llm_client_factory=llm_client_factory,
-                    max_tokens=max_tokens,
                 ),
         workers=max_workers,
     )
@@ -256,12 +245,11 @@ def _map_one(
     *,
     config: DocumentTypeConfig,
     llm_client_factory,
-    max_tokens: int,
 ) -> PipelineResult:
     result = PipelineResult(file_path="", doc_id=doc_id, blocks=blocks)
     try:
         llm_client = llm_client_factory()
-        result.blocks = label_blocks(blocks, config, llm_client, max_tokens=max_tokens)
+        result.blocks = label_blocks(blocks, config, llm_client)
     except Exception as exc:
         result.mapping_error = str(exc)
     return result

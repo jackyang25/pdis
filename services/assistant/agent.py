@@ -110,7 +110,8 @@ def _stream_turn(
     stats: QuestionStats,
 ) -> Generator[Chunk, None, ChatTurn]:
     turn = None
-    for delta in client.chat_stream(work, tools=tools, max_tokens=max_tokens):
+    for delta in client.chat_stream(work, tools=tools, max_tokens=max_tokens,
+                                    task=limits.TASK, effort=limits.EFFORT):
         if delta.text:
             yield Chunk("text", delta.text)
         if delta.turn is not None:

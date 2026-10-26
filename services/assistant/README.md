@@ -62,7 +62,7 @@ shows failures outside the answer text; provider diagnostics remain server-side.
 
 - `workspace.py` — Everything one request holds, indexed once.
 - `sources.py` — What every reachable kind of content shares: how it is found, shown and cut short.
-- `limits.py` — Every cap the Assistant enforces, in one place.
+- `limits.py` — Every cap the Assistant enforces, and its call policy (reasoning tier, low effort), in one place.
 - `prompt.py` — The Assistant's system prompt: a fixed prefix, then a bounded map of this workspace.
 - `protocols.py` — What the Assistant needs from a model client: one streamed, tool-capable turn.
 - `registry.py` — The catalog of capabilities: what the Ask agent can reach, one entry per capability with its schema, handler and label.

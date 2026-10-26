@@ -69,6 +69,14 @@ class OpenAIChatTests(unittest.TestCase):
         provider.chat.completions.create.assert_not_called()
         self.assertTrue(stream.closed)
 
+    def test_a_stated_effort_reaches_the_request_and_an_unstated_one_is_left_out(self):
+        client, provider, _ = self.client(response(text_item("Hello")))
+        list(client.chat_stream([{"role": "user", "content": "Hi"}], effort="low"))
+        self.assertEqual(provider.responses.stream.call_args.kwargs["reasoning"], {"effort": "low"})
+        provider.responses.stream.return_value = ProviderStream(response(text_item("Hello")))
+        list(client.chat_stream([{"role": "user", "content": "Hi"}]))
+        self.assertNotIn("reasoning", provider.responses.stream.call_args.kwargs)
+
     def test_tool_roundtrip_preserves_reasoning_call_ids_and_optional_schema(self):
         reasoning = {"id": "rs_1", "type": "reasoning", "summary": [], "encrypted_content": "opaque"}
         call = {"id": "fc_1", "type": "function_call", "call_id": "call_1",

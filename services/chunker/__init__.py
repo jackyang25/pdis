@@ -23,7 +23,6 @@ from .models import (
 from .pipeline import (
     ATTACHMENT_FORMAT_HINT,
     ATTACHMENT_MEDIA_PREFIXES,
-    DEFAULT_MAX_OUTPUT_TOKENS,
     map_blocks_batch,
     parse_context_file,
     run_pipeline,
@@ -35,7 +34,6 @@ __all__ = [
     "ContentBlock",
     "ATTACHMENT_FORMAT_HINT",
     "ATTACHMENT_MEDIA_PREFIXES",
-    "DEFAULT_MAX_OUTPUT_TOKENS",
     "DOCUMENT_SUFFIXES",
     "TEXT_EXTRACTION_SUFFIXES",
     "DocumentTypeConfig",

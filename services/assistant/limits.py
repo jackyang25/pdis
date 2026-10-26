@@ -1,13 +1,21 @@
-"""Every cap the Assistant enforces, in one place.
+"""Every cap the Assistant enforces, and its call policy, in one place.
 
 Schemas, readers, the loop and the API's request checks all read from here, so a
 limit changes in one line and cannot disagree with its own schema. Each group says
 what its numbers protect; tune them from the `assistant_question` usage log.
 """
 
+from shared.ai import Effort, ModelTask
+
 # The loop. A typical question takes one to three tool steps; past six the agent is
 # told to answer from what it has, so the step cap ends a search rather than failing it.
 MAX_STEPS = 6
+# The reasoning tier: an answer is a judgement a reader trusts, cited to the passages
+# it chose to read.
+TASK: ModelTask = "reasoning"
+# Low: a reader is waiting on the answer, and each tool step pays the effort again.
+# What grounds an answer is the passages it reads, which the tools supply.
+EFFORT: Effort = "low"
 # Per model turn, reasoning included. A turn that reaches it fails the answer, so the
 # cap is set well above the ~900 tokens the longest measured answers used.
 MAX_OUTPUT_TOKENS = 8000

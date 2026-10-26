@@ -16,7 +16,7 @@ class RecordingClient:
         self.turns = list(turns)
         self.calls = []
 
-    def chat_stream(self, messages, *, tools=None, max_tokens=4000):
+    def chat_stream(self, messages, *, tools=None, max_tokens=4000, **_policy):
         self.calls.append([dict(m) for m in messages])
         turn = self.turns.pop(0)
         if turn.text:

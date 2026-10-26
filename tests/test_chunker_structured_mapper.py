@@ -3,7 +3,8 @@ from __future__ import annotations
 import unittest
 
 from services.chunker.models import ContentBlock, DocumentTypeConfig, ImageAsset
-from services.chunker.stages.mapper import MapperResponseError, label_blocks
+from services.chunker.stages.mapper import EFFORT, TASK, label_blocks
+from shared.errors import ModelResponseError
 
 
 def _blocks(count: int = 2) -> list[ContentBlock]:
@@ -75,7 +76,7 @@ class ChunkerStructuredMapperTests(unittest.TestCase):
         blocks = _blocks(997)
         blocks[0].image = ImageAsset("image/png", "AA==", "hash", "image/png")
         client = RetryClient()
-        label_blocks(blocks, _config(), client, max_tokens=4000)
+        label_blocks(blocks, _config(), client)
         self.assertEqual(len(client.calls), 3)
         for _, _, schema, kwargs in client.calls:
             self.assertEqual(kwargs["images"], [{"block_id": "document:b0", "data_url": "data:image/png;base64,AA=="}])
@@ -86,8 +87,8 @@ class ChunkerStructuredMapperTests(unittest.TestCase):
         config = _config()
         config.section_taxonomy = [{"name": f"Section {i}", "description": "Meaning"} for i in range(1000)]
         client = _Client()
-        with self.assertRaises(MapperResponseError):
-            label_blocks(_blocks(), config, client, max_tokens=4000)
+        with self.assertRaises(ModelResponseError):
+            label_blocks(_blocks(), config, client)
         self.assertEqual(client.calls, [])
 
     def test_total_schema_string_limit_is_checked_even_for_small_enums(self):
@@ -95,12 +96,12 @@ class ChunkerStructuredMapperTests(unittest.TestCase):
         for block in blocks:
             block.id = "x" * 70_000 + block.id
         client = _Client()
-        label_blocks(blocks, _config(), client, max_tokens=4000)
+        label_blocks(blocks, _config(), client)
         self.assertEqual(len(client.calls), 2)
         blocks[0].id = "x" * 120_000
         client = _Client()
-        with self.assertRaises(MapperResponseError):
-            label_blocks(blocks, _config(), client, max_tokens=4000)
+        with self.assertRaises(ModelResponseError):
+            label_blocks(blocks, _config(), client)
         self.assertEqual(client.calls, [])
 
     def test_metadata_and_other_labels_also_consume_enum_capacity(self):
@@ -108,7 +109,7 @@ class ChunkerStructuredMapperTests(unittest.TestCase):
         config.include_metadata_label = True
         config.include_other_label = True
         client = _Client()
-        label_blocks(_blocks(995), config, client, max_tokens=4000)
+        label_blocks(_blocks(995), config, client)
         sizes = [len(call[2]["properties"]["labels"]["items"]["properties"]["id"]["enum"])
                  for call in client.calls]
         self.assertEqual(sorted(sizes), [1, 994])
@@ -118,7 +119,7 @@ class ChunkerStructuredMapperTests(unittest.TestCase):
             with self.subTest(count=count):
                 blocks = _blocks(count)
                 client = _Client()
-                result = label_blocks(blocks, _config(), client, max_tokens=4000)
+                result = label_blocks(blocks, _config(), client)
                 sizes = [len(call[2]["properties"]["labels"]["items"]["properties"]["id"]["enum"])
                          for call in client.calls]
                 self.assertEqual(sorted(sizes), sorted(expected_sizes))
@@ -134,7 +135,7 @@ class ChunkerStructuredMapperTests(unittest.TestCase):
             for b in blocks:
                 b.id = "long-document-name-" * 6 + b.id
             client = _Client()
-            label_blocks(blocks, _config(), client, max_tokens=4000)
+            label_blocks(blocks, _config(), client)
             sizes = [len(call[2]["properties"]["labels"]["items"]["properties"]["id"]["enum"])
                      for call in client.calls]
             self.assertEqual(sorted(sizes), sorted(expected_sizes))
@@ -147,17 +148,19 @@ class ChunkerStructuredMapperTests(unittest.TestCase):
                     payload["labels"] = []
                 return payload
         blocks = _blocks(997)
-        with self.assertRaises(MapperResponseError):
-            label_blocks(blocks, _config(), FailingClient(), max_tokens=4000)
+        with self.assertRaises(ModelResponseError):
+            label_blocks(blocks, _config(), FailingClient())
         self.assertTrue(all(b.section_label is None for b in blocks))
 
     def test_every_block_receives_one_closed_label(self) -> None:
-        result = label_blocks(_blocks(), _config(), _Client(), max_tokens=4000)
+        client = _Client()
+        result = label_blocks(_blocks(), _config(), client)
         self.assertEqual([block.section_label for block in result], ["Profile", "Profile"])
+        self.assertEqual({(kwargs["task"], kwargs["effort"]) for *_, kwargs in client.calls}, {(TASK, EFFORT)})
 
     def test_duplicate_block_ids_fail_the_mapping_boundary(self) -> None:
-        with self.assertRaises(MapperResponseError):
-            label_blocks(_blocks(), _config(), _DuplicateClient(), max_tokens=4000)
+        with self.assertRaises(ModelResponseError):
+            label_blocks(_blocks(), _config(), _DuplicateClient())
 
 
 if __name__ == "__main__":

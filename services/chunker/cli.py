@@ -29,7 +29,6 @@ from shared.openai_client import OpenAIClient  # noqa: E402
 
 from .models import blocks_to_dicts, find_config  # noqa: E402
 from .pipeline import (  # noqa: E402
-    DEFAULT_MAX_OUTPUT_TOKENS,
     DOCUMENT_SUFFIXES,
     run_pipeline_batch,
 )
@@ -80,7 +79,6 @@ def export_chunker_package(
     map_blocks: bool = False,
     api_key: str | None = None,
     max_workers: int = 4,
-    max_tokens: int = DEFAULT_MAX_OUTPUT_TOKENS,
 ) -> None:
     """Parse, and optionally map, documents into reusable package tables."""
     input_path = Path(input_dir).expanduser().resolve()
@@ -116,7 +114,6 @@ def export_chunker_package(
         pipeline_jobs,
         config=config if map_blocks else None,
         llm_client_factory=factory if map_blocks else None,
-        max_tokens=max_tokens,
         max_workers=max_workers,
     )
 
@@ -338,7 +335,6 @@ def _parse_args() -> argparse.Namespace:
     parser.add_argument("--map", action="store_true", dest="map_blocks", help="Run mapper")
     parser.add_argument("--api-key", default=None)
     parser.add_argument("--max-workers", type=int, default=4)
-    parser.add_argument("--max-tokens", type=int, default=DEFAULT_MAX_OUTPUT_TOKENS)
     return parser.parse_args()
 
 
@@ -354,5 +350,4 @@ if __name__ == "__main__":
         map_blocks=args.map_blocks,
         api_key=args.api_key,
         max_workers=args.max_workers,
-        max_tokens=args.max_tokens,
     )

@@ -3,7 +3,7 @@ from __future__ import annotations
 import logging
 import json
 
-from shared.ai import request_structured
+from shared.ai import Effort, ModelTask, request_validated
 from shared.errors import ModelResponseError
 from shared.batching import fitting_batches, map_ordered
 from shared.document_metadata import extraction_context
@@ -20,18 +20,21 @@ VALID_CONFIDENCES = {"high", "medium", "low"}
 # blocks inform that partition. Output shards all read the same complete document.
 DOCUMENTS_PER_REQUEST = 1
 MAPPING_WORKERS = 4
-
-
-class MapperResponseError(ModelResponseError):
-    """Raised when the mapper cannot produce a usable label response."""
+#: The reasoning tier: the labels decide which passages a mapped-section review reads,
+#: so a block filed under the wrong section is missing from the one review that needs it.
+TASK: ModelTask = "reasoning"
+#: Medium: every block is placed against its neighbours and the whole taxonomy at once,
+#: and the result is read by every unit of a review rather than by one.
+EFFORT: Effort = "medium"
+#: One label per block, so a long document's labels are several thousand tokens before
+#: any reasoning; output shards bound how many blocks one answer holds.
+MAX_TOKENS = 16000
 
 
 def label_blocks(
     blocks: list[ContentBlock],
     config: DocumentTypeConfig,
     llm_client: LLMClientProtocol,
-    *,
-    max_tokens: int,
 ) -> list[ContentBlock]:
     """
     Phase 2 section labeling using an injected LLM client.
@@ -40,7 +43,6 @@ def label_blocks(
         blocks: List of ContentBlock objects from the parser
         config: Document-type config with taxonomy and rules
         llm_client: Object implementing the schema-bound ``call_structured`` contract.
-        max_tokens: Maximum tokens allowed in each mapper response
 
     Returns:
         Same blocks with section_label filled in
@@ -49,11 +51,11 @@ def label_blocks(
     if not blocks:
         return blocks
     if len({block.id for block in blocks}) != len(blocks):
-        raise MapperResponseError("Input contains duplicate block IDs")
+        raise ModelResponseError("Input contains duplicate block IDs")
     try:
         batches = fitting_batches(blocks, fits=lambda batch: _label_schema_fits(batch, config))
     except ValueError as exc:
-        raise MapperResponseError("Mapping taxonomy or block ID exceeds strict schema limits") from exc
+        raise ModelResponseError("Mapping taxonomy or block ID exceeds strict schema limits") from exc
 
     system_prompt, user_message = build_prompts(blocks, config)
     images = [
@@ -70,7 +72,7 @@ def label_blocks(
                 + "\nUse the complete document above as context. Return labels only for "
                 "these requested IDs, exactly once each; other blocks are context only."
             )
-        return _request_labels(batch, config, llm_client, system_prompt, message, images, max_tokens)
+        return _request_labels(batch, config, llm_client, system_prompt, message, images)
 
     logger.info("Mapping %s blocks in %s schema-bounded requests", len(blocks), len(batches))
     labels = [label for result in map_ordered(batches, run, workers=MAPPING_WORKERS) for label in result]
@@ -79,35 +81,32 @@ def label_blocks(
 
 def _request_labels(
     blocks: list[ContentBlock], config: DocumentTypeConfig, llm_client: LLMClientProtocol,
-    system_prompt: str, user_message: str, images: list[dict[str, str]], max_tokens: int,
+    system_prompt: str, user_message: str, images: list[dict[str, str]],
 ) -> list[dict[str, str]]:
-    schema = _label_schema(blocks, config)
-    last_error = "model returned no structured labels"
-    for attempt in range(2):
-        message = user_message
-        if attempt:
-            message += (
-                "\n\nThe prior response failed the mapping contract: "
-                f"{last_error}. Return exactly one label for every requested output block ID."
-            )
-        payload = request_structured(
-            llm_client,
-            system_prompt,
-            message,
-            schema_name="chunker_section_labels",
-            schema=schema,
-            max_tokens=max_tokens,
-            images=images or None,
-        )
-        try:
-            if payload is None:
-                raise ValueError("model returned no structured labels")
-            labels = _parse_label_payload(payload)
-            _validate_labels(blocks, labels, config)
-            return labels
-        except ValueError as exc:
-            last_error = str(exc)
-    raise MapperResponseError(f"Mapper response was invalid after retry: {last_error}")
+    def parse(payload: dict | None) -> list[dict[str, str]]:
+        if payload is None:
+            raise ValueError("model returned no structured labels")
+        labels = _parse_label_payload(payload)
+        _validate_labels(blocks, labels, config)
+        return labels
+
+    return request_validated(
+        llm_client,
+        system_prompt,
+        user_message,
+        schema_name="chunker_section_labels",
+        schema=_label_schema(blocks, config),
+        max_tokens=MAX_TOKENS,
+        parse=parse,
+        failure="Mapper response was invalid after retry",
+        repair=lambda error: (
+            f"\n\nThe prior response failed the mapping contract: {error}. "
+            "Return exactly one label for every requested output block ID."
+        ),
+        images=images or None,
+        task=TASK,
+        effort=EFFORT,
+    )
 
 
 def _label_schema_fits(blocks: list[ContentBlock], config: DocumentTypeConfig) -> bool:

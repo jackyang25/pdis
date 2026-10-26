@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from typing import Any, Iterator, Protocol
 
+from shared.ai import Effort, ModelTask
 from shared.chat import ChatDelta
 
 from .limits import MAX_OUTPUT_TOKENS
@@ -18,5 +19,7 @@ class StreamingChatLLMProtocol(Protocol):
         *,
         tools: list[dict[str, Any]] | None = None,
         max_tokens: int = MAX_OUTPUT_TOKENS,
+        task: ModelTask = "reasoning",
+        effort: Effort | None = None,
     ) -> Iterator[ChatDelta]:
         ...

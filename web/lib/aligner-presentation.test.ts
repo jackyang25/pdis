@@ -13,18 +13,6 @@ test("Aligner uses the shared authority copy and comparison count presentation",
   assert.doesNotMatch(page, /Coherence, not feasibility/);
 });
 
-test("Aligner only shows the whole-block citation note for block connections", () => {
-  const { AlignerTraceInspector } = loadComponent(fileURLToPath(new URL("../components/aligner-document-trace.tsx", import.meta.url)), {}, ["AlignerTraceInspector"]);
-  for (const type of ["exact", "block", "unavailable"]) {
-    const html = renderToStaticMarkup(React.createElement(AlignerTraceInspector, {
-      annotation: { sourceRef: { side: "comparison", verdict: "falls_short", comparison: "Reference → Plan", requirementId: "r-1", question: "Does the plan meet the bar?", requirement: "The target is 24 months.", statement: "The plan states 36 months." } },
-      connection: { type, blockId: "b-1" },
-      passages: { passages: [], reveal: () => {} },
-    }));
-    assert.equal(html.includes("not as exact quotations"), type === "block");
-  }
-});
-
 test("Aligner trace marks extracted requirements as model readings on both sides", () => {
   const { AlignerTraceInspector } = loadComponent(fileURLToPath(new URL("../components/aligner-document-trace.tsx", import.meta.url)), {}, ["AlignerTraceInspector"]);
   for (const side of ["reference", "comparison"]) {

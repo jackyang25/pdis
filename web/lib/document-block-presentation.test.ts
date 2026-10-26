@@ -6,6 +6,7 @@ import {
   documentBlockPresentation,
   documentBlockSpacing,
   documentTableCells,
+  documentTableRowContinues,
   documentTracePanelMode,
   documentTraceRailMode,
 } from "./document-block-presentation.ts";
@@ -112,6 +113,7 @@ test("accepts only parser-owned table cells whose offsets match canonical conten
         value: "Efficacy",
         contentStart: 0,
         contentEnd: 17,
+        headerEnd: 7,
         valueStart: 9,
         valueEnd: 17,
       },
@@ -121,6 +123,7 @@ test("accepts only parser-owned table cells whose offsets match canonical conten
         value: ">= 75%",
         contentStart: 19,
         contentEnd: 33,
+        headerEnd: 25,
         valueStart: 27,
         valueEnd: 33,
       },
@@ -171,4 +174,21 @@ test("an unmeasured container covers the document rather than guessing", () => {
   // Zero is what the first render reports before the observer fires.
   assert.equal(documentTracePanelMode(0), "sheet");
   assert.equal(documentTracePanelMode(Number.NaN), "sheet");
+});
+
+test("a table row continues the one before it only under the same headers", () => {
+  const row = (headers: string[]) => contentBlock("table_row", { column_headers: headers });
+  assert.equal(documentTableRowContinues(row(["Measure", "Target"]), row(["Measure", "Target"])), true);
+  assert.equal(documentTableRowContinues(row(["Measure", "Target"]), row(["Measure", "Goal"])), false);
+  assert.equal(documentTableRowContinues(contentBlock("paragraph", {}), row(["Measure"])), false);
+  assert.equal(documentTableRowContinues(undefined, row(["Measure"])), false);
+});
+
+test("a header ends at its own words, not at the separator before the value", () => {
+  const cell = documentTableCells(contentBlock("table_row", {
+    column_headers: ["Minimum target."],
+    table_cells: [{ column_index: 0, header: "Minimum target.", value: "70%", content_start: 0,
+      content_end: 20, value_start: 17, value_end: 20 }],
+  }, "Minimum target.: 70%"))?.cells[0];
+  assert.equal(cell?.headerEnd, 15);
 });

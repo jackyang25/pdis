@@ -153,7 +153,7 @@ function edgeColor(edge: EvidenceMapEdge): string {
 }
 
 function layoutGraph(nodes: EvidenceMapNode[], edges: EvidenceMapEdge[]) {
-  const positions = layoutDirectedGraph(
+  const { positions, routes } = layoutDirectedGraph(
     nodes.map((node) => ({ id: node.id, ...NODE_SIZE[node.kind] })),
     edges,
     { ranksep: 40, nodesep: 18, edgesep: 10, margin: 12 },
@@ -176,13 +176,14 @@ function layoutGraph(nodes: EvidenceMapNode[], edges: EvidenceMapEdge[]) {
     };
   });
 
-  const flowEdges: Edge[] = edges.map((edge) => {
+  const flowEdges: Edge[] = edges.map((edge, index) => {
     const color = edgeColor(edge);
     return {
       id: edge.id,
       source: edge.source,
       target: edge.target,
       type: GRAPH_EDGE_TYPE,
+      data: { route: routes[index] },
       style: {
         stroke: color,
         strokeWidth: edge.kind === "supported_by" || edge.kind === "has_target" ? 1 : 1.35,

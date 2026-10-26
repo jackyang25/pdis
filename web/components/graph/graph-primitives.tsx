@@ -30,6 +30,15 @@ export type GraphLayoutLink = {
 };
 
 /**
+ * How an edge that skips a column gets past it: across into the first gap, along the lane the
+ * layout kept free through the columns between, and down the last gap into its target.
+ *
+ * Without it, an edge two columns long ran straight through the node between, hidden behind
+ * it, and its label landed on the same line as the label of the edge leaving that node.
+ */
+export type GraphEdgeRoute = { firstGapX: number; laneY: number; lastGapX: number };
+
+/**
  * How every graph draws its edges: across to the midpoint between the two columns, along
  * to the target's height, and across into it.
  *
@@ -40,20 +49,25 @@ export type GraphLayoutLink = {
  * the edge's own last run, not the shared trunk, where labels would stack.
  */
 function TrunkEdge({
-  sourceX, sourceY, targetX, targetY, style, markerStart, markerEnd, interactionWidth,
+  sourceX, sourceY, targetX, targetY, style, markerStart, markerEnd, interactionWidth, data,
   label, labelStyle, labelShowBg, labelBgStyle, labelBgPadding, labelBgBorderRadius,
 }: EdgeProps) {
+  const route = (data as { route?: GraphEdgeRoute } | undefined)?.route;
   const trunkX = sourceX + (targetX - sourceX) / 2;
+  const path = route
+    ? `M ${sourceX},${sourceY} H ${route.firstGapX} V ${route.laneY} H ${route.lastGapX} V ${targetY} H ${targetX}`
+    : `M ${sourceX},${sourceY} H ${trunkX} V ${targetY} H ${targetX}`;
   return (
     <BaseEdge
-      path={`M ${sourceX},${sourceY} H ${trunkX} V ${targetY} H ${targetX}`}
+      path={path}
       style={style}
       markerStart={markerStart}
       markerEnd={markerEnd}
       interactionWidth={interactionWidth}
       label={label}
-      labelX={trunkX + (targetX - trunkX) / 2}
-      labelY={targetY}
+      // On the lane, which is this edge's alone; otherwise on its last run.
+      labelX={route ? (route.firstGapX + route.lastGapX) / 2 : trunkX + (targetX - trunkX) / 2}
+      labelY={route ? route.laneY : targetY}
       labelStyle={labelStyle}
       labelShowBg={labelShowBg}
       labelBgStyle={labelBgStyle}
@@ -77,7 +91,11 @@ export function layoutDirectedGraph(
     edgesep?: number;
     margin?: number;
   } = {},
-): Map<string, { x: number; y: number }> {
+): {
+  positions: Map<string, { x: number; y: number }>;
+  /** Per link, in the order given: its route past the columns it skips, if it skips any. */
+  routes: (GraphEdgeRoute | undefined)[];
+} {
   const graph = new dagre.graphlib.Graph().setDefaultEdgeLabel(() => ({}));
   graph.setGraph({
     rankdir: options.direction ?? "LR",
@@ -101,18 +119,35 @@ export function layoutDirectedGraph(
   }
   dagre.layout(graph);
 
-  return new Map(
-    items.map((item) => {
-      const position = graph.node(item.id);
-      return [
-        item.id,
-        {
-          x: position.x - item.width / 2,
-          y: position.y - item.height / 2,
-        },
-      ];
-    }),
-  );
+  const boxes = items.map((item) => {
+    const position = graph.node(item.id);
+    return { ...item, x: position.x - item.width / 2, y: position.y - item.height / 2 };
+  });
+  const byId = new Map(boxes.map((box) => [box.id, box]));
+  const routes = links.map((link): GraphEdgeRoute | undefined => {
+    const source = byId.get(link.source);
+    const target = byId.get(link.target);
+    if (!source || !target) return undefined;
+    const sourceRight = source.x + source.width;
+    const between = boxes.filter((box) => box.x >= sourceRight && box.x + box.width <= target.x);
+    if (!between.length) return undefined;
+    const firstColumn = Math.min(...between.map((box) => box.x));
+    const lastColumn = Math.max(...between.map((box) => box.x + box.width));
+    const firstGapX = sourceRight + (firstColumn - sourceRight) / 2;
+    const lastGapX = lastColumn + (target.x - lastColumn) / 2;
+    // The layout's own bend points for this edge run through the space it reserved for it
+    // between the columns; their median height is the lane.
+    const lane = ((graph.edge(link.source, link.target)?.points ?? []) as { x: number; y: number }[])
+      .filter((point) => point.x > firstGapX && point.x < lastGapX)
+      .map((point) => point.y)
+      .sort((a, b) => a - b);
+    if (!lane.length) return undefined;
+    return { firstGapX, laneY: lane[Math.floor(lane.length / 2)], lastGapX };
+  });
+  return {
+    positions: new Map(boxes.map((box) => [box.id, { x: box.x, y: box.y }])),
+    routes,
+  };
 }
 
 export function FitGraphToView({

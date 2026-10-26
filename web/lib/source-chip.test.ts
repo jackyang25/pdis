@@ -42,8 +42,10 @@ test("a passage is named by its document, then where in it, and the location nev
   const html = renderToStaticMarkup(createElement(PassageSource, {
     format: "pptx", document: "2026 09 05 Truepoc SG2 [v20260905] PRESENTATION", location: "Slide 34",
   }));
-  // A long file name truncates; "Slide 34" is the part a reader acts on, so it keeps its width.
-  assert.match(html, /shrink-\[100\][^"]*"[^>]*>(?:<span[^>]*>PPTX<\/span>)<span class="min-w-0 truncate">2026 09 05 Truepoc/);
+  // A long file name truncates within its line; "Slide 34" is the part a reader acts on, so
+  // it takes the next line whole rather than squeezing the name or itself.
+  assert.match(html, /flex-wrap/);
+  assert.match(html, /<span class="min-w-0 truncate">2026 09 05 Truepoc/);
   // It wraps when it is long - a DOCX section heading - and is never truncated.
   assert.match(html, /<span class="min-w-0 break-words [^"]*">Slide 34<\/span>/);
   // Without a document, only the location; with neither, nothing.

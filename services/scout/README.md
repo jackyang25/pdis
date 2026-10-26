@@ -357,8 +357,11 @@ unrelated items into one prompt.
 
 Insight extraction creates objects and decides no identity: `insight_reconciler` groups
 statements of one fact, so the extraction prompt never asks the model to merge copies. A
-batch that returns no valid answer after its retry stops the run rather than contributing
-no insights. Insights cite their records by `record_key`, so two records sharing a page
+batch that returns no valid answer after its retry, is refused or whose provider fails
+contributes no insights and leaves its field unread: the field's other batches are set
+aside with it, and its grounding and precedent are `not_assessed` with that failure, while
+the rest of the run goes on. Judged on part of its evidence, the field would read as
+judged on all of it; filed with no insights, as evidence that said nothing. Insights cite their records by `record_key`, so two records sharing a page
 stay two citations, and their coverage tracks and targets come from the requests that
 returned those records (`lineage.RetrievalLineage`, read from each finding's retrieval
 paths), not from matching query text.

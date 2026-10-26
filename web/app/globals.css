@@ -228,3 +228,40 @@
     background: hsl(var(--primary) / 0.16);
   }
 }
+
+/* A document table row in the trace: its cells side by side when the columns fit, stacked
+   as label and value when they do not. Each row scrolling sideways on its own cut its last
+   column off mid-word, and a reader could not keep two rows' columns in view together.
+   The floor is 12rem a column, below which a prose cell breaks a word to a line. A
+   container query, because the room is the document column's, which the details panel
+   narrows, not the viewport's. Tables wider than six columns always stack. */
+@layer components {
+  .trace-table-row {
+    container-type: inline-size;
+  }
+  .trace-table-row > dl {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    gap: 0.5rem 1.25rem;
+  }
+  @container (min-width: 25.25rem) {
+    .trace-table-row > dl[data-columns="2"] { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    .trace-table-row > dl[data-columns="2"] > div { grid-column-start: var(--column); }
+  }
+  @container (min-width: 38.5rem) {
+    .trace-table-row > dl[data-columns="3"] { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+    .trace-table-row > dl[data-columns="3"] > div { grid-column-start: var(--column); }
+  }
+  @container (min-width: 51.75rem) {
+    .trace-table-row > dl[data-columns="4"] { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+    .trace-table-row > dl[data-columns="4"] > div { grid-column-start: var(--column); }
+  }
+  @container (min-width: 65rem) {
+    .trace-table-row > dl[data-columns="5"] { grid-template-columns: repeat(5, minmax(0, 1fr)); }
+    .trace-table-row > dl[data-columns="5"] > div { grid-column-start: var(--column); }
+  }
+  @container (min-width: 78.25rem) {
+    .trace-table-row > dl[data-columns="6"] { grid-template-columns: repeat(6, minmax(0, 1fr)); }
+    .trace-table-row > dl[data-columns="6"] > div { grid-column-start: var(--column); }
+  }
+}

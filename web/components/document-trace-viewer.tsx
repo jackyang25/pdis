@@ -2,14 +2,14 @@
 
 import type { TraceFocus } from "@/lib/trace-focus";
 import {
+  type CSSProperties,
   type ReactNode,
   useEffect,
   useMemo,
   useRef,
   useState,
 } from "react";
-import { CircleDashed, FileText, Layers3, Link2, X } from "lucide-react";
-import { BlockReferenceId } from "@/components/block-reference";
+import { CircleDashed, FileText, Link2, X } from "lucide-react";
 import { TracePanelCloseProvider, TracePanelHeader } from "@/components/document-trace-panel";
 import { DocumentVisual } from "@/components/document-visual";
 import type { ContentBlock } from "@/lib/api";
@@ -18,6 +18,7 @@ import {
   documentBlockPresentation,
   documentBlockSpacing,
   documentTableCells,
+  documentTableRowContinues,
   type DocumentBlockSpacing,
   documentTracePanelMode,
   documentTraceRailMode,
@@ -77,7 +78,7 @@ function SourceSurfaceContent({ blocks, children, externalRail }: {
   return <>
     {visuals}
     {text.length > 0 && <details data-source-text="true" open={marked} className="relative z-10 mt-5">
-      <DisclosureSummary className={cn("w-fit rounded-md py-2 text-xs font-medium text-muted-foreground", externalRail && "ml-[7.25rem] px-10")}>
+      <DisclosureSummary className={cn("w-fit rounded-md py-2 text-xs font-medium text-muted-foreground", externalRail && cn(PAPER_OFFSET, "px-10"))}>
         Extracted text and source blocks
       </DisclosureSummary>
       <div className="mt-4">{text}</div>
@@ -182,13 +183,12 @@ const EMPHASIS_BADGE_CLASS: Record<DocumentAnnotationEmphasis["tone"], string> =
 };
 
 /**
- * Narrowest a table column may become before its row scrolls sideways instead.
- *
- * Sized for prose values rather than short numbers: these cells routinely carry
- * a sentence, and below roughly this width a sentence breaks into one or two
- * words per line.
+ * The document's margin beside the paper, holding a block's count markers when it has
+ * any. Wide enough for one marker; the paper starts after it and its gap.
  */
-const TABLE_COLUMN_MIN_REM = 13;
+const RAIL_GRID = "grid-cols-[2.5rem_minmax(0,1fr)] gap-5";
+const PAPER_OFFSET = "ml-[3.75rem]";
+const PAPER_LEFT = "left-[3.75rem]";
 
 function blockSpacingClass(spacing: DocumentBlockSpacing): string {
   switch (spacing) {
@@ -315,11 +315,14 @@ function SectionGapRow<TKind extends string, TRef>({
 
 function BlockText<TKind extends string, TRef>({
   traceBlock,
+  continuesTable,
   annotationsById,
   activeAnnotationIds,
   onSelect,
 }: {
   traceBlock: DocumentTraceBlock<TKind, TRef>;
+  /** A table row under the same headers as the row before it. */
+  continuesTable: boolean;
   annotationsById: Map<string, DocumentAnnotation<TKind, TRef>>;
   activeAnnotationIds: string[];
   onSelect: (annotationIds: string[], trigger: HTMLElement, connection: DocumentTraceConnection) => void;
@@ -368,41 +371,36 @@ function BlockText<TKind extends string, TRef>({
     const tableRow = documentTableCells(traceBlock.block);
     if (tableRow) {
       return (
-        <div className="overflow-x-auto py-1">
-          <dl
-            className="grid gap-x-5 gap-y-2 border-l border-border/70 pl-4"
-            style={{
-              gridTemplateColumns: `repeat(${tableRow.columnCount}, minmax(0, 1fr))`,
-              // Every column of a multi-column row gets a readable floor, and the
-              // wrapper scrolls sideways when they no longer fit. Previously only
-              // rows with more than three columns had a floor, so a three-column
-              // row of prose compressed into tall thin strips — and it compressed
-              // differently depending on whether the detail panel was open, which
-              // made the same passage read two ways.
-              minWidth: tableRow.columnCount > 1
-                ? `${tableRow.columnCount * TABLE_COLUMN_MIN_REM}rem`
-                : undefined,
-            }}
-          >
+        // Side by side when the columns fit and stacked when they do not: `.trace-table-row`
+        // in globals.css, where the reason is written.
+        <div className="trace-table-row border-l border-border/70 py-1 pl-4">
+          <dl data-columns={tableRow.columnCount}>
             {tableRow.cells.map((cell) => {
               const headerSegments = documentTraceSegmentsInRange(
                 traceBlock.segments,
                 cell.contentStart,
-                cell.valueStart,
+                cell.headerEnd,
               );
               const valueSegments = documentTraceSegmentsInRange(
                 traceBlock.segments,
                 cell.valueStart,
                 cell.valueEnd,
               );
+              // In full on a table's first row, in one line after: enough to name the column
+              // for a reader who arrives mid-table. Never shortened where a result marks it.
+              const brief = continuesTable
+                && !headerSegments.some((segment) => segment.annotationIds.length > 0);
               return (
                 <div
                   key={`${traceBlock.block.id}:cell:${cell.columnIndex}`}
                   className="min-w-0"
-                  style={{ gridColumnStart: cell.columnIndex + 1 }}
+                  style={{ "--column": cell.columnIndex + 1 } as CSSProperties}
                 >
                   {headerSegments.length > 0 && (
-                    <dt className={cn("mb-1", EYEBROW)}>
+                    <dt
+                      className={cn("mb-1 text-xs leading-5 text-muted-foreground", brief && "truncate")}
+                      title={brief ? cell.header : undefined}
+                    >
                       <TraceSegmentText
                         blockId={traceBlock.block.id}
                         segments={headerSegments}
@@ -472,15 +470,18 @@ function AnnotationInspector<TKind extends string, TRef>({
     .map((id) => annotationsById.get(id))
     .filter((annotation): annotation is DocumentAnnotation<TKind, TRef> => Boolean(annotation));
   const selected = annotations.find((annotation) => annotation.id === selectedId) ?? annotations[0] ?? null;
+  const sharedTitles = new Set(annotations
+    .map((annotation) => annotation.title)
+    .filter((title, index, titles) => titles.indexOf(title) !== index));
 
   if (!selected) {
     return (
       <div className="relative flex min-h-56 flex-col items-center justify-center px-6 text-center">
         {closeAction && <div className="absolute right-4 top-3.5">{closeAction}</div>}
         <FileText className="h-5 w-5 text-muted-foreground" aria-hidden="true" />
-        <p className="mt-3 text-sm font-medium text-foreground">Select a connection</p>
+        <p className="mt-3 text-sm font-medium text-foreground">Select a marked passage</p>
         <p className="mt-1 max-w-56 text-xs leading-5 text-muted-foreground">
-          Choose a highlighted passage or gutter marker to inspect the saved result connected to it.
+          The result that marks it opens here.
         </p>
       </div>
     );
@@ -494,7 +495,7 @@ function AnnotationInspector<TKind extends string, TRef>({
               control it carries stays in reach however far the panel is scrolled. */}
           <div className={cn("flex items-center justify-between gap-3 px-4 pt-3 pb-2", closeAction && "sticky top-0 z-10 bg-card")}>
             <p className={EYEBROW}>
-              Connected results <span className="tabular-nums">{annotations.length}</span>
+              Results <span className="tabular-nums">{annotations.length}</span>
             </p>
             {closeAction}
           </div>
@@ -507,22 +508,24 @@ function AnnotationInspector<TKind extends string, TRef>({
                   onClick={() => onSelectId(annotation.id)}
                   aria-pressed={annotation.id === selected.id}
                   aria-label={`View ${annotation.layerLabel}: ${annotation.title}`}
+                  // The passage list's own row shape, so the open one is the only one boxed.
                   className={cn(
-                    "grid min-h-11 w-full min-w-0 grid-cols-[7.5rem_minmax(0,1fr)] items-center gap-2 rounded-md border px-2.5 py-1.5 text-left transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/60 motion-reduce:transition-none",
+                    "grid min-h-10 w-full min-w-0 grid-cols-[6.5rem_minmax(0,1fr)] items-center gap-2 rounded-md border px-2 py-1.5 text-left transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/60 motion-reduce:transition-none",
                     annotation.id === selected.id
-                      ? "border-foreground/15 bg-foreground/[0.07] text-foreground"
-                      : "border-border bg-background text-muted-foreground hover:bg-foreground/[0.045] hover:text-foreground",
+                      ? "border-border bg-foreground/[0.07] text-foreground"
+                      : "border-transparent text-muted-foreground hover:border-border hover:bg-foreground/[0.045] hover:text-foreground",
                   )}
                 >
-                  <span className={cn(EYEBROW, "truncate text-foreground")}>
+                  <span className="truncate text-[11px] font-medium">
                     {annotation.layerLabel}
                   </span>
-                  {/* The summary under the title: results connected to one passage often share
-                      a title - every Aligner requirement of one comparison does - so titles
-                      alone listed four identical rows. */}
+                  {/* The summary under the title only where titles repeat: results on one
+                      passage often share one - every Aligner requirement of one comparison
+                      does - and titles alone listed identical rows. Otherwise the panel
+                      below says it, once. */}
                   <span className="min-w-0">
                     <span className="block truncate text-xs font-medium">{annotation.title}</span>
-                    {annotation.summary && (annotation.summaryMode === "quoted" ? (
+                    {sharedTitles.has(annotation.title) && annotation.summary && (annotation.summaryMode === "quoted" ? (
                       <span className="block truncate text-[11px] text-muted-foreground">{annotation.summary}</span>
                     ) : (
                       <Reading inline className="block truncate">{annotation.summary}</Reading>
@@ -867,17 +870,12 @@ export function DocumentTraceViewer<TKind extends string, TRef>({
         "flex gap-3 border-b border-border/60 bg-card px-5 py-3 sm:px-6",
         isNarrow ? "flex-col" : "items-center",
       )}>
+        {/* The document shown, named by its picker when there are several, and how many
+            results the chosen layer marks. The tab already says this is the documents view. */}
         <div className="flex min-w-0 flex-1 items-center gap-2">
-          <Layers3 className="h-3.5 w-3.5 shrink-0 text-muted-foreground" aria-hidden="true" />
-          <p className="text-xs font-medium text-foreground">Document trace</p>
-          <span className="text-[11px] tabular-nums text-muted-foreground" role="status">
-            {countLabel(visibleAnnotations.length, "connection")}
-          </span>
-        </div>
-        <div className={cn("flex gap-2", isNarrow ? "flex-col" : "flex-row")}>
-          {trace.documents.length > 1 && (
+          {trace.documents.length > 1 ? (
             <Select value={activeDocumentId} onValueChange={setDocumentId}>
-              <SelectTrigger className={cn("h-8 bg-card text-xs", isNarrow ? "w-full" : "w-52")} aria-label="Source document" title={displayDocumentName(activeDocumentId)}>
+              <SelectTrigger className={cn("h-8 bg-card text-xs", isNarrow ? "w-full" : "w-60")} aria-label="Source document" title={displayDocumentName(activeDocumentId)}>
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
@@ -888,13 +886,25 @@ export function DocumentTraceViewer<TKind extends string, TRef>({
                 ))}
               </SelectContent>
             </Select>
+          ) : (
+            <>
+              <FileText className="h-3.5 w-3.5 shrink-0 text-muted-foreground" aria-hidden="true" />
+              <p className="min-w-0 truncate text-xs font-medium text-foreground" title={displayDocumentName(activeDocumentId)}>
+                {displayDocumentName(activeDocumentId)}
+              </p>
+            </>
           )}
+          <span className="shrink-0 text-[11px] tabular-nums text-muted-foreground" role="status">
+            {countLabel(visibleAnnotations.length, "result")}
+          </span>
+        </div>
+        <div className={cn("flex gap-2", isNarrow ? "flex-col" : "flex-row")}>
           <Select value={layer} onValueChange={(value) => setLayer(value as TKind | "all")}>
             <SelectTrigger className={cn("h-8 bg-card text-xs", isNarrow ? "w-full" : "w-52")} aria-label="Trace layer">
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
-              <SelectItem value="all">All result layers</SelectItem>
+              <SelectItem value="all">All results</SelectItem>
               {layers.map((option) => (
                 <SelectItem key={option.value} value={option.value}>
                   {option.label}
@@ -908,10 +918,10 @@ export function DocumentTraceViewer<TKind extends string, TRef>({
       {unresolvedAnnotations.length > 0 && (
         <details className="border-b border-border/60 bg-card px-5 py-3 sm:px-6">
           <DisclosureSummary className="w-fit rounded-sm text-xs font-medium text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/60">
-            Unavailable source connections <span className={COUNT}>{unresolvedAnnotations.length}</span>
+            Citing passages not in this file <span className={COUNT}>{unresolvedAnnotations.length}</span>
           </DisclosureSummary>
           <p className="mt-2 max-w-2xl text-xs leading-5 text-muted-foreground">
-            These saved results cite blocks that are not present in the retained document. They remain inspectable but are not placed in the reconstructed text.
+            These results cite passages the saved file does not hold, so they cannot be marked in the text. Each still opens.
           </p>
           <div className="mt-3 flex flex-wrap gap-2">
             {unresolvedAnnotations.map((annotation) => (
@@ -938,8 +948,7 @@ export function DocumentTraceViewer<TKind extends string, TRef>({
             Not located in this document <span className={COUNT}>{unplacedAnnotations.length}</span>
           </DisclosureSummary>
           <p className="mt-2 max-w-2xl text-xs leading-5 text-muted-foreground">
-            These results describe content that is absent, so they cite no source
-            passage and cannot be placed in the reconstructed text.
+            These results describe content the document lacks, so they cite no passage to mark.
           </p>
           <div className="mt-3 flex flex-wrap gap-2">
             {unplacedAnnotations.map((annotation) => (
@@ -996,13 +1005,13 @@ export function DocumentTraceViewer<TKind extends string, TRef>({
                 {railMode === "external" && (
                   <div
                     aria-hidden="true"
-                    className="pointer-events-none absolute inset-y-0 left-[7.25rem] right-0 rounded-lg bg-card shadow-raised"
+                    className={cn("pointer-events-none absolute inset-y-0 right-0 rounded-lg bg-card shadow-raised", PAPER_LEFT)}
                   />
                 )}
                 {surface.boundary && (
                   <p className={cn(
                     "relative z-10 pb-6 text-xs font-medium text-muted-foreground",
-                    railMode === "external" && "ml-[7.25rem] px-10",
+                    railMode === "external" && cn(PAPER_OFFSET, "px-10"),
                   )}>
                     {surface.boundary.label}
                   </p>
@@ -1019,6 +1028,10 @@ export function DocumentTraceViewer<TKind extends string, TRef>({
                       && !traceBlock.segments.some((segment) => segment.annotationIds.length > 0),
                   );
                   const spacing = documentBlockSpacing(documentBlockPresentation(traceBlock.block));
+                  // Counts appear only for connections with no visible mark in the paper.
+                  // When the block itself is marked, the mark is the target and a second
+                  // control here would duplicate it.
+                  const showsMarkers = !blockIsMarkTarget && markerGroups.length > 0;
                   return (
                     <section
                       ref={(element) => {
@@ -1040,7 +1053,7 @@ export function DocumentTraceViewer<TKind extends string, TRef>({
                         focusedBlockId === traceBlock.block.id && ARRIVAL_HIGHLIGHT,
                         railMode === "inline"
                           ? "grid-cols-1 gap-1"
-                          : "grid-cols-[6rem_minmax(0,1fr)] gap-5",
+                          : RAIL_GRID,
                       )}
                       /* No `content-visibility: auto` here. It skips rendering an offscreen
                          block and substitutes a fixed placeholder height, so a block that had
@@ -1053,20 +1066,15 @@ export function DocumentTraceViewer<TKind extends string, TRef>({
                          on the right passage is what this view is for, and the browser gets
                          that exactly right when nothing misreports its own height. */
                     >
-                      <div className={cn(
+                      {/* The margin keeps its grid cell while empty; inline, an empty row
+                          would only add space above the block. */}
+                      {(railMode === "external" || showsMarkers) && <div className={cn(
                         "relative z-10 flex min-w-0 flex-row flex-wrap items-center gap-1",
                         railMode === "inline"
                           ? "mb-2"
                           : "justify-end self-start pt-1",
                       )}>
-                        <BlockReferenceId
-                          blockId={traceBlock.block.id}
-                          className="inline-flex h-6 max-w-full items-center px-1 text-[10px] text-muted-foreground/50 transition-colors group-hover/trace-block:text-muted-foreground motion-reduce:transition-none"
-                        />
-                        {/* Counts appear only for connections with no visible mark
-                            in the paper. When the block itself is marked, the mark is
-                            the target and a second control here would duplicate it. */}
-                        {!blockIsMarkTarget && markerGroups.map((group) => {
+                        {showsMarkers && markerGroups.map((group) => {
                           const isActive = group.annotationIds.some((id) => activeAnnotationIds.includes(id));
                           const label = markerGroupLabel(group.reason, group.annotationIds.length);
                           return (
@@ -1092,7 +1100,7 @@ export function DocumentTraceViewer<TKind extends string, TRef>({
                             </button>
                           );
                         })}
-                      </div>
+                      </div>}
                       <div
                         className={cn(
                           "relative z-10 min-w-0 rounded-md transition-[background-color,box-shadow] duration-slow motion-reduce:transition-none",
@@ -1114,6 +1122,7 @@ export function DocumentTraceViewer<TKind extends string, TRef>({
                       >
                         <BlockText
                           traceBlock={traceBlock}
+                          continuesTable={documentTableRowContinues(surface.blocks[blockIndex - 1]?.block, traceBlock.block)}
                           annotationsById={annotationsById}
                           activeAnnotationIds={activeAnnotationIds}
                           onSelect={selectAnnotations}
@@ -1175,21 +1184,21 @@ export function DocumentTraceViewer<TKind extends string, TRef>({
             ))}
             {activeDocument && visibleAnnotations.length === 0 && (
               <p className="mt-8 rounded-md bg-foreground/[0.045] px-4 py-3 text-center text-xs leading-5 text-muted-foreground">
-                This layer has no source connections in the saved result. The full retained document remains visible.
+                No result in this layer marks a passage.
               </p>
             )}
           </article>
         </div>
 
         {!isNarrow && selectedAnnotationId && (
-          <aside className="border-l border-border/60 bg-card" aria-label="Trace details">
+          <aside className="border-l border-border/60 bg-card" aria-label="Details">
             <div className="sticky top-0 max-h-[min(76vh,58rem)] overflow-y-auto overscroll-contain">
               <AnnotationInspector
                 closeAction={(
                   <button
                     type="button"
                     onClick={closeInspector}
-                    aria-label="Close trace details"
+                    aria-label="Close details"
                     // Pulled out by its own padding so the × sits on the heading's edge and
                     // centre rather than pushing the row taller.
                     className="-my-1.5 -mr-2 inline-flex h-8 w-8 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-foreground/[0.045] hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/60 motion-reduce:transition-none"
@@ -1217,18 +1226,17 @@ export function DocumentTraceViewer<TKind extends string, TRef>({
             type="button"
             className="absolute inset-0 bg-foreground/20 backdrop-blur-[1px]"
             onClick={closeInspector}
-            aria-label="Close trace details"
+            aria-label="Close details"
           />
           <div
             ref={sheetRef}
             role="dialog"
             aria-modal="true"
-            aria-label="Trace details"
+            aria-label="Details"
             className="absolute inset-x-3 bottom-3 max-h-[min(76vh,42rem)] overflow-y-auto overscroll-contain rounded-2xl bg-card shadow-overlay"
           >
             <TracePanelHeader
-              eyebrow="Document trace"
-              title="Connected result"
+              title="Details"
               className="sticky top-0 z-10 bg-card/95 backdrop-blur"
               action={(
                 <button
@@ -1236,7 +1244,7 @@ export function DocumentTraceViewer<TKind extends string, TRef>({
                   type="button"
                   onClick={closeInspector}
                   className="inline-flex h-9 w-9 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-foreground/[0.045] hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/60 motion-reduce:transition-none"
-                  aria-label="Close trace details"
+                  aria-label="Close details"
                 >
                   <X className="h-4 w-4" aria-hidden="true" />
                 </button>

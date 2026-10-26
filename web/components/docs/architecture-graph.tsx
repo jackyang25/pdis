@@ -55,7 +55,9 @@ type VisibleArchitectureNode = ArchitectureNodeContract & {
 type ArchitectureFlowNode = Node<VisibleArchitectureNode, "architecture">;
 
 const NODE_WIDTH = 218;
-const NODE_HEIGHT = 124;
+// What the node holds at its clamps: a label row, two lines of title, two of summary and the
+// kind line, about 136px. At 124 the column squeezed the clamped text and cut lines through.
+const NODE_HEIGHT = 140;
 
 // Kind dots read from the shared tone tokens, so light/dark values and their
 // contrast floor live in `globals.css` rather than in this component.
@@ -86,10 +88,10 @@ function ArchitectureNode({ data, selected }: NodeProps<ArchitectureFlowNode>) {
         </span>
         <span className={cn("h-1.5 w-1.5 shrink-0 rounded-full", meta.dot)} />
       </div>
-      <p className="mt-2 line-clamp-2 text-xs font-semibold leading-[1.35] text-foreground">
+      <p className="mt-2 line-clamp-2 shrink-0 text-xs font-semibold leading-[1.35] text-foreground">
         {data.title}
       </p>
-      <p className="mt-1 line-clamp-2 text-[11px] leading-[1.45] text-muted-foreground">
+      <p className="mt-1 line-clamp-2 shrink-0 text-[11px] leading-[1.45] text-muted-foreground">
         {data.summary}
       </p>
       <p className="mt-auto truncate pt-1.5 text-[10px] font-medium text-muted-foreground">
@@ -140,7 +142,7 @@ function visibleGraph(
 
 function layoutGraph(graph: ArchitectureGraphContract, expandedNodeId: string | null) {
   const visible = visibleGraph(graph, expandedNodeId);
-  const positions = layoutDirectedGraph(
+  const { positions, routes } = layoutDirectedGraph(
     visible.nodes.map((node) => ({ id: node.id, width: NODE_WIDTH, height: NODE_HEIGHT })),
     // Labelled edges (Scout's two result lanes) reserve room for their 9px
     // label so the layout keeps it clear of the adjacent node.
@@ -168,6 +170,7 @@ function layoutGraph(graph: ArchitectureGraphContract, expandedNodeId: string | 
     source: edge.source,
     target: edge.target,
     type: GRAPH_EDGE_TYPE,
+    data: { route: routes[index] },
     label: edge.label,
     labelStyle: { fontSize: 9, fill: "hsl(var(--muted-foreground))" },
     labelBgStyle: { fill: "hsl(var(--card))", fillOpacity: 0.9 },

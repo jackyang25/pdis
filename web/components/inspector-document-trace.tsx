@@ -11,7 +11,6 @@ import {
 import {
   TracePanelHeader,
   TracePanelBody,
-  TraceBlockCitationNote,
   TracePanelSection,
   TracePassageList,
 } from "@/components/document-trace-panel";
@@ -78,10 +77,9 @@ function InspectorTraceInspector({
         >
           {absent ? (
             <p className="mt-2 text-xs leading-5 text-muted-foreground">
-              This finding describes content that is absent, so it cites no source passage. It is shown beside the section it belongs to rather than attached to unrelated text.
+              Absent content cites no passage, so it is marked at the end of the section it belongs to.
             </p>
-          ) : <TraceBlockCitationNote />}
-          {!absent && (
+          ) : (
             <TracePassageList
               passages={passages.passages}
               openedBlockId={connection.blockId}

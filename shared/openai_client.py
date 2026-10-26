@@ -153,7 +153,7 @@ class OpenAIClient:
                         "schema": schema,
                     },
                 },
-                timeout=structured_timeout(max_tokens),
+                timeout=structured_timeout(max_tokens, task),
                 **policy,
             )
         except Exception as exc:  # noqa: BLE001

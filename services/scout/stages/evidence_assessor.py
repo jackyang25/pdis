@@ -99,14 +99,20 @@ def assess_evidence(
             effort=EFFORT,
         )
     except RECORDABLE_FAILURES as exc:
-        return EvidenceAssessment(
-            attribute_ref=attribute.name,
-            strength=NOT_ASSESSED,
-            reason=str(exc),
-            doc_target=attribute.document_target,
-            doc_block_ids=list(attribute.block_ids),
-            failure_code=failure_code(exc),
-        )
+        return not_assessed_assessment(attribute, str(exc), failure_code(exc))
+
+
+def not_assessed_assessment(attribute: Attribute, reason: str, code: str) -> EvidenceAssessment:
+    """The record for a variable a stage obtained no grounding for: this one's call, or the
+    reading of its evidence before it. The reason is the pipeline's diagnostic."""
+    return EvidenceAssessment(
+        attribute_ref=attribute.name,
+        strength=NOT_ASSESSED,
+        reason=reason,
+        doc_target=attribute.document_target,
+        doc_block_ids=list(attribute.block_ids),
+        failure_code=code,
+    )
 
 
 def no_evidence_assessment(attribute: Attribute) -> EvidenceAssessment:

@@ -8,13 +8,19 @@ import { semanticSlotLabel, dimensionLabel, comparisonRuleLabel, comparisonDimen
 import { reviewRecommendationReason } from "@/lib/scout-labels";
 import { DisclosureSummary } from "@/components/ui/disclosure-summary";
 
-export function TargetQualifierSource({ target, dimension }: {
+export function TargetQualifierSource({ target, dimension, besides }: {
   target?: QuantitativeTarget | null;
   dimension: keyof QuantitativeSemanticProfile;
+  /**
+   * Passages already open beside this qualifier. A qualifier read from them alone needs no
+   * second trigger to the same passage: on a one-cell target, every qualifier repeated it.
+   */
+  besides?: readonly string[];
 }) {
   const spans = target?.semantic_provenance[dimension] ?? [];
-  if (spans.length === 0) return null;
-  return <DocumentSourceTrace spans={spans} blockIds={[...new Set(spans.flatMap(span => span.block_ids))]} />;
+  const blockIds = [...new Set(spans.flatMap(span => span.block_ids))];
+  if (blockIds.length === 0 || (besides && blockIds.every(id => besides.includes(id)))) return null;
+  return <DocumentSourceTrace spans={spans} blockIds={blockIds} />;
 }
 
 /** Keep extracted document content separate from the authored matching rule. */

@@ -8,9 +8,8 @@ import {
   useMemo,
   useState,
 } from "react";
-import { Check, Copy, FileText, LocateFixed, X } from "lucide-react";
+import { FileText, LocateFixed, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { BlockReferenceId } from "@/components/block-reference";
 import { TracePanelHeader } from "@/components/document-trace-panel";
 import type { ContentBlock, DocumentSpan } from "@/lib/api";
 import { sourcePassageAriaLabel } from "@/lib/block-reference";
@@ -143,7 +142,6 @@ function SourcePassagePanel({
   onClose: () => void;
 }) {
   const { blocksById, onOpenInTrace } = useContext(DocumentSourceContext);
-  const [copiedBlockId, setCopiedBlockId] = useState<string | null>(null);
   const selectedBlock = blocksById.get(selectedBlockId) ?? null;
   const selectedQuotes = Array.from(new Set(
     spans
@@ -171,23 +169,12 @@ function SourcePassagePanel({
     ? displayDocumentName(citedDocuments[0])
     : spansDocuments ? "Uploaded documents" : "Uploaded document";
 
-  async function copyBlockId(blockId: string) {
-    try {
-      await navigator.clipboard.writeText(blockId);
-      setCopiedBlockId(blockId);
-      window.setTimeout(() => setCopiedBlockId(null), 1400);
-    } catch {
-      setCopiedBlockId(null);
-    }
-  }
-
   return (
     <>
       <TracePanelHeader
         eyebrow="Source passage"
         className="sticky top-0 z-10 bg-card"
         title={panelTitle}
-        description="Passages cited by this result."
         action={<Button type="button" variant="ghost" size="icon" className="h-8 w-8" aria-label="Close source passages" onClick={onClose}><X className="h-4 w-4" aria-hidden="true" /></Button>}
       />
       <div className={uniqueBlockIds.length > 1 ? "grid min-h-0 sm:grid-cols-[180px_minmax(0,1fr)]" : "min-h-0"}>
@@ -214,16 +201,16 @@ function SourcePassagePanel({
                       : "text-muted-foreground hover:bg-foreground/[0.045] hover:text-foreground"
                   }`}
                 >
-                  <span className={cn("block", EYEBROW)}>
-                    Passage {index + 1}
-                  </span>
-                  {block && (
+                  {/* Named by where it is. Only a passage the file no longer holds is named
+                      by its place in this list, which is then all that tells it apart. */}
+                  {block ? (
                     <PassageSource
-                      className="mt-1"
                       format={block.source_format}
                       document={spansDocuments ? displayDocumentName(block.doc_id) : undefined}
                       location={documentBlockLocationLabel(block)}
                     />
+                  ) : (
+                    <span className={cn("block", EYEBROW)}>Passage {index + 1}</span>
                   )}
                   <span className="mt-1 line-clamp-2 text-xs leading-relaxed text-muted-foreground">
                     {block ? passagePreview(block) : "Source passage unavailable"}
@@ -248,23 +235,17 @@ function SourcePassagePanel({
                   />
                 )}
                 <p className="break-words text-xs font-semibold text-foreground">{selectedHeading}</p>
-                <p className="mt-0.5 text-[10px] capitalize text-muted-foreground">
-                  {selectedBlock.block_type.replaceAll("_", " ")} · passage {selectedBlock.ordinal + 1}
-                </p>
               </div>
               {selectedBlock.image && (
                 <DocumentVisual block={selectedBlock} />
               )}
               {selectedBlock.content && selectedBlock.block_type !== "image" && (
                 <section className="mt-3">
-                  <p className={EYEBROW}>
-                    Passage
-                  </p>
                   {/* The cited words marked where they sit, not repeated above. Showing them
                       in their own box and again inside the passage was the same sentence
                       twice, and left the reader matching two strings to find which part of
                       the passage was actually cited. */}
-                  <p className="mt-1.5 whitespace-pre-wrap break-words text-xs leading-6 text-foreground">
+                  <p className="whitespace-pre-wrap break-words text-xs leading-6 text-foreground">
                     {citedPassage.segments.map((segment, index) =>
                       segment.cited ? (
                         <CitedMark key={index}>{segment.text}</CitedMark>
@@ -295,23 +276,10 @@ function SourcePassagePanel({
               detail="This imported result references the passage but does not retain its source content."
             />
           )}
-          <footer className="mt-4 flex flex-wrap items-center gap-2 border-t border-border/60 pt-3">
-            <span className={EYEBROW}>Block ID</span>
-            <BlockReferenceId
-              blockId={selectedBlockId}
-              className="min-w-0 flex-1 truncate text-[10px] text-muted-foreground"
-            />
-            <button
-              type="button"
-              onClick={() => void copyBlockId(selectedBlockId)}
-              aria-label={`Copy block ID ${selectedBlockId}`}
-              className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-muted-foreground outline-none transition-colors hover:bg-foreground/[0.045] hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/60 motion-reduce:transition-none"
-            >
-              {copiedBlockId === selectedBlockId
-                ? <Check className="h-3.5 w-3.5" />
-                : <Copy className="h-3.5 w-3.5" />}
-            </button>
-            {onOpenInTrace && selectedBlock && (
+          {/* The passage's place in the document is the action a reader takes from here.
+              Its block ID and a copy button sat beside it: an internal address, read by no one. */}
+          {onOpenInTrace && selectedBlock && (
+          <footer className="mt-4 flex justify-end border-t border-border/60 pt-3">
               <button
                 type="button"
                 onClick={() => {
@@ -325,8 +293,8 @@ function SourcePassagePanel({
                 <LocateFixed className="h-3.5 w-3.5" aria-hidden="true" />
                 View in document
               </button>
-            )}
           </footer>
+          )}
         </article>
       </div>
     </>

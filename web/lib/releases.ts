@@ -33,6 +33,7 @@ export const RELEASES: readonly Release[] = [
         title: "Scout",
         changes: [
           "At the review checkpoint, choose which fields to search. Fewer fields make a faster run.",
+          "If one field’s evidence cannot be read, that field is marked Not assessed and the rest of the run finishes, instead of the whole run stopping.",
           "Review explanations are written in plain words.",
         ],
       },
@@ -48,6 +49,7 @@ export const RELEASES: readonly Release[] = [
         changes: [
           "Report a problem with any finding: an email opens with the finding’s details filled in.",
           "Clicking a highlighted passage in a PDF opens its details, and each tool’s Documents view opens on a layer with marks.",
+          "The Documents view reads more cleanly: tables show every column without scrolling sideways, and each cited passage names its document and section in full.",
           "Clearer error messages, a visible keyboard focus, and one consistent look for buttons, counts and lists.",
           "Closing a tab now stops its run, and a dropped connection no longer leaves a run waiting.",
         ],

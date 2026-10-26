@@ -30,7 +30,7 @@ export function TracePanelHeader({
   action,
   className,
 }: {
-  eyebrow: string;
+  eyebrow?: string;
   title: string;
   description?: ReactNode;
   action?: ReactNode;
@@ -42,12 +42,11 @@ export function TracePanelHeader({
     // Pinned while it holds the panel's close control, so the × stays in reach however far
     // the panel below it has been scrolled.
     <header className={cn("border-b border-border/60 px-4 py-3.5", !action && close && "sticky top-0 z-10 bg-card", className)}>
-      <div className="flex min-w-0 items-start justify-between gap-3">
+      {/* A title alone centres on the close control; under an eyebrow it keeps to the top. */}
+      <div className={cn("flex min-w-0 justify-between gap-3", eyebrow ? "items-start" : "items-center")}>
         <div className="min-w-0">
-          <p className={EYEBROW}>
-            {eyebrow}
-          </p>
-          <h3 className="mt-1 text-balance text-sm font-semibold leading-tight text-foreground">
+          {eyebrow && <p className={EYEBROW}>{eyebrow}</p>}
+          <h3 className="mt-1 text-balance first:mt-0 text-sm font-semibold leading-tight text-foreground">
             {title}
           </h3>
         </div>
@@ -93,15 +92,6 @@ export function TracePanelBody({ children }: { children: ReactNode }) {
     <div className="space-y-4 px-4 py-4 [&>section:first-child]:border-t-0 [&>section:first-child]:pt-0">
       {children}
     </div>
-  );
-}
-
-/** Block citations identify whole passages, not exact quoted spans. */
-export function TraceBlockCitationNote() {
-  return (
-    <p className="mt-2 text-xs leading-5 text-muted-foreground">
-      Cited passages are marked in full, not as exact quotations.
-    </p>
   );
 }
 

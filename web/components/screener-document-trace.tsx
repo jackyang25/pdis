@@ -11,7 +11,6 @@ import {
 import {
   TracePanelHeader,
   TracePanelBody,
-  TraceBlockCitationNote,
   TracePanelSection,
   TracePassageList,
 } from "@/components/document-trace-panel";
@@ -77,7 +76,6 @@ function ScreenerTraceInspector({
           label="Source passages"
           icon={Link2}
         >
-          <TraceBlockCitationNote />
           <TracePassageList
             passages={passages.passages}
             openedBlockId={connection.blockId}

@@ -12,6 +12,7 @@ import {
   documentTraceSegmentsInRange,
   filterDocumentAnnotations,
   groupDocumentTraceMarkers,
+  passagePreview,
   strongestEmphasis,
   type DocumentAnnotation,
 } from "./document-trace.ts";
@@ -880,4 +881,19 @@ test("a document image reserves its own box before it decodes", () => {
   );
   // The shared visual renderer's DOM checks live in document-visual-render.test.ts.
   assert.match(viewer, /<DocumentVisual block=\{traceBlock\.block\}/);
+});
+
+test("a table row previews its values, not the headers every row repeats", () => {
+  const block = {
+    id: "doc/b-1", doc_id: "doc", ordinal: 1, block_type: "table_row", content: "Variable: Efficacy, Minimum: 70%",
+    heading_stack: [], section_label: null, style_hint: {}, image: null,
+    structural_meta: {
+      column_headers: ["Variable", "Minimum"],
+      table_cells: [
+        { column_index: 0, header: "Variable", value: "Efficacy", content_start: 0, content_end: 18, value_start: 10, value_end: 18 },
+        { column_index: 1, header: "Minimum", value: "70%", content_start: 20, content_end: 32, value_start: 29, value_end: 32 },
+      ],
+    },
+  } as unknown as ContentBlock;
+  assert.equal(passagePreview(block), "Efficacy · 70%");
 });

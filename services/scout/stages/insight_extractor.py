@@ -43,8 +43,9 @@ def extract_insights(
     if len(findings_by_key) != len(findings):
         raise ValueError("an insight batch holds one entry per record")
 
-    # A batch that never returns a valid answer fails the run: returning no insights
-    # would read exactly like findings that said nothing about this variable.
+    # A batch that never returns a valid answer raises rather than returning no insights,
+    # which would read exactly like findings that said nothing about this variable. The
+    # pipeline records the field not assessed (`UnreadField`) and the run goes on.
     parsed = request_validated(
         llm_client,
         insight_batch(list(findings_by_key)),

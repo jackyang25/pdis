@@ -124,14 +124,20 @@ def classify_precedent(
             effort=EFFORT,
         )
     except RECORDABLE_FAILURES as exc:
-        return PrecedentSignal(
-            attribute_ref=attribute.name,
-            precedent=NOT_ASSESSED,
-            outcome=NOT_ASSESSED,
-            reason=str(exc),
-            doc_block_ids=list(attribute.block_ids),
-            failure_code=failure_code(exc),
-        )
+        return not_assessed_precedent(attribute, str(exc), failure_code(exc))
+
+
+def not_assessed_precedent(attribute: Attribute, reason: str, code: str) -> PrecedentSignal:
+    """The record for a variable a stage obtained no precedent for, on both axes: this
+    one's call, or the reading of its evidence before it."""
+    return PrecedentSignal(
+        attribute_ref=attribute.name,
+        precedent=NOT_ASSESSED,
+        outcome=NOT_ASSESSED,
+        reason=reason,
+        doc_block_ids=list(attribute.block_ids),
+        failure_code=code,
+    )
 
 
 def no_evidence_precedent(attribute: Attribute) -> PrecedentSignal:

@@ -11,7 +11,7 @@ from __future__ import annotations
 import copy
 from datetime import date
 from pathlib import Path
-from typing import Callable, TypeVar
+from typing import Callable, NamedTuple, TypeVar
 
 from services.chunker import ContentBlock, run_pipeline as chunker_run
 from services.searcher import (
@@ -31,6 +31,7 @@ from .context import (
 )
 from .contract import require_field_selection, validate_result_contract
 from .lineage import RetrievalLineage
+from shared.ai import RECORDABLE_FAILURES, failure_code
 from shared.batching import budgeted_batches, map_ordered
 from shared.errors import ModelResponseError
 from shared.source_blocks import image_inputs
@@ -72,11 +73,19 @@ from .stages.conformity import (
 )
 from .stages.context_validator import mismatch_message, validate_document_context
 from .stages.drift_classifier import classify_drift
-from .stages.evidence_assessor import assess_evidence, no_evidence_assessment
+from .stages.evidence_assessor import (
+    assess_evidence,
+    no_evidence_assessment,
+    not_assessed_assessment,
+)
 from .stages.evidence_reviewer import prefill_evidence_review
 from .stages.insight_extractor import extract_insights
 from .stages.insight_reconciler import reconcile_duplicate_insights
-from .stages.precedent_classifier import classify_precedent, no_evidence_precedent
+from .stages.precedent_classifier import (
+    classify_precedent,
+    no_evidence_precedent,
+    not_assessed_precedent,
+)
 from .stages.projection_classifier import classify_projection_relationships
 from .stages.projection_reconciler import reconcile_projection_names
 from .stages.announcement_reader import read_announcements
@@ -100,6 +109,20 @@ SEARCH_MAX_TOKENS = 8000
 # Parallelism for Scout's LLM reasoning fan-outs. Retrieval concurrency belongs
 # to each Searcher source adapter and is not duplicated here.
 MAX_WORKERS = 32
+
+
+class UnreadField(NamedTuple):
+    """A field whose retrieved evidence could not be read: one of its insight batches failed.
+
+    The failure is the field's, not the run's. A stalled or invalid call for one field
+    used to end a run of thirty, after most of its time was spent. The field is recorded
+    ``not_assessed`` on grounding and precedent with this reason and code, and its other
+    batches are set aside with it: judged on part of its evidence, it would read as judged
+    on all of it.
+    """
+
+    reason: str
+    failure_code: str
 QUANTITATIVE_EXTRACTION_WORKERS = 8
 
 
@@ -437,7 +460,7 @@ def continue_pipeline(
 
     if progress_callback:
         progress_callback("insights")
-    insights, insight_reconciliations = _extract_insights_all_variables(
+    insights, insight_reconciliations, unread = _extract_insights_all_variables(
         findings_by_attribute,
         attribute_descriptions,
         RetrievalLineage(search_tasks),
@@ -480,6 +503,7 @@ def continue_pipeline(
         intervention_class=intervention_class,
         framing=config.evidence_framing,
         attribute_images=attribute_images,
+        unread=unread,
         progress=progress_callback,
     )
 
@@ -514,6 +538,7 @@ def continue_pipeline(
         intervention_class=intervention_class,
         framing=config.precedent_framing,
         attribute_images=attribute_images,
+        unread=unread,
         progress=progress_callback,
     )
 
@@ -782,9 +807,12 @@ def _extract_insights_all_variables(
     indication: str,
     intervention_class: str,
     progress: ProgressFn | None = None,
-) -> tuple[list[Insight], list[IdentityReconciliation]]:
+) -> tuple[list[Insight], list[IdentityReconciliation], dict[str, UnreadField]]:
     """Run insight extraction concurrently across all (variable, finding-batch)
     units, then decide their identity once per field.
+
+    A batch that fails leaves its field unread (`UnreadField`) and the rest of the run
+    going; a programming error still raises.
 
     Every evidence-role finding is retained; reference-role records are excluded
     because they carry catalog metadata rather than evidence. Batches are bounded
@@ -793,7 +821,7 @@ def _extract_insights_all_variables(
     statements are one fact is `insight_reconciler`'s, after all batches."""
     items = list(findings_by_attribute.items())
     if not items:
-        return [], []
+        return [], [], {}
 
     # Flatten to independent (attribute_ref, batch) units in document-variable order.
     #
@@ -812,25 +840,38 @@ def _extract_insights_all_variables(
         )
     ]
     if not batch_tasks:
-        return [], []
+        return [], [], {}
 
-    def one(task: tuple[str, list[Finding]]) -> list[Insight]:
+    def one(task: tuple[str, list[Finding]]) -> list[Insight] | UnreadField:
         attribute_ref, batch = task
-        return extract_insights(
-            batch,
-            openai_client,
-            indication=indication,
-            intervention_class=intervention_class,
-            attribute_ref=attribute_ref,
-            attribute_description=attribute_descriptions.get(attribute_ref, ""),
-            lineage=lineage,
-        )
+        try:
+            return extract_insights(
+                batch,
+                openai_client,
+                indication=indication,
+                intervention_class=intervention_class,
+                attribute_ref=attribute_ref,
+                attribute_description=attribute_descriptions.get(attribute_ref, ""),
+                lineage=lineage,
+            )
+        except RECORDABLE_FAILURES as exc:
+            return UnreadField(f"Its evidence could not be read: {exc}", failure_code(exc))
 
     results = _parallel_map(
         batch_tasks, one, workers=MAX_WORKERS, stage="insights", progress=progress
     )
-    insights = [insight for batch_insights in results for insight in batch_insights]
-    return reconcile_duplicate_insights(insights, openai_client)
+    unread: dict[str, UnreadField] = {}
+    for (attribute_ref, _), result in zip(batch_tasks, results):
+        if isinstance(result, UnreadField):
+            unread.setdefault(attribute_ref, result)
+    insights = [
+        insight
+        for (attribute_ref, _), result in zip(batch_tasks, results)
+        if attribute_ref not in unread and not isinstance(result, UnreadField)
+        for insight in result
+    ]
+    reconciled, reconciliations = reconcile_duplicate_insights(insights, openai_client)
+    return reconciled, reconciliations, unread
 
 
 def _interleave_by_evidence_class(findings: list[Finding]) -> list[Finding]:
@@ -1013,9 +1054,11 @@ def _assess_evidence_all_variables(
     intervention_class: str,
     framing: str = "",
     attribute_images: dict[str, list[dict[str, str]]] | None = None,
+    unread: dict[str, UnreadField] | None = None,
     progress: ProgressFn | None = None,
 ) -> list[EvidenceAssessment]:
-    """Assess evidence per attribute with bounded concurrency."""
+    """Assess evidence per attribute with bounded concurrency. A field whose evidence
+    could not be read is `not_assessed` with that failure, without a call."""
     if not attributes:
         return []
     insights_by_attribute = _group_insights_by_attribute(
@@ -1023,6 +1066,8 @@ def _assess_evidence_all_variables(
     )
 
     def one(attribute: Attribute) -> EvidenceAssessment:
+        if failed := (unread or {}).get(attribute.name):
+            return not_assessed_assessment(attribute, failed.reason, failed.failure_code)
         return assess_evidence(
             attribute,
             attribute_contexts.get(attribute.name, ""),
@@ -1081,12 +1126,14 @@ def _classify_precedent_all_variables(
     intervention_class: str,
     framing: str = "",
     attribute_images: dict[str, list[dict[str, str]]] | None = None,
+    unread: dict[str, UnreadField] | None = None,
     progress: ProgressFn | None = None,
 ) -> list[PrecedentSignal]:
     """Classify precedent per attribute with bounded concurrency.
 
     One signal per searchable attribute: a variable no insight reached is recorded
-    ``no_evidence`` without a call, never dropped."""
+    ``no_evidence`` without a call, never dropped, and one whose evidence could not be
+    read is ``not_assessed`` with that failure, also without a call."""
     if not attributes:
         return []
     insights_by_attribute = _group_insights_by_attribute(
@@ -1094,6 +1141,8 @@ def _classify_precedent_all_variables(
     )
 
     def one(attribute: Attribute) -> PrecedentSignal:
+        if failed := (unread or {}).get(attribute.name):
+            return not_assessed_precedent(attribute, failed.reason, failed.failure_code)
         return classify_precedent(
             attribute,
             attribute_contexts.get(attribute.name, ""),

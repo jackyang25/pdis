@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { EYEBROW } from "@/lib/typography";
 import { cn } from "@/lib/utils";
 
 /** Reading-position navigation belongs to docs, not the application's tool tabs. */
@@ -31,11 +32,14 @@ export function DocsNavigation({ entries }: { entries: readonly (readonly [strin
   return (
     <aside className="hidden lg:block">
       <nav aria-label="Documentation sections" className="sticky top-24 max-h-[calc(100dvh-7rem)] overflow-y-auto">
-        <p className="px-3 text-xs font-semibold uppercase tracking-wide text-muted-foreground">On this page</p>
-        <div className="mt-3 space-y-1">
+        <p className={cn("ps-3", EYEBROW)}>On this page</p>
+        {/* A straight rail with the current section's bar on it. The bar was the left border
+            of a rounded box, so it bent at both ends, and keyboard focus drew a ring around
+            the item; focus is now the same tint hover would give. */}
+        <div className="mt-3 border-s border-border">
           {entries.map(([id, label]) => (
             <a key={id} href={`#${id}`} aria-current={active === id ? "location" : undefined}
-              className={cn("block border-s-2 border-transparent px-3 py-2 text-xs text-muted-foreground transition-colors hover:text-foreground rounded-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/60 motion-reduce:transition-none",
+              className={cn("-ms-px block border-s-2 border-transparent py-1.5 ps-3 text-xs text-muted-foreground transition-colors hover:text-foreground focus-visible:bg-foreground/[0.045] focus-visible:text-foreground focus-visible:outline-none motion-reduce:transition-none",
                 active === id && "border-foreground font-medium text-foreground")}>
               {label}
             </a>

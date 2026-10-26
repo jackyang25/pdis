@@ -1,6 +1,7 @@
 import type { Tone } from "./tone.ts";
 import { documentBlockLocationLabel, documentVisualLabel } from "./document-extraction.ts";
 import type { ContentBlock } from "./api.ts";
+import { documentTableCells } from "./document-block-presentation.ts";
 
 /**
  * Whole-block emphasis for an annotation whose granularity *is* the block.
@@ -183,10 +184,16 @@ const PASSAGE_PREVIEW_LIMIT = 110;
 /**
  * A passage's opening words, for every list of passages. An image block is named for what it
  * is, because its content is the parser's `[image]` placeholder, which reads as a broken quote.
+ * A table row is its cells' values: its content repeats every column header, so its opening
+ * words were the headers, and every row of one table previewed alike.
  */
 export function passagePreview(block: ContentBlock): string {
   if (block.block_type === "image") return documentVisualLabel(block);
-  const flat = block.content.replace(/\s+/g, " ").trim();
+  const row = documentTableCells(block);
+  const text = row
+    ? row.cells.map((cell) => cell.value.trim()).filter(Boolean).join(" · ")
+    : block.content;
+  const flat = text.replace(/\s+/g, " ").trim();
   if (flat.length <= PASSAGE_PREVIEW_LIMIT) return flat;
   // Cut back to a word boundary: a preview ending mid-word reads as corruption.
   return `${flat.slice(0, PASSAGE_PREVIEW_LIMIT).replace(/\s+\S*$/, "")}…`;

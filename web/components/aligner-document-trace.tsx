@@ -11,7 +11,6 @@ import {
 import {
   TracePanelHeader,
   TracePanelBody,
-  TraceBlockCitationNote,
   TracePanelSection,
   TracePassageList,
 } from "@/components/document-trace-panel";
@@ -84,11 +83,11 @@ function AlignerTraceInspector({
           label={isRequirement ? "Where the bar is stated" : "Source passages"}
           icon={connection.type === "exact" ? FileText : Link2}
         >
-          {isRequirement ? (
+          {isRequirement && (
             <p className="mt-2 text-xs leading-5 text-muted-foreground">
               These passages state the requirement. Its assessment is marked in the comparison document.
             </p>
-          ) : connection.type === "block" ? <TraceBlockCitationNote /> : null}
+          )}
           <TracePassageList
             passages={passages.passages}
             openedBlockId={connection.blockId}

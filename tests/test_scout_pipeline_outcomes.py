@@ -1,4 +1,5 @@
-"""Pipeline-level outcomes: stamped provenance and runs that stop rather than conclude."""
+"""Pipeline-level outcomes: stamped provenance, runs that stop rather than conclude, and
+failures kept to the field they happened to."""
 
 from __future__ import annotations
 
@@ -73,7 +74,7 @@ class ContinuationStampTests(unittest.TestCase):
         def extract(*_args, indication, intervention_class, **_kwargs):
             seen.update(indication=indication, intervention_class=intervention_class)
             return [Insight(statement="A fact.", supporting_findings=[finding],
-                            attribute_ref="efficacy")], []
+                            attribute_ref="efficacy")], [], {}
 
         def stop(_contexts, insights, *_args, **_kwargs):
             raise _Stop(insights)
@@ -179,3 +180,86 @@ class AvailableConfigTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class UnreadFieldTests(unittest.TestCase):
+    """One field's evidence failing to be read is that field's, not the run's."""
+
+    @staticmethod
+    def _finding(key: str) -> Finding:
+        return Finding(url=f"https://example.test/{key}", title=key, excerpt="x", source="pubmed",
+                       query="q", retrieved_at=datetime.now(timezone.utc), record_key=f"pubmed:{key}")
+
+    def _extract(self, fail):
+        """Insights for every batch, except where `fail(field, batch)` names an exception."""
+        def extract(batch, _client, *, attribute_ref, **_kwargs):
+            if (error := fail(attribute_ref, batch)) is not None:
+                raise error
+            return [Insight(statement=f"{attribute_ref} fact", supporting_findings=batch,
+                            attribute_ref=attribute_ref)]
+        return extract
+
+    def _run(self, fail, findings_by_attribute):
+        with (
+            patch.object(pipeline, "extract_insights", side_effect=self._extract(fail)),
+            patch.object(pipeline, "reconcile_duplicate_insights",
+                         side_effect=lambda insights, _client: (insights, [])),
+            # One finding per batch, so a field can hold a batch that succeeds and one that fails.
+            patch.object(pipeline, "_finding_batches", side_effect=lambda findings: [[f] for f in findings]),
+        ):
+            return pipeline._extract_insights_all_variables(
+                findings_by_attribute, {}, pipeline.RetrievalLineage(()), object(),
+                indication="malaria", intervention_class="vaccine",
+            )
+
+    def test_a_failed_batch_leaves_its_field_unread_and_the_others_read(self) -> None:
+        import httpx
+        import openai
+
+        stalled = openai.APITimeoutError(request=httpx.Request("POST", "https://gateway.test"))
+        insights, _, unread = self._run(
+            lambda field, batch: stalled if batch[0].title == "e2" else None,
+            {"efficacy": [self._finding("e1"), self._finding("e2")],
+             "safety": [self._finding("s1")]},
+        )
+
+        # The failed field's batch that succeeded is set aside with it: judged on part of
+        # its evidence, it would read as judged on all of it.
+        self.assertEqual([insight.attribute_ref for insight in insights], ["safety"])
+        self.assertEqual(set(unread), {"efficacy"})
+        self.assertEqual(unread["efficacy"].failure_code, "provider_error")
+        self.assertIn("could not be read", unread["efficacy"].reason)
+        self.assertIn("timed out", unread["efficacy"].reason)
+
+    def test_an_invalid_answer_keeps_its_code(self) -> None:
+        _, _, unread = self._run(
+            lambda field, _batch: ModelResponseError("no valid answer") if field == "safety" else None,
+            {"efficacy": [self._finding("e1")], "safety": [self._finding("s1")]},
+        )
+        self.assertEqual(unread["safety"].failure_code, "invalid_model_response")
+
+    def test_a_programming_error_still_stops_the_run(self) -> None:
+        with self.assertRaises(KeyError):
+            self._run(lambda *_: KeyError("bug"), {"efficacy": [self._finding("e1")]})
+
+    def test_an_unread_field_is_not_assessed_on_grounding_and_precedent_without_a_call(self) -> None:
+        unread = {"efficacy": pipeline.UnreadField("Its evidence could not be read: Request timed out.",
+                                                   "provider_error")}
+        never = AssertionError("an unread field was judged")
+        with (
+            patch.object(pipeline, "assess_evidence", side_effect=never),
+            patch.object(pipeline, "classify_precedent", side_effect=never),
+        ):
+            assessment, = pipeline._assess_evidence_all_variables(
+                [_attribute()], {}, [], object(), indication="malaria",
+                intervention_class="vaccine", unread=unread,
+            )
+            signal, = pipeline._classify_precedent_all_variables(
+                [_attribute()], {}, [], object(), indication="malaria",
+                intervention_class="vaccine", unread=unread,
+            )
+
+        self.assertEqual((assessment.strength, assessment.failure_code), ("not_assessed", "provider_error"))
+        self.assertEqual(assessment.reason, unread["efficacy"].reason)
+        self.assertEqual((signal.precedent, signal.outcome, signal.failure_code),
+                         ("not_assessed", "not_assessed", "provider_error"))

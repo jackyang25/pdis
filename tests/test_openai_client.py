@@ -194,10 +194,18 @@ class StallRetryTests(unittest.TestCase):
     def test_sending_has_its_own_short_window_and_the_answer_keeps_its_budget(self) -> None:
         from shared.transport import SEND_TIMEOUT_SECONDS, structured_timeout
 
-        window = structured_timeout(16000)
+        window = structured_timeout(16000, "reasoning")
         self.assertEqual(window.write, SEND_TIMEOUT_SECONDS)
         self.assertEqual(window.pool, SEND_TIMEOUT_SECONDS)
         self.assertGreater(window.read, SEND_TIMEOUT_SECONDS)
+
+    def test_a_fast_call_is_given_its_own_tiers_window(self) -> None:
+        """The fast tier writes about three times as fast, so it stalls three times sooner."""
+        from shared.transport import MAX_READ_SECONDS, structured_timeout
+
+        fast, reasoning = (structured_timeout(24000, task).read for task in ("fast", "reasoning"))
+        self.assertEqual(reasoning, MAX_READ_SECONDS)
+        self.assertLess(fast, reasoning / 1.5)
 
     def test_a_server_error_is_still_retried(self) -> None:
         def busy(request):

@@ -48,10 +48,10 @@ function ScoutTraceInspector({
   const connectionLabel = connection.type === "exact"
     ? "Exact source passage"
     : connection.type === "unavailable"
-      ? "Unavailable source connection"
+      ? "Passage not in this file"
       : connection.markerReason === "quote_unmatched"
         ? "Unmatched source passage"
-        : "Source passage connection";
+        : "Source passage";
   const unavailableBlockIds = new Set(connection.unavailableBlockIds ?? []);
   const hasRetainedCitation = annotation.blockIds.some((blockId) => !unavailableBlockIds.has(blockId));
 

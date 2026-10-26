@@ -238,7 +238,7 @@ class ContinuationTests(unittest.TestCase):
             build_development_landscape=lambda *_a, **_k: [],
             build_safety_observations=lambda *_a, **_k: [],
             classify_projection_relationships=names("projections", ([], [])),
-            _extract_insights_all_variables=lambda *_a, **_k: ([insight], []),
+            _extract_insights_all_variables=lambda *_a, **_k: ([insight], [], {}),
             _classify_drift_all=lambda *_a, **_k: [match],
             _assess_evidence_all_variables=names("evidence", [source.assessments[0]]),
             _score_conformity_all_variables=names("conformity", []),

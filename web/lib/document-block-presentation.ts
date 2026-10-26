@@ -25,6 +25,12 @@ export type DocumentTableCell = {
   value: string;
   contentStart: number;
   contentEnd: number;
+  /**
+   * Where the header's own words end. The parser joins header and value with ": ", so
+   * the header ends there, not at the value: a header drawn to the value showed the
+   * separator as if the document had written it.
+   */
+  headerEnd: number;
   valueStart: number;
   valueEnd: number;
 };
@@ -79,18 +85,38 @@ export function documentTableCells(block: ContentBlock): DocumentTableRow | null
       return null;
     }
     seenColumns.add(columnIndex);
+    const headerEnd = contentStart + header.length;
     cells.push({
       columnIndex,
       header,
       value,
       contentStart,
       contentEnd,
+      headerEnd: block.content.slice(contentStart, headerEnd) === header && headerEnd <= valueStart
+        ? headerEnd
+        : valueStart,
       valueStart,
       valueEnd,
     });
   }
 
   return { columnCount: headers.length, cells };
+}
+
+/**
+ * Whether a table row carries on the table of the row before it, by the same column headers.
+ *
+ * The parser repeats the headers in every row, so each row's cells can be cited alone. A
+ * reader needs them once: the trace states them in full on a table's first row and in one
+ * line on the rows after, where they still name a column for a reader who arrives mid-table.
+ */
+export function documentTableRowContinues(
+  previous: ContentBlock | undefined,
+  block: ContentBlock,
+): boolean {
+  if (!previous || previous.block_type !== "table_row" || block.block_type !== "table_row") return false;
+  const headers = (row: ContentBlock) => JSON.stringify(row.structural_meta.column_headers ?? null);
+  return headers(previous) === headers(block);
 }
 
 export function documentTraceRailMode(

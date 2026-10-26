@@ -20,6 +20,8 @@ from typing import Callable, Iterator
 
 import httpx
 
+from shared.ai import ModelTask
+
 #: Connection establishment is cheap and its failures transient, so it keeps a short
 #: limit and the SDK's retries.
 CONNECT_TIMEOUT_SECONDS = 10.0
@@ -42,21 +44,24 @@ MAX_RETRIES = 4
 DEFAULT_READ_SECONDS = 300.0
 
 #: A budgeted call's window: a fixed allowance for queueing and the prompt, plus the
-#: time its whole budget takes at a floor under the generation rate measured through the
-#: gateway, clamped. Measured on a 3.6k-token structured answer at low effort: about 93
-#: tokens a second on the fast tier and 32 on the reasoning tier. The floor sits below
-#: the slower of the two, so a call that is merely slow is never cut off; one past its
+#: time its whole budget takes at a floor under its tier's generation rate measured
+#: through the gateway, clamped. Measured on a 3.6k-token structured answer at low effort:
+#: about 93 tokens a second on the fast tier and 32 on the reasoning tier. Each floor sits
+#: below its tier's rate, so a call that is merely slow is never cut off; one past its
 #: window has stalled. A 12k-token reasoning budget gets nine minutes, once - where a
 #: fixed five-minute window cut such a call off and the SDK then ran it twice more.
+#: One floor for both tiers, at the reasoning tier's rate, gave a fast call that answers
+#: in under a minute twelve minutes to stall in: a stuck Scout insight batch held its run
+#: that long before failing.
 READ_ALLOWANCE_SECONDS = 60.0
-MIN_TOKENS_PER_SECOND = 25.0
+MIN_TOKENS_PER_SECOND: dict[ModelTask, float] = {"fast": 60.0, "reasoning": 25.0}
 MIN_READ_SECONDS = 90.0
 MAX_READ_SECONDS = 720.0
 
 
-def structured_timeout(max_tokens: int) -> httpx.Timeout:
-    """The window for one schema-bound call with this output budget."""
-    read = READ_ALLOWANCE_SECONDS + max_tokens / MIN_TOKENS_PER_SECOND
+def structured_timeout(max_tokens: int, task: ModelTask) -> httpx.Timeout:
+    """The window for one schema-bound call with this output budget on this tier."""
+    read = READ_ALLOWANCE_SECONDS + max_tokens / MIN_TOKENS_PER_SECOND[task]
     read = min(max(read, MIN_READ_SECONDS), MAX_READ_SECONDS)
     return _timeout(read)
 

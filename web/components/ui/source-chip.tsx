@@ -2,7 +2,6 @@ import type { ReactNode } from "react";
 import { FileText, Globe } from "lucide-react";
 
 import type { SourceFormat } from "@/lib/api";
-import { EYEBROW } from "@/lib/typography";
 import { cn } from "@/lib/utils";
 
 /**
@@ -74,13 +73,13 @@ export function PassageSource({
 }) {
   if (!document && !location) return null;
   return (
-    // The name gives way first - it shrinks a hundred times faster, down to a stub that still
-    // shows its format - and the location then wraps rather than truncating. A location is
-    // usually "Slide 34", but a DOCX section heading can run to a sentence, and held on one
-    // line it pushed past the panel's edge and over the chip beside it.
-    <span className={cn("flex min-w-0 items-center gap-1.5", className)}>
-      {document && <SourceChip format={format} className="min-w-[4.5rem] shrink-[100]">{document}</SourceChip>}
-      {location && <span className={cn("min-w-0 break-words", EYEBROW)}>{location}</span>}
+    // One line when both fit; otherwise the location takes the next line whole and the name
+    // truncates within the first. A location is usually "Slide 34", but a DOCX section
+    // heading can run to a sentence: sharing one line, it squeezed the name to a stub and
+    // wrapped itself over three.
+    <span className={cn("flex min-w-0 flex-wrap items-center gap-x-1.5 gap-y-0.5", className)}>
+      {document && <SourceChip format={format}>{document}</SourceChip>}
+      {location && <span className="min-w-0 break-words text-[11px] font-medium text-muted-foreground">{location}</span>}
     </span>
   );
 }

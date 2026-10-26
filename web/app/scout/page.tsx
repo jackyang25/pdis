@@ -942,7 +942,8 @@ function DocumentTargetReviewCheckpoint({
         {target ? (
           <ReviewDetailColumns
             left={
-              <>
+              // Held in view while the qualifiers beside it are read against it.
+              <div className="lg:sticky lg:top-6">
                 <div className="flex items-center justify-between gap-3">
                   <SectionLabel>Source passage</SectionLabel>
                   <DocumentSourceTrace
@@ -951,7 +952,7 @@ function DocumentTargetReviewCheckpoint({
                   />
                 </div>
                 <Quoted size="prominent">{target.quote}</Quoted>
-              </>
+              </div>
             }
             right={
               <>
@@ -969,7 +970,7 @@ function DocumentTargetReviewCheckpoint({
                     <div key={dimension} className="min-w-0">
                       <dt className="flex flex-wrap items-center justify-between gap-2">
                         <span className={EYEBROW}>{dimensionLabel(dimension)}</span>
-                        <TargetQualifierSource target={target} dimension={dimension} />
+                        <TargetQualifierSource target={target} dimension={dimension} besides={target.doc_block_ids} />
                       </dt>
                       <dd className="mt-1 text-xs leading-relaxed text-foreground">
                         {semanticSlotLabel(target.semantic_profile[dimension])}
@@ -986,11 +987,15 @@ function DocumentTargetReviewCheckpoint({
                         key={`${link.attribute_ref}:${link.relation}`}
                         className="text-[11px] leading-relaxed"
                       >
-                        <span className="font-medium text-foreground">
-                          {displayAttributeLabel(variable.name)}
-                        </span>
-                        <p className="mt-1 text-muted-foreground">Relationship: {link.relation === "context_for" ? "Context for this field" : link.relation === "constrains" ? "Constrains this field" : "Defines this field"}</p>
-                        {link.reason && <p className="mt-1 text-muted-foreground">{link.reason}</p>}
+                        <p>
+                          <span className="font-medium text-foreground">
+                            {displayAttributeLabel(variable.name)}
+                          </span>
+                          <span className="text-muted-foreground">
+                            {" · "}{link.relation === "context_for" ? "context for this field" : link.relation === "constrains" ? "constrains this field" : "defines this field"}
+                          </span>
+                        </p>
+                        {link.reason && <p className="mt-0.5 text-muted-foreground">{link.reason}</p>}
                       </div>
                     ))}
                   </div>
@@ -1364,7 +1369,7 @@ function ReviewListRow({
         </span>
         <span className="mt-1 block truncate text-[11px] text-muted-foreground">{detail}</span>
       </span>
-      <VerdictPill label={status} tone={tone === "positive" ? "success" : tone} className="w-fit" />
+      <VerdictPill label={status} tone={tone === "positive" ? "success" : tone} className="w-fit sm:justify-self-end" />
     </button>
   );
 }

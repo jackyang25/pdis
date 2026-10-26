@@ -142,7 +142,9 @@ class AnthropicQuantitativeClient:
                 }],
                 tool_choice={"type": "tool", "name": tool_name},
                 cache_control={"type": "ephemeral"},
-                timeout=structured_timeout(max_tokens),
+                # The reasoning floor whatever `task` says: this client serves one model,
+                # whose rate through the gateway was not measured with the tiers'.
+                timeout=structured_timeout(max_tokens, "reasoning"),
                 **({"output_config": {"effort": effort}} if effort is not None else {}),
             )
         except Exception as exc:

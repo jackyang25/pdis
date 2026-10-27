@@ -112,6 +112,10 @@ MAX_TARGET_QUOTE_CHARS = 800
 # disambiguate this block but cannot supply new numeric statements to extract.
 # Multiple atomic targets inside this one block are one set-level extraction.
 LEDGER_UNITS_PER_REQUEST = 1
+#: A statement is one block, and a PDF block is a whole page: the RSV iTPP's table pages
+#: answered in 5-10k tokens, against about 300 for one DOCX row, so 16k left a denser page
+#: under twice its need and a cut-off was final when it fell on the validation retry.
+LEDGER_MAX_TOKENS = 32000
 #: Both mapping stages run on the injected quantitative client - Anthropic, the one
 #: place AGENTS allows it - which serves one model and reads `task` as no choice.
 #: No effort is stated: the mapping is the run's exact-quote boundary for numbers,
@@ -829,7 +833,7 @@ def extract_quantitative_ledger_batch(
     indication: str,
     intervention_class: str,
     framing: str = "",
-    max_tokens: int = DEFAULT_MAX_TOKENS,
+    max_tokens: int = LEDGER_MAX_TOKENS,
 ) -> QuantitativeLedgerBatchResult:
     """Review one statement, retrying a structurally failed answer once.
 

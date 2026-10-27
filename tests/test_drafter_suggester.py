@@ -13,6 +13,7 @@ from shared.vocabulary import AttributeDefinition
 from tests.drafter_support import ScriptedClient
 
 EFFICACY = AttributeDefinition("vaccine.efficacy", "Protective efficacy.", "clinical")
+CONTEXT = "Products for low- and middle-income countries, through Gavi-supported programmes."
 
 
 def observed(identifier: str, value: float | None, unit: str = "%", basis: str = "comparable_product",
@@ -53,7 +54,8 @@ class SuggesterTests(unittest.TestCase):
     def suggest(self, *replies, observations=None):
         client = ScriptedClient({"Variable: efficacy": list(replies)})
         held = observations if observations is not None else [observed("o1", 56)]
-        return suggest(EFFICACY, held, summarise(held), client, indication="malaria", intervention_term="vaccine"), client
+        return suggest(EFFICACY, held, summarise(held), client, indication="malaria", intervention_term="vaccine",
+                       programme_context=CONTEXT), client
 
     def test_a_valid_range_is_returned_with_its_basis(self):
         suggestion, client = self.suggest(reply())
@@ -91,6 +93,24 @@ class SuggesterTests(unittest.TestCase):
         self.assertIn("published: not stated by the source", message)
         self.assertIn("lean on the more recent", system)
         self.assertIn("an older product is still a comparator", system)
+
+    def test_a_stated_intended_use_aims_the_suggestion_and_is_never_evidence(self):
+        held = [observed("o1", 56)]
+        client = ScriptedClient({"Variable": [reply()]})
+        suggest(EFFICACY, held, summarise(held), client, indication="malaria", intervention_term="vaccine",
+                programme_context=CONTEXT, intended_use="Maternal immunization to protect infants in their first six months.")
+        system, message = client.calls[0][0], client.calls[0][1]
+        self.assertIn("Intended use, as the team drafting this profile stated it: Maternal immunization to protect infants in their first six months.", message)
+        self.assertIn("never evidence and never a value to put in a target", system)
+
+    def test_suggestions_aim_at_the_setting_the_draft_is_for(self):
+        """A comparable product's markets are evidence about it, never a target for this one:
+        an RSV draft once proposed the US, EU and Canada because that is where Arexvy is licensed."""
+        _, client = self.suggest(reply())
+        system = client.calls[0][0]
+        self.assertIn(CONTEXT, system)
+        self.assertIn("never a target for this one", system)
+        self.assertIn("rather than a comparable product's market", system)
 
     def test_each_kind_is_its_own_variant_in_the_schema(self):
         variants = _schema(["o1"])["properties"]["suggestion"]["anyOf"]

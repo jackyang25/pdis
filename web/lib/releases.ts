@@ -41,6 +41,8 @@ export const RELEASES: readonly Release[] = [
       {
         title: "Drafter",
         changes: [
+          "Targets are drafted for low- and middle-income countries: a comparable product’s markets and price are never copied as a target, and where or at what cost a product is used rests on guidance for that setting.",
+          "Optionally say what the product is for, such as maternal immunization to protect infants. The draft aims its searches and suggestions at that use and shows it beside the result.",
           "Each source shows when it was published, and where two pieces of guidance disagree, the suggestion leans on the newer.",
           "Each suggestion’s explanation names the products and sources it rests on.",
         ],

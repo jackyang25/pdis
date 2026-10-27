@@ -205,6 +205,26 @@ export function ConfigTextInput({
   );
 }
 
+/** A few lines of the reader's own words, boxed like `ConfigTextInput` beside it. */
+export function ConfigTextArea({
+  className,
+  id,
+  "aria-labelledby": labelledBy,
+  "aria-describedby": describedBy,
+  ...props
+}: React.ComponentPropsWithoutRef<"textarea">) {
+  const field = useContext(FieldContext);
+  return (
+    <textarea
+      {...props}
+      id={id ?? field?.controlId}
+      aria-labelledby={labelledBy ?? (props["aria-label"] ? undefined : field?.labelId)}
+      aria-describedby={[field?.noteId, describedBy].filter(Boolean).join(" ") || undefined}
+      className={cn(INPUT_CLASS, "h-auto min-h-[3.75rem] resize-y leading-relaxed", className)}
+    />
+  );
+}
+
 /**
  * A date bound in the rail, boxed exactly like `ConfigSelect`'s trigger.
  *

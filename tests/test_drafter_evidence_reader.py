@@ -18,6 +18,7 @@ from shared.vocabulary import AttributeDefinition
 from tests.drafter_support import ScriptedClient
 
 EFFICACY = AttributeDefinition("vaccine.efficacy", "Protective efficacy.", "clinical")
+CONTEXT = "Products for low- and middle-income countries, through Gavi-supported programmes."
 EXCERPT = "In children aged 5-17 months, RTS,S efficacy against clinical malaria was 56% (95% CI 51-60) over 12 months."
 
 
@@ -63,7 +64,8 @@ class ReadingBudgetTests(unittest.TestCase):
 class ReadFindingTests(unittest.TestCase):
     def reading(self, source: Finding, *replies):
         client = ScriptedClient({"Variable: efficacy": list(replies)})
-        return read_finding(EFFICACY, source, client, indication="malaria", intervention_term="vaccine"), client
+        return read_finding(EFFICACY, source, client, indication="malaria", intervention_term="vaccine",
+                            programme_context=CONTEXT), client
 
     def read(self, source: Finding, *replies):
         reading, client = self.reading(source, *replies)
@@ -149,3 +151,14 @@ class ReadFindingTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class SettingTests(unittest.TestCase):
+    def test_the_reading_knows_the_setting_and_reports_regardless_of_it(self):
+        """Told who the draft is for, so it keeps where a source applies - and told the
+        setting does not decide what it reports, so a comparator licensed elsewhere is kept."""
+        from services.drafter.stages.evidence_reader import build_system_prompt
+
+        system = build_system_prompt(CONTEXT)
+        self.assertIn(CONTEXT, system)
+        self.assertIn("the setting does not decide what you report", system)

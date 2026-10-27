@@ -19,6 +19,7 @@ intervention_class: vaccine
 display_name: "BMGF Intervention TPP - Vaccine"
 sources: [pubmed, who_guidelines]
 query_guidance: Search for what comparable vaccines achieved.
+programme_context: Products for low- and middle-income countries.
 """
 
 def write(text: str) -> str:
@@ -38,6 +39,9 @@ class ShippedConfigTests(unittest.TestCase):
         for config in configs:
             self.assertEqual(config.source_type, "itpp")
             self.assertTrue(config.sources)
+            # Every draft says who it is for; a product type that did not would draft for
+            # wherever its comparators happen to be licensed.
+            self.assertTrue(config.programme_context.strip(), config.type_key)
 
     def test_an_unknown_triple_is_a_lookup_error(self):
         with self.assertRaises(LookupError):
@@ -48,6 +52,10 @@ class ValidationTests(unittest.TestCase):
     def test_an_unregistered_source_is_refused(self):
         with self.assertRaises(ValueError):
             load_config(write(VALID.replace("[pubmed, who_guidelines]", "[pubmed, nowhere]")))
+
+    def test_a_config_must_say_who_its_drafts_are_for(self):
+        with self.assertRaisesRegex(ValueError, "programme_context"):
+            load_config(write(VALID.replace("programme_context: Products for low- and middle-income countries.\n", "")))
 
     def test_a_source_that_returns_snippets_is_refused(self):
         with self.assertRaisesRegex(ValueError, "web"):

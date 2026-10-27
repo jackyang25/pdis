@@ -79,11 +79,28 @@ and nothing in a Drafter run follows its suggestions. The team edits the exporte
 
 ## Configuration
 
-`configs/*.yaml` each name the Searcher sources and the search guidance for one product
-type; a config is found by the `(org, source_type, intervention_class)` it declares, never
+`configs/*.yaml` each name the Searcher sources, the search guidance and the programme
+context for one product type; a config is found by the `(org, source_type, intervention_class)` it declares, never
 by its filename, and every file must load - a malformed one raises rather than removing a
 product type. `load_config` refuses a source whose excerpts are not verbatim, such as
 `web`: snippets can support neither a number nor a quotation.
+
+`programme_context` says who every draft is for - for BMGF, products for low- and
+middle-income countries and the public-sector programmes that serve them. It is the
+organisation's statement of purpose, read by all three stages: searches look for guidance
+that serves that setting, readings keep where each source applies, and suggestions aim at
+it. A comparable product's markets, price and presentation are evidence about that product,
+never a target for this one, so a variable about where or for whom a product is used rests
+on guidance for that setting or is insufficient. Without it, a draft proposed the US, EU and
+Canada as target countries because that is where its comparator was licensed.
+
+A team may also state the product's intended use - who receives it and what it prevents or
+treats, such as maternal immunization to protect infants - in an optional field. It is run
+input, not configuration: searches are planned for that use and a target rests on evidence
+for it, with evidence from another population used only when nothing for the stated use
+speaks to the variable. It is never evidence and never a target value, and the result keeps
+it (`intended_use`) so the page and the Word file say what steered the draft. Without it, an
+"RSV vaccine" draft mixed older-adult and maternal products.
 
 Published guidance - a WHO preferred product profile, a treatment guideline - is found by
 searching, like any other evidence, so it is always the current version. Nothing is copied

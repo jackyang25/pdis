@@ -33,7 +33,7 @@ const insufficient = { kind: "insufficient" as const, minimum: "", preferred: ""
 
 function draft(): DraftResult {
   return {
-    org: "bmgf", source_type: "itpp", intervention_class: "vaccine", indication: "malaria", display_name: "Vaccine",
+    org: "bmgf", source_type: "itpp", intervention_class: "vaccine", indication: "malaria", intended_use: "", display_name: "Vaccine",
     sources: [], failed_sources: [], unconfigured_sources: [], source_errors: [],
     variables: [
       variable("vaccine.efficacy"),

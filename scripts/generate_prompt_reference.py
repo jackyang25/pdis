@@ -72,7 +72,7 @@ def build_reference() -> dict:
             "stage": entry.stage,
             "title": entry.title,
             "builder": entry.builder_name,
-            "framing_slot": entry.framing_slot,
+            "framing_slots": list(entry.framing_slots),
             "produces": {
                 "result_fields": list(entry.result_fields),
                 "ui_labels": list(entry.ui_labels),
@@ -90,11 +90,10 @@ def build_reference() -> dict:
     slots_by_tool: dict[str, list[str]] = {}
     for catalog in CATALOGS:
         for entry in catalog:
-            if not entry.framing_slot:
-                continue
-            slots = slots_by_tool.setdefault(entry.tool, [])
-            if entry.framing_slot not in slots:
-                slots.append(entry.framing_slot)
+            for slot in entry.framing_slots:
+                slots = slots_by_tool.setdefault(entry.tool, [])
+                if slot not in slots:
+                    slots.append(slot)
 
     configurations = []
     # Which files are configurations is each service's own fact, asked for rather

@@ -1,8 +1,8 @@
 """One declaration per model prompt Drafter sends, for publication and testing.
 
-Each stage owns its prompt text. The search plan is the one prompt with configured text in
-it - each product type's search guidance - so it declares that slot and renders it as a
-placeholder rather than any one config's words.
+Each stage owns its prompt text. Every prompt inserts the programme context a draft is for,
+and the search plan also its product type's search guidance, so each declares the slots it
+inserts and renders them as placeholders rather than any one config's words.
 """
 
 from __future__ import annotations
@@ -19,17 +19,19 @@ TOOL = "drafter"
 PROMPT_CATALOG: tuple[CatalogEntry, ...] = (
     CatalogEntry(
         tool=TOOL, id="search_planner.variable", stage="plan", title="Planning searches",
-        builder_name="build_system_prompt", render=lambda: build_search_plan_prompt("{query_guidance}"),
-        framing_slot="query_guidance", result_fields=(), ui_labels=(),
+        builder_name="build_system_prompt", render=lambda: build_search_plan_prompt("{query_guidance}", "{programme_context}"),
+        framing_slots=("programme_context", "query_guidance"), result_fields=(), ui_labels=(),
     ),
     CatalogEntry(
         tool=TOOL, id="evidence_reader.source", stage="evidence", title="Reading evidence",
-        builder_name="build_system_prompt", render=build_evidence_reading_prompt, framing_slot=None,
+        builder_name="build_system_prompt", render=lambda: build_evidence_reading_prompt("{programme_context}"),
+        framing_slots=("programme_context",),
         result_fields=("variables[].observations[]",), ui_labels=("comparable_product", "published_guidance"),
     ),
     CatalogEntry(
         tool=TOOL, id="suggester.variable", stage="suggest", title="Suggesting a target",
-        builder_name="build_system_prompt", render=build_suggestion_prompt, framing_slot=None,
+        builder_name="build_system_prompt", render=lambda: build_suggestion_prompt("{programme_context}"),
+        framing_slots=("programme_context",),
         result_fields=("variables[].suggestion",), ui_labels=("range", "statement", "insufficient"),
     ),
 )

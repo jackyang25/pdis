@@ -14,7 +14,7 @@ type PromptEntry = {
   id: string;
   stage: string;
   title: string;
-  framing_slot: string | null;
+  framing_slots: string[];
   produces: { result_fields: string[]; ui_labels: string[] };
   text: string;
 };
@@ -190,8 +190,10 @@ export function PromptReference({ tool }: { tool: ToolKey }) {
                         )}
                       >
                         Produces {prompt.produces.result_fields.join(", ")}
-                        {prompt.framing_slot
-                          ? ` · inserts the configured ${prompt.framing_slot.replace(/_/g, " ")}`
+                        {prompt.framing_slots.length > 0
+                          ? ` · inserts the configured ${new Intl.ListFormat("en", { type: "conjunction" }).format(
+                              prompt.framing_slots.map((slot) => slot.replace(/_/g, " ")),
+                            )}`
                           : ""}
                       </p>
                       <pre className="mt-2 overflow-x-auto rounded-md border border-border bg-foreground/[0.045] p-3 text-[10px] leading-[1.55] text-muted-foreground">

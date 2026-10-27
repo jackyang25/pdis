@@ -89,6 +89,7 @@ def _drafter(case: Case, root: Path, progress: Progress) -> dict:
     llm_client = get_openai_client()
     result = run_pipeline(
         org=case.org, intervention_class=case.intervention_class, indication=case.indication,
+        intended_use=case.intended_use,
         llm_client=llm_client, runtime=get_search_runtime(llm_client), progress_callback=progress,
     )
     return DrafterRunResponse(result=DraftResultOut(**result.to_dict())).model_dump()

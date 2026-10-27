@@ -36,6 +36,7 @@ from .models import (
     DraftResult,
     Failure,
     LLMClientProtocol,
+    MAX_INTENDED_USE_CHARS,
     Observation,
     SourceError,
     Suggestion,
@@ -65,17 +66,21 @@ def run_pipeline(
     indication: str,
     llm_client: LLMClientProtocol,
     runtime: SearchRuntime,
+    intended_use: str = "",
     progress_callback: ProgressFn | None = None,
 ) -> DraftResult:
     config = find_config(org, SOURCE_TYPE, intervention_class)
     if indication not in indications_for(intervention_class):
         raise ValueError(f"Unknown disease / condition {indication!r} for {intervention_class}.")
+    intended_use = " ".join(intended_use.split())
+    if len(intended_use) > MAX_INTENDED_USE_CHARS:
+        raise ValueError(f"The intended use is at most {MAX_INTENDED_USE_CHARS} characters.")
     variables = list(attribute_definitions(intervention_class))
     intervention_term, indication_term = search_term(intervention_class), search_term(indication)
     progress = progress_callback or (lambda *args, **kwargs: None)
 
     failures: dict[str, Failure] = {}
-    intents = _plan(variables, config, llm_client, indication_term, intervention_term, failures, progress)
+    intents = _plan(variables, config, llm_client, indication_term, intervention_term, intended_use, failures, progress)
 
     report = RetrievalReport(found={}, failed_sources=(), unconfigured_sources=(), failed_for={},
                              source_errors={}, asked={})
@@ -87,7 +92,8 @@ def run_pipeline(
         )
 
     planned = [variable for variable in variables if variable.name in intents]
-    observations, unread, unverified = _read(planned, report.found, llm_client, indication_term, intervention_term, progress)
+    observations, unread, unverified = _read(planned, report.found, llm_client, indication_term, intervention_term,
+                                             config.programme_context, progress)
     for variable in planned:
         failure = _evidence_failure(
             variable.name, observations.get(variable.name, []), report,
@@ -96,7 +102,8 @@ def run_pipeline(
         if failure is not None:
             failures[variable.name] = failure
     planned = [variable for variable in planned if variable.name not in failures]
-    suggestions = _suggest(planned, observations, llm_client, indication_term, intervention_term, failures, progress)
+    suggestions = _suggest(planned, observations, llm_client, indication_term, intervention_term,
+                           config.programme_context, intended_use, failures, progress)
 
     drafts = [
         _variable(variable, observations.get(variable.name, []), suggestions.get(variable.name),
@@ -105,7 +112,7 @@ def run_pipeline(
     ]
     result = DraftResult(
         org=org, source_type=SOURCE_TYPE, intervention_class=intervention_class, indication=indication,
-        display_name=config.display_name, sources=config.sources,
+        intended_use=intended_use, display_name=config.display_name, sources=config.sources,
         failed_sources=report.failed_sources, unconfigured_sources=report.unconfigured_sources,
         source_errors=tuple(SourceError(source, message) for source, message in report.source_errors.items()),
         variables=tuple(drafts),
@@ -151,10 +158,12 @@ def _fan_out(stage: str, items: Sequence[_T], run: Callable[[_T], _R], workers: 
     )
 
 
-def _plan(variables, config, llm_client, indication, intervention_term, failures, progress) -> dict[str, RetrievalIntent]:
+def _plan(variables, config, llm_client, indication, intervention_term, intended_use, failures,
+          progress) -> dict[str, RetrievalIntent]:
     def plan(variable: AttributeDefinition) -> RetrievalIntent | Failure:
         try:
-            return plan_searches(variable, config, llm_client, indication=indication, intervention_term=intervention_term)
+            return plan_searches(variable, config, llm_client, indication=indication, intervention_term=intervention_term,
+                                 intended_use=intended_use)
         except RECORDABLE_FAILURES as exc:  # a model or provider failure costs this variable, never the run
             return _failure("search_planning_failed", exc)
 
@@ -168,12 +177,13 @@ def _plan(variables, config, llm_client, indication, intervention_term, failures
     return intents
 
 
-def _read(variables, found, llm_client, indication, intervention_term, progress):
+def _read(variables, found, llm_client, indication, intervention_term, programme_context, progress):
     pairs = [(variable, finding) for variable in variables for finding in eligible_findings(found.get(variable.name, []))]
 
     def read(pair: tuple[AttributeDefinition, Finding]) -> Reading | None:
         try:
-            return read_finding(pair[0], pair[1], llm_client, indication=indication, intervention_term=intervention_term)
+            return read_finding(pair[0], pair[1], llm_client, indication=indication, intervention_term=intervention_term,
+                                programme_context=programme_context)
         except RECORDABLE_FAILURES:  # one unreadable source is set aside and counted
             logger.warning("Evidence reading failed for %s from %s", pair[0].name, pair[1].url, exc_info=True)
             return None
@@ -194,11 +204,14 @@ def _read(variables, found, llm_client, indication, intervention_term, progress)
     return observations, unread, unverified
 
 
-def _suggest(variables, observations, llm_client, indication, intervention_term, failures, progress) -> dict[str, Suggestion]:
+def _suggest(variables, observations, llm_client, indication, intervention_term, programme_context, intended_use,
+             failures, progress) -> dict[str, Suggestion]:
     def run(variable: AttributeDefinition) -> Suggestion | Failure:
         held = observations.get(variable.name, [])
         try:
-            return suggest(variable, held, summarise(held), llm_client, indication=indication, intervention_term=intervention_term)
+            return suggest(variable, held, summarise(held), llm_client, indication=indication,
+                           intervention_term=intervention_term, programme_context=programme_context,
+                           intended_use=intended_use)
         except RECORDABLE_FAILURES as exc:  # a model or provider failure costs this variable, never the run
             return _failure("suggestion_failed", exc)
 

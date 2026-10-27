@@ -4,6 +4,13 @@ source_type: itpp
 intervention_class: diagnostic
 display_name: "BMGF Intervention TPP - Diagnostic"
 sources: [tavily, pubmed, clinicaltrials, ctis, isrctn, semantic_scholar, europepmc, who_guidelines, fda]
+# Who every draft is for. Read by every stage that asks a model: searches look for this
+# setting, readings keep where each source applies, and suggestions aim at it.
+programme_context: |
+  BMGF intervention TPPs describe products for low- and middle-income countries. A target
+  serves public-sector programmes there: testing at or near the point of care, procurement by
+  national programmes and global funders, WHO prequalification, and use where laboratory
+  infrastructure, power, trained staff and budgets are limited.
 query_guidance: |
   Search for what existing tests for this indication achieved on this variable -
   diagnostic accuracy studies, evaluations, labels and regulatory reviews - and for what

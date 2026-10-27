@@ -36,6 +36,17 @@ class SearchPlannerTests(unittest.TestCase):
         self.assertEqual([q.tracks for q in intent.queries], [("comparable",), ("guidance",)])
         self.assertEqual(intent.queries[0].facets.population, "children")
         self.assertIn(CONFIG.query_guidance.strip()[:40], client.calls[0][0])
+        # Searches are planned for the setting the draft is for.
+        self.assertIn(CONFIG.programme_context.strip()[:40], client.calls[0][0])
+
+    def test_a_stated_intended_use_reaches_the_plan_as_the_team_s_words(self):
+        client = ScriptedClient({"Variable: vaccine.efficacy": [{"queries": [query("RTS,S efficacy")]}]})
+        plan_searches(EFFICACY, CONFIG, client, indication="malaria", intervention_term="vaccine",
+                      intended_use="Maternal immunization to protect infants in their first six months.")
+        self.assertIn("Intended use, as the team drafting this profile stated it: Maternal immunization to protect infants in their first six months.", client.calls[0][1])
+        # Without one, the message says nothing about it.
+        _, unstated = self.plan({"queries": [query("RTS,S efficacy")]})
+        self.assertNotIn("Intended use", unstated.calls[0][1])
 
     def test_every_query_the_plan_wrote_is_kept_in_its_order(self):
         """Not deduplicated by text: Searcher collapses identical native requests and keeps

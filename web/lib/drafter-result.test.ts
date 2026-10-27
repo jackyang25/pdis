@@ -31,7 +31,7 @@ function suggested(name: string, overrides: Partial<DraftVariable> = {}): DraftV
 
 function draft(...variables: DraftVariable[]): DraftResult {
   return {
-    org: "bmgf", source_type: "itpp", intervention_class: "vaccine", indication: "malaria",
+    org: "bmgf", source_type: "itpp", intervention_class: "vaccine", indication: "malaria", intended_use: "",
     display_name: "BMGF Intervention TPP - Vaccine", sources: ["pubmed"], failed_sources: [],
     unconfigured_sources: [], source_errors: [],
     variables: variables.length ? variables : [suggested("vaccine.efficacy"), suggested("vaccine.safety")],
@@ -77,6 +77,11 @@ test("a draft round-trips through a result file as soon as the run finishes", ()
   assert.deepEqual(unpackDrafterResult(JSON.parse(JSON.stringify(file))), result);
   assert.equal(runLabel(result, "drafter"), "Malaria");
   assert.equal(runScope(result, "drafter"), "Vaccine · iTPP");
+  // A stated use is scope too: it steered the draft, so it is named beside the configuration.
+  assert.equal(
+    runScope({ ...result, intended_use: "Maternal immunization" }, "drafter"),
+    "Vaccine · iTPP · intended use: Maternal immunization",
+  );
 });
 
 test("a failed call says why by code, and a variable left without evidence names no call", () => {
@@ -96,10 +101,10 @@ test("the counts of what a reading set aside are counts", () => {
   assert.throws(() => RESULT_CONTRACTS.drafter(draft(suggested("vaccine.efficacy", { unread_findings: 1.5 }))), /unread_findings is a count/);
 });
 
-test("a draft saved before its sources carried their dates is re-run, not read", () => {
+test("a draft saved before it carried its intended use is re-run, not read", () => {
   const file = packDrafterResult(draft(), RUN);
-  assert.equal(file.analysis_version, 4);
-  assert.throws(() => unpackDrafterResult({ ...file, analysis_version: 3 }), /re-run the drafter analysis/);
+  assert.equal(file.analysis_version, 5);
+  assert.throws(() => unpackDrafterResult({ ...file, analysis_version: 4 }), /re-run the drafter analysis/);
 });
 
 test("a saved number names the words that state it, and a figure the observations it came from", () => {
@@ -113,4 +118,13 @@ test("a saved number names the words that state it, and a figure the observation
   orphan.variables[0].statistics = [{ unit: "%", observation_ids: ["missing", "also-missing"], count: 2,
     minimum: 1, maximum: 2, median: 1.5, lower_quartile: 1, upper_quartile: 2 }];
   assert.throws(() => packDrafterResult(orphan, RUN), /observations it was computed from/);
+});
+
+test("a draft says what intended use it was drafted for, even when the team stated none", () => {
+  const result = draft();
+  assert.doesNotThrow(() => packDrafterResult({ ...result, intended_use: "Maternal immunization." }, RUN));
+  assert.throws(
+    () => packDrafterResult({ ...result, intended_use: undefined } as unknown as DraftResult, RUN),
+    /intended use/,
+  );
 });

@@ -35,6 +35,10 @@ class ExportTests(unittest.TestCase):
         self.assertEqual(rows[2][1:3], ["Not set", "Not enough evidence"])
         self.assertEqual(rows[3][1:3], ["Not set", "Could not be suggested"])
 
+    def test_the_file_shows_what_steered_the_draft(self):
+        document = Document(io.BytesIO(export_docx({**result(), "intended_use": "Maternal immunization to protect infants in their first six months."})))
+        self.assertIn("Intended use, as the team stated it: Maternal immunization to protect infants in their first six months.", [paragraph.text for paragraph in document.paragraphs])
+
     def test_the_document_says_its_targets_are_suggestions(self):
         document = Document(io.BytesIO(export_docx(result())))
         self.assertTrue(any("Every target is a suggestion" in paragraph.text for paragraph in document.paragraphs))

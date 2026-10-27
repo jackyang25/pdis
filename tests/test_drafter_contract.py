@@ -40,7 +40,7 @@ def suggested(**overrides) -> dict:
 def result(*variables: dict) -> dict:
     return {
         "org": "bmgf", "source_type": "itpp", "intervention_class": "vaccine",
-        "indication": "malaria", "display_name": "BMGF Intervention TPP - Vaccine",
+        "indication": "malaria", "intended_use": "", "display_name": "BMGF Intervention TPP - Vaccine",
         "sources": ["pubmed"], "failed_sources": [], "unconfigured_sources": [], "source_errors": [],
         "variables": list(variables or (suggested(),)),
     }
@@ -54,6 +54,12 @@ class ContractTests(unittest.TestCase):
     def test_a_complete_result_is_accepted_and_returned(self):
         value = result()
         self.assertIs(validate_result_contract(value), value)
+
+    def test_the_intended_use_is_text_trimmed_and_bounded(self):
+        for bad in (None, " padded ", "x" * 601):
+            with self.subTest(bad=bad):
+                self.assertRefused({**result(), "intended_use": bad})
+        self.assertTrue(validate_result_contract({**result(), "intended_use": "Maternal immunization."}))
 
     def test_a_range_without_a_basis_is_refused(self):
         variable = suggested()

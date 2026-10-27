@@ -1,6 +1,7 @@
 """Loading and checking Drafter's configuration.
 
-A config names the sources a product type reads and the guidance for planning its searches.
+A config names the sources a product type reads, the guidance for planning its searches and
+the programme context every draft is for.
 `load_config` refuses anything the run could not honour - a product type with no shared
 variables, a source Searcher does not register, or a source whose excerpts are not the
 source's own words - because each would surface later as a silent gap or an unquotable
@@ -54,6 +55,7 @@ def load_config(config_path: str) -> DrafterConfig:
         display_name=_text(data, "display_name", path),
         sources=tuple(sources),
         query_guidance=_text(data, "query_guidance", path),
+        programme_context=_text(data, "programme_context", path),
     )
 
 

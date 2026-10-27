@@ -12,7 +12,7 @@ import { FinalResultActions } from "@/components/final-result-actions";
 import { PageHeader } from "@/components/page-header";
 import { RunHistory } from "@/components/run-history";
 import { RunPanel } from "@/components/run-panel";
-import { ConfigurationShell } from "@/components/ui/config-field";
+import { ConfigField, ConfigHelp, ConfigTextArea, ConfigurationShell } from "@/components/ui/config-field";
 import { ErrorMessage } from "@/components/ui/error-message";
 import { MetricsRow } from "@/components/ui/metrics-row";
 import { ResultCardStack } from "@/components/ui/result-card-stack";
@@ -21,7 +21,7 @@ import { ResultSearch } from "@/components/ui/result-search";
 import { ResultToolbar, ResultToolbarEnd } from "@/components/ui/result-toolbar";
 import { TabsContent } from "@/components/ui/tabs";
 import { CaveatNotice, ResultNotices, WarningNotice } from "@/components/ui/warning-notice";
-import { runDrafter, type DraftResult } from "@/lib/api";
+import { MAX_INTENDED_USE_CHARS, runDrafter, type DraftResult } from "@/lib/api";
 import {
   DRAFTER_PANELS,
   countVariables,
@@ -58,6 +58,7 @@ export default function DrafterPage() {
   );
   const header = useHeaderStore((state) => state.header);
   const [showSetup, setShowSetup] = useState(!session.result);
+  const [intendedUse, setIntendedUse] = useState("");
 
   useEffect(() => {
     if (session.result) setShowSetup(false);
@@ -68,7 +69,12 @@ export default function DrafterPage() {
   function handleRun() {
     if (!contextReady) return;
     void runTool(useDrafterSession, async (report) => (await runDrafter(
-      { org: header.org, intervention_class: header.intervention_class, indication: header.indication },
+      {
+        org: header.org,
+        intervention_class: header.intervention_class,
+        indication: header.indication,
+        intended_use: intendedUse.trim(),
+      },
       report,
     )).result);
   }
@@ -98,6 +104,26 @@ export default function DrafterPage() {
             configuration={
               <ConfigurationShell>
                 <ContextFields />
+                {/* Context the team supplies, not a target: it aims the searches and the
+                    suggestions, and the result carries it so every reader sees what steered it. */}
+                <ConfigField
+                  label="Intended use"
+                  note={
+                    <ConfigHelp>
+                      Optional. Who the product is for and what it prevents or treats. It aims the
+                      searches and suggestions, and is never used as evidence.
+                    </ConfigHelp>
+                  }
+                >
+                  <ConfigTextArea
+                    rows={2}
+                    maxLength={MAX_INTENDED_USE_CHARS}
+                    value={intendedUse}
+                    onChange={(event) => setIntendedUse(event.target.value)}
+                    placeholder="e.g. Maternal immunization to protect infants from RSV in their first six months"
+                    disabled={session.busy}
+                  />
+                </ConfigField>
               </ConfigurationShell>
             }
           />

@@ -50,7 +50,7 @@ PROMPT_CATALOG: tuple[CatalogEntry, ...] = (
         title="Rubric unit assessment",
         builder_name="build_assessment_prompt",
         render=lambda: build_assessment_prompt(PLACEHOLDER_CONFIG.stage_guidance),
-        framing_slot="stage_guidance",
+        framing_slots=("stage_guidance",),
         result_fields=(
             "reviews[].sections[].units[].verdict",
             "reviews[].sections[].units[].statement",
@@ -64,7 +64,7 @@ PROMPT_CATALOG: tuple[CatalogEntry, ...] = (
         title="Cross-section consistency check",
         builder_name="build_cross_section_prompt",
         render=lambda: build_cross_section_prompt(PLACEHOLDER_CONFIG),
-        framing_slot=None,
+        framing_slots=(),
         result_fields=("document_findings[]", "consistency_status"),
         ui_labels=("consistency",),
     ),

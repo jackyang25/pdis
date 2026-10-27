@@ -150,6 +150,7 @@
       "org": "bmgf",
       "source_type": "itpp",
       "texts": {
+        "programme_context": "BMGF intervention TPPs describe products for low- and middle-income countries. A target\nserves public-sector programmes there: procurement by national programmes and global\nfunders, WHO prequalification or equivalent review, and use where power, maintenance,\ntrained staff and budgets are limited.",
         "query_guidance": "Search for what existing devices for this indication achieved on this variable -\nclinical studies, evaluations, labels and regulatory reviews - and for what published\nspecifications ask of a new device (WHO technical specifications and target product\nprofiles, prequalification requirements, procurement specifications). Prefer named\ndevices and named authorities over generic phrasing."
       },
       "tool": "drafter"
@@ -161,6 +162,7 @@
       "org": "bmgf",
       "source_type": "itpp",
       "texts": {
+        "programme_context": "BMGF intervention TPPs describe products for low- and middle-income countries. A target\nserves public-sector programmes there: testing at or near the point of care, procurement by\nnational programmes and global funders, WHO prequalification, and use where laboratory\ninfrastructure, power, trained staff and budgets are limited.",
         "query_guidance": "Search for what existing tests for this indication achieved on this variable -\ndiagnostic accuracy studies, evaluations, labels and regulatory reviews - and for what\npublished target profiles ask of a new test (WHO target product profiles, WHO\nprequalification requirements, FIND and Unitaid landscapes). Prefer named tests and\nnamed authorities over generic phrasing."
       },
       "tool": "drafter"
@@ -172,6 +174,7 @@
       "org": "bmgf",
       "source_type": "itpp",
       "texts": {
+        "programme_context": "BMGF intervention TPPs describe products for low- and middle-income countries. A target\nserves public-sector programmes there: national treatment guidelines and essential-medicines\nlists, procurement by national programmes and global funders, WHO prequalification, and\ndelivery through primary and community care where laboratory capacity and budgets are\nlimited.",
         "query_guidance": "Search for what approved and late-stage drugs for this indication achieved on this\nvariable - trial results, labels and regulatory reviews - and for what published target\nprofiles and treatment guidelines ask of a new drug (WHO target product profiles, WHO\ntreatment guidelines, essential-medicines listings). Prefer named products and named\nauthorities over generic phrasing."
       },
       "tool": "drafter"
@@ -183,6 +186,7 @@
       "org": "bmgf",
       "source_type": "itpp",
       "texts": {
+        "programme_context": "BMGF intervention TPPs describe products for low- and middle-income countries, with\nGavi-supported countries among the first to use them. A target serves public-sector\nimmunization programmes there: national schedules, procurement through Gavi and UNICEF,\nWHO prequalification, and delivery where cold chain, health workers and budgets are\nlimited.",
         "query_guidance": "Search for what licensed and late-stage vaccines for this indication achieved on this\nvariable - trial results, labels and regulatory reviews - and for what published target\nprofiles ask of a new vaccine (WHO preferred product characteristics, prequalification\nrequirements, Gavi and UNICEF programme needs). Prefer named products and named\nauthorities over generic phrasing."
       },
       "tool": "drafter"
@@ -895,7 +899,9 @@
   "prompts": [
     {
       "builder": "build_prompts",
-      "framing_slot": "preamble",
+      "framing_slots": [
+        "preamble"
+      ],
       "id": "mapper.label",
       "produces": {
         "result_fields": [
@@ -910,20 +916,25 @@
     },
     {
       "builder": "build_system_prompt",
-      "framing_slot": "query_guidance",
+      "framing_slots": [
+        "programme_context",
+        "query_guidance"
+      ],
       "id": "search_planner.variable",
       "produces": {
         "result_fields": [],
         "ui_labels": []
       },
       "stage": "plan",
-      "text": "You plan literature, registry and guidance searches for ONE variable of an intervention target product profile (iTPP) that a team is drafting.\n\nWrite up to 4 short search queries. Each has a purpose:\n- comparable: finds what existing or late-stage products for this disease achieved or specify for this variable.\n- guidance: finds what a published target profile, guideline or programme requirement asks of a new product for this variable.\nWrite at least one of each where the variable could plausibly have both.\n\nFor each query also state its facets: condition, intervention, population and outcome, each blank when the query does not state it. Do not restate the condition in other words.\n\nDomain guidance:\n{query_guidance}",
+      "text": "You plan literature, registry and guidance searches for ONE variable of an intervention target product profile (iTPP) that a team is drafting.\n\nWrite up to 4 short search queries. Each has a purpose:\n- comparable: finds what existing or late-stage products for this disease achieved or specify for this variable.\n- guidance: finds what a published target profile, guideline or programme requirement asks of a new product for this variable.\nWrite at least one of each where the variable could plausibly have both.\n\nFor each query also state its facets: condition, intervention, population and outcome, each blank when the query does not state it. Do not restate the condition in other words.\n\nWho the profile is for:\n{programme_context}\n\nAim the guidance queries at that setting: the guidance, programmes and procurement that serve it. Search for comparable products wherever they are licensed.\n\nThe team may state the product's intended use - who receives it and what it prevents or treats. Where they do, plan the queries for that use.\n\nDomain guidance:\n{query_guidance}",
       "title": "Planning searches",
       "tool": "drafter"
     },
     {
       "builder": "build_system_prompt",
-      "framing_slot": null,
+      "framing_slots": [
+        "programme_context"
+      ],
       "id": "evidence_reader.source",
       "produces": {
         "result_fields": [
@@ -935,13 +946,15 @@
         ]
       },
       "stage": "evidence",
-      "text": "You read ONE source excerpt for ONE variable of an intervention target product profile (iTPP) that a team is drafting, and report what the excerpt says about that variable.\n\nReport two kinds of observation, and never mix them:\n- comparable_product: what an existing or investigational product achieved, showed or is specified to have for this variable. Name the product.\n- published_guidance: what a target product profile, guideline, prequalification or programme requirement asks of a product for this variable. Name the publisher as product.\n\nFor each, copy the exact words from the excerpt that state it as quote, and say in measure what was measured or asked for. Give a number only as the excerpt writes it: value for a single figure, lower and upper for a range, the unit exactly as written, and in value_text the exact words of the quote that state the number. Leave the numbers null, and unit and value_text blank, for a statement in words. Report nothing when the excerpt does not speak to this variable for this disease.",
+      "text": "You read ONE source excerpt for ONE variable of an intervention target product profile (iTPP) that a team is drafting, and report what the excerpt says about that variable.\n\nThe profile is for this setting:\n{programme_context}\nReport what the excerpt says wherever it applies: the setting does not decide what you report. Where the excerpt says where or in whom something applies - the countries a product is licensed in, the programme a requirement serves, the population a result was in - keep that in measure, so a comparable product's market and population can be told apart from the setting and use the profile is for.\n\nReport two kinds of observation, and never mix them:\n- comparable_product: what an existing or investigational product achieved, showed or is specified to have for this variable. Name the product.\n- published_guidance: what a target product profile, guideline, prequalification or programme requirement asks of a product for this variable. Name the publisher as product.\n\nFor each, copy the exact words from the excerpt that state it as quote, and say in measure what was measured or asked for. Give a number only as the excerpt writes it: value for a single figure, lower and upper for a range, the unit exactly as written, and in value_text the exact words of the quote that state the number. Leave the numbers null, and unit and value_text blank, for a statement in words. Report nothing when the excerpt does not speak to this variable for this disease.",
       "title": "Reading evidence",
       "tool": "drafter"
     },
     {
       "builder": "build_system_prompt",
-      "framing_slot": null,
+      "framing_slots": [
+        "programme_context"
+      ],
       "id": "suggester.variable",
       "produces": {
         "result_fields": [
@@ -954,13 +967,15 @@
         ]
       },
       "stage": "suggest",
-      "text": "You suggest a target for ONE variable of an intervention target product profile (iTPP) that a team is drafting, from the evidence supplied and nothing else.\n\nChoose a kind:\n- range: for a variable measured in numbers. Give a minimum (the least a product must reach to be worth developing) and a preferred value (what would make it clearly better), each written with its unit. Either may be blank if the evidence supports only one.\n- statement: for a variable described in words. Give one short requirement.\n- insufficient: the evidence cannot support a suggestion. Give no values and no basis.\n\nEvery suggestion cites in basis_ids the observation IDs it rests on. Each observation is evidence of what a comparable product achieved or of what published guidance asks; cite the ones your suggestion actually leans on. Only observations marked as figures may supply a number; the others are context. Never state a number the evidence does not support. Each observation says when its source was published, or that it did not. Guidance is revised, so where two pieces of guidance ask different things, lean on the more recent. A comparable product's result does not expire: an older product is still a comparator. Every answer gives a rationale of one or two sentences: for a range or a statement, naming the evidence it leans on; for insufficient, saying what the evidence lacks. The rationale is read by the team, who never see observation IDs: name evidence by its product or its source, and keep the IDs to basis_ids.",
+      "text": "You suggest a target for ONE variable of an intervention target product profile (iTPP) that a team is drafting, from the evidence supplied and nothing else.\n\nThe profile is for this setting:\n{programme_context}\nA comparable product's results, schedule, route, presentation and the people it was studied in are evidence of what a product like this can do, wherever it was studied: use them. The countries it is licensed in and its price are evidence about that product, never a target for this one: for where or at what cost this product is used, lean on guidance that speaks to this setting, and where the evidence holds none, the answer is insufficient rather than a comparable product's market. Where the evidence supports more than one choice - a presentation, a schedule, a delivery channel - prefer the one that serves this setting.\n\nThe team may state the product's intended use - who receives it and what it prevents or treats. It is context, never evidence and never a value to put in a target. Where it is stated, a target rests on evidence for that use; evidence from another population or use is leaned on only when nothing for the stated use speaks to the variable, and the rationale then says so.\n\nChoose a kind:\n- range: for a variable measured in numbers. Give a minimum (the least a product must reach to be worth developing) and a preferred value (what would make it clearly better), each written with its unit. Either may be blank if the evidence supports only one.\n- statement: for a variable described in words. Give one short requirement.\n- insufficient: the evidence cannot support a suggestion. Give no values and no basis.\n\nEvery suggestion cites in basis_ids the observation IDs it rests on. Each observation is evidence of what a comparable product achieved or of what published guidance asks; cite the ones your suggestion actually leans on. Only observations marked as figures may supply a number; the others are context. Never state a number the evidence does not support. Each observation says when its source was published, or that it did not. Guidance is revised, so where two pieces of guidance ask different things, lean on the more recent. A comparable product's result does not expire: an older product is still a comparator. Every answer gives a rationale of one or two sentences: for a range or a statement, naming the evidence it leans on; for insufficient, saying what the evidence lacks. The rationale is read by the team, who never see observation IDs: name evidence by its product or its source, and keep the IDs to basis_ids.",
       "title": "Suggesting a target",
       "tool": "drafter"
     },
     {
       "builder": "build_assessment_prompt",
-      "framing_slot": "stage_guidance",
+      "framing_slots": [
+        "stage_guidance"
+      ],
       "id": "assessor.unit",
       "produces": {
         "result_fields": [
@@ -978,7 +993,7 @@
     },
     {
       "builder": "build_cross_section_prompt",
-      "framing_slot": null,
+      "framing_slots": [],
       "id": "assessor.cross_section",
       "produces": {
         "result_fields": [
@@ -996,7 +1011,7 @@
     },
     {
       "builder": "build_requirements_prompt",
-      "framing_slot": null,
+      "framing_slots": [],
       "id": "requirements.extract",
       "produces": {
         "result_fields": [
@@ -1015,7 +1030,7 @@
     },
     {
       "builder": "build_assessment_prompt",
-      "framing_slot": null,
+      "framing_slots": [],
       "id": "assessor.requirement",
       "produces": {
         "result_fields": [
@@ -1039,7 +1054,7 @@
     },
     {
       "builder": "build_system_prompt",
-      "framing_slot": null,
+      "framing_slots": [],
       "id": "context_validator.validate",
       "produces": {
         "result_fields": [
@@ -1054,7 +1069,7 @@
     },
     {
       "builder": "build_system_prompt",
-      "framing_slot": null,
+      "framing_slots": [],
       "id": "announcement_reader.read",
       "produces": {
         "result_fields": [
@@ -1069,7 +1084,7 @@
     },
     {
       "builder": "build_system_prompt",
-      "framing_slot": null,
+      "framing_slots": [],
       "id": "scope_resolver.run_scope",
       "produces": {
         "result_fields": [
@@ -1084,7 +1099,7 @@
     },
     {
       "builder": "build_system_prompt",
-      "framing_slot": null,
+      "framing_slots": [],
       "id": "unit_extractor.extract",
       "produces": {
         "result_fields": [
@@ -1100,7 +1115,7 @@
     },
     {
       "builder": "build_system_prompt",
-      "framing_slot": null,
+      "framing_slots": [],
       "id": "unit_reconciler.reconcile",
       "produces": {
         "result_fields": [
@@ -1116,7 +1131,7 @@
     },
     {
       "builder": "build_ledger_system_prompt",
-      "framing_slot": null,
+      "framing_slots": [],
       "id": "target_resolver.ledger",
       "produces": {
         "result_fields": [
@@ -1132,7 +1147,9 @@
     },
     {
       "builder": "build_document_ledger_system_prompt",
-      "framing_slot": "quantitative_target_framing",
+      "framing_slots": [
+        "quantitative_target_framing"
+      ],
       "id": "conformity.document_ledger",
       "produces": {
         "result_fields": [
@@ -1149,7 +1166,7 @@
     },
     {
       "builder": "build_measurement_system_prompt",
-      "framing_slot": null,
+      "framing_slots": [],
       "id": "conformity.measurement",
       "produces": {
         "result_fields": [
@@ -1166,7 +1183,9 @@
     },
     {
       "builder": "build_track_system_prompt",
-      "framing_slot": "query_extraction_guidance",
+      "framing_slots": [
+        "query_extraction_guidance"
+      ],
       "id": "query_extractor.general",
       "produces": {
         "result_fields": [
@@ -1181,7 +1200,7 @@
     },
     {
       "builder": "build_track_system_prompt",
-      "framing_slot": null,
+      "framing_slots": [],
       "id": "query_extractor.geographic",
       "produces": {
         "result_fields": [
@@ -1196,7 +1215,7 @@
     },
     {
       "builder": "build_track_system_prompt",
-      "framing_slot": null,
+      "framing_slots": [],
       "id": "query_extractor.counterfactual",
       "produces": {
         "result_fields": [
@@ -1211,7 +1230,7 @@
     },
     {
       "builder": "build_track_system_prompt",
-      "framing_slot": null,
+      "framing_slots": [],
       "id": "query_extractor.precedent",
       "produces": {
         "result_fields": [
@@ -1228,7 +1247,7 @@
     },
     {
       "builder": "build_track_system_prompt",
-      "framing_slot": null,
+      "framing_slots": [],
       "id": "query_extractor.adjacent",
       "produces": {
         "result_fields": [
@@ -1245,7 +1264,7 @@
     },
     {
       "builder": "build_system_prompt",
-      "framing_slot": null,
+      "framing_slots": [],
       "id": "insight_extractor.extract",
       "produces": {
         "result_fields": [
@@ -1260,7 +1279,7 @@
     },
     {
       "builder": "build_reconciliation_system_prompt",
-      "framing_slot": null,
+      "framing_slots": [],
       "id": "insight_reconciler.reconcile",
       "produces": {
         "result_fields": [
@@ -1275,7 +1294,9 @@
     },
     {
       "builder": "build_system_prompt",
-      "framing_slot": "drift_framing",
+      "framing_slots": [
+        "drift_framing"
+      ],
       "id": "drift_classifier.classify",
       "produces": {
         "result_fields": [
@@ -1292,7 +1313,9 @@
     },
     {
       "builder": "build_system_prompt",
-      "framing_slot": "evidence_framing",
+      "framing_slots": [
+        "evidence_framing"
+      ],
       "id": "evidence_assessor.assess",
       "produces": {
         "result_fields": [
@@ -1309,7 +1332,9 @@
     },
     {
       "builder": "build_system_prompt",
-      "framing_slot": "precedent_framing",
+      "framing_slots": [
+        "precedent_framing"
+      ],
       "id": "precedent_classifier.classify",
       "produces": {
         "result_fields": [
@@ -1327,7 +1352,7 @@
     },
     {
       "builder": "build_reconciliation_system_prompt",
-      "framing_slot": null,
+      "framing_slots": [],
       "id": "conformity.reconciliation",
       "produces": {
         "result_fields": [
@@ -1344,7 +1369,7 @@
     },
     {
       "builder": "build_review_system_prompt",
-      "framing_slot": null,
+      "framing_slots": [],
       "id": "target_reviewer.prefill",
       "produces": {
         "result_fields": [
@@ -1361,7 +1386,7 @@
     },
     {
       "builder": "build_review_system_prompt",
-      "framing_slot": null,
+      "framing_slots": [],
       "id": "evidence_reviewer.prefill",
       "produces": {
         "result_fields": [
@@ -1378,7 +1403,7 @@
     },
     {
       "builder": "build_system_prompt",
-      "framing_slot": null,
+      "framing_slots": [],
       "id": "projection_reconciler.reconcile",
       "produces": {
         "result_fields": [
@@ -1394,7 +1419,7 @@
     },
     {
       "builder": "build_system_prompt",
-      "framing_slot": null,
+      "framing_slots": [],
       "id": "projection_classifier.classify",
       "produces": {
         "result_fields": [
@@ -1409,7 +1434,7 @@
     },
     {
       "builder": "build_selection_prompt",
-      "framing_slot": null,
+      "framing_slots": [],
       "id": "selector.evidence",
       "produces": {
         "result_fields": [],
@@ -1422,7 +1447,7 @@
     },
     {
       "builder": "build_assessment_prompt",
-      "framing_slot": null,
+      "framing_slots": [],
       "id": "assessor.question",
       "produces": {
         "result_fields": [

@@ -43,6 +43,8 @@ cases:
     org: bmgf
     intervention_class: vaccine
     indication: respiratory_syncytial_virus
+    # The use the RSV iTPP the other cases read is written for, as a team would state it.
+    intended_use: Maternal immunization during pregnancy to protect infants from RSV disease in their first six months.
 
   - name: contraception-screener
     tool: screener

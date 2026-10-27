@@ -6,6 +6,14 @@ display_name: "BMGF Intervention TPP - Vaccine"
 # Searcher sources read for comparable products and published guidance. `web` is left out:
 # its excerpts are snippets, which can support neither a number nor a quotation.
 sources: [tavily, pubmed, clinicaltrials, ctis, isrctn, semantic_scholar, europepmc, who_guidelines, fda]
+# Who every draft is for. Read by every stage that asks a model: searches look for this
+# setting, readings keep where each source applies, and suggestions aim at it.
+programme_context: |
+  BMGF intervention TPPs describe products for low- and middle-income countries, with
+  Gavi-supported countries among the first to use them. A target serves public-sector
+  immunization programmes there: national schedules, procurement through Gavi and UNICEF,
+  WHO prequalification, and delivery where cold chain, health workers and budgets are
+  limited.
 query_guidance: |
   Search for what licensed and late-stage vaccines for this indication achieved on this
   variable - trial results, labels and regulatory reviews - and for what published target

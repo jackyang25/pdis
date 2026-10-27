@@ -377,7 +377,7 @@ class PromptCatalogTests(unittest.TestCase):
         published system prompt is the whole of what every edge is told.
         """
         for entry in PROMPT_CATALOG:
-            self.assertIsNone(entry.framing_slot, entry.id)
+            self.assertEqual(entry.framing_slots, (), entry.id)
 
 
 if __name__ == "__main__":

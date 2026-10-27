@@ -21,6 +21,7 @@ from .models import (
     CAUSE_CODES,
     FAILURE_CODES,
     LEANS_ON_BY_BASES,
+    MAX_INTENDED_USE_CHARS,
     RAISED_FAILURES,
     STATUSES,
     SUGGESTION_KINDS,
@@ -35,6 +36,11 @@ def validate_result_contract(result: dict[str, Any]) -> dict[str, Any]:
     for key in ("org", "source_type", "intervention_class", "indication"):
         if not str(result.get(key) or "").strip():
             raise ValueError(f"{key} is required")
+    intended_use = result.get("intended_use")
+    if not isinstance(intended_use, str) or intended_use != intended_use.strip():
+        raise ValueError("intended_use is the team's text, trimmed, or empty")
+    if len(intended_use) > MAX_INTENDED_USE_CHARS:
+        raise ValueError(f"intended_use is at most {MAX_INTENDED_USE_CHARS} characters")
     variables = result.get("variables") or []
     if not variables:
         raise ValueError("A draft result holds at least one variable")

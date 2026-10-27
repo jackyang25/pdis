@@ -1026,7 +1026,7 @@
                   "title": "Product context",
                   "kind": "input",
                   "layer": "Input",
-                  "summary": "The product type selects the iTPP's variables; every one is suggested.",
+                  "summary": "The product type selects the iTPP's variables; every one is suggested. The configuration states who drafts are for, such as low- and middle-income countries, and the team may state the product's intended use; both aim the searches and suggestions and neither is evidence.",
                   "inputs": [
                     "Organization, health product type, and disease / condition"
                   ],

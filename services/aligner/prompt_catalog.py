@@ -33,7 +33,7 @@ PROMPT_CATALOG: tuple[CatalogEntry, ...] = (
         # and the document's role description reach the model in the user message, per
         # requirement, not interpolated into this prompt. The system prompt is the same
         # text for every edge, which is what a reader of the reference is being shown.
-        framing_slot=None,
+        framing_slots=(),
         result_fields=(
             "findings[].requirement",
             "findings[].reference_spans",
@@ -48,7 +48,7 @@ PROMPT_CATALOG: tuple[CatalogEntry, ...] = (
         title="Requirement verdict",
         builder_name="build_assessment_prompt",
         render=build_assessment_prompt,
-        framing_slot=None,
+        framing_slots=(),
         result_fields=(
             "findings[].verdict",
             "findings[].statement",

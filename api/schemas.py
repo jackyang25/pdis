@@ -1210,6 +1210,8 @@ class DraftResultOut(BaseModel):
     source_type: str
     intervention_class: str
     indication: str
+    # The team's own statement of what the product is for, or "" when they stated none.
+    intended_use: str
     display_name: str
     sources: list[str]
     failed_sources: list[str]

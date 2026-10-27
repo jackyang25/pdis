@@ -82,7 +82,10 @@ const ANALYSIS_VERSIONS = {
   // quote, so it cannot be read as one that was.
   // 4: each observation carries its source's publication date at the stated precision, which
   // the suggestion weighed. A v3 file has none, and its silence would read as "undated".
-  drafter: 4,
+  // 5: a draft carries `intended_use`, the team's statement of what the product is for, which
+  // aimed its searches and suggestions. A v4 file has none, and could not say whether it was
+  // drafted without one or before the field existed.
+  drafter: 5,
 } as const satisfies Record<ResultType, number>;
 
 type SourceDocument = {
@@ -280,6 +283,12 @@ export function runScope(result: unknown, type: RunKeepingTool): string {
   if (type === "scout") {
     const since = formatWindowDate((result as ScoutResponse).published_since);
     if (since) parts.push(`evidence since ${since}`);
+  }
+  // So is a stated intended use: it aimed the draft's searches and suggestions, and a reader
+  // sees what steered the draft beside what it was drafted for.
+  if (type === "drafter") {
+    const use = (result as DraftResult).intended_use;
+    if (use) parts.push(`intended use: ${use}`);
   }
   return parts.join(" · ");
 }

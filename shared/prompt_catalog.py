@@ -32,8 +32,10 @@ class CatalogEntry:
     """The function in the stage module that assembles this prompt."""
 
     render: Callable[[], str]
-    framing_slot: str | None
-    """Config field interpolated into this prompt, when the tool has one."""
+    framing_slots: tuple[str, ...]
+    """Config fields interpolated into this prompt, in the order it inserts them; empty when
+    it inserts none. A prompt may insert several: Drafter's search plan reads the product
+    type's search guidance and the programme context the whole draft is for."""
 
     result_fields: tuple[str, ...]
     ui_labels: tuple[str, ...]

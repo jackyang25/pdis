@@ -4,6 +4,13 @@ source_type: itpp
 intervention_class: device
 display_name: "BMGF Intervention TPP - Device"
 sources: [tavily, pubmed, clinicaltrials, ctis, isrctn, semantic_scholar, europepmc, who_guidelines, fda]
+# Who every draft is for. Read by every stage that asks a model: searches look for this
+# setting, readings keep where each source applies, and suggestions aim at it.
+programme_context: |
+  BMGF intervention TPPs describe products for low- and middle-income countries. A target
+  serves public-sector programmes there: procurement by national programmes and global
+  funders, WHO prequalification or equivalent review, and use where power, maintenance,
+  trained staff and budgets are limited.
 query_guidance: |
   Search for what existing devices for this indication achieved on this variable -
   clinical studies, evaluations, labels and regulatory reviews - and for what published

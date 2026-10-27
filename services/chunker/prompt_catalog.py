@@ -35,7 +35,7 @@ PROMPT_CATALOG: tuple[CatalogEntry, ...] = (
         title="Section assignment",
         builder_name="build_prompts",
         render=lambda: build_prompts([], PLACEHOLDER_CONFIG)[0],
-        framing_slot="preamble",
+        framing_slots=("preamble",),
         result_fields=("blocks[].section_label",),
         ui_labels=(),
     ),

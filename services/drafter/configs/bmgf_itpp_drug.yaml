@@ -4,6 +4,14 @@ source_type: itpp
 intervention_class: drug
 display_name: "BMGF Intervention TPP - Drug"
 sources: [tavily, pubmed, clinicaltrials, ctis, isrctn, semantic_scholar, europepmc, who_guidelines, fda]
+# Who every draft is for. Read by every stage that asks a model: searches look for this
+# setting, readings keep where each source applies, and suggestions aim at it.
+programme_context: |
+  BMGF intervention TPPs describe products for low- and middle-income countries. A target
+  serves public-sector programmes there: national treatment guidelines and essential-medicines
+  lists, procurement by national programmes and global funders, WHO prequalification, and
+  delivery through primary and community care where laboratory capacity and budgets are
+  limited.
 query_guidance: |
   Search for what approved and late-stage drugs for this indication achieved on this
   variable - trial results, labels and regulatory reviews - and for what published target

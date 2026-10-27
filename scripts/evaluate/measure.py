@@ -43,7 +43,7 @@ _OPTIONAL = {
     "aligner": {"folder"},
     "screener": {"folder"},
     "scout": {"folder", "published_since"},
-    "drafter": set(),
+    "drafter": {"intended_use"},
 }
 
 
@@ -61,6 +61,7 @@ class Case:
     source_type: str = ""
     gate: str = ""
     published_since: str = ""
+    intended_use: str = ""
     applicability_facts: dict[str, str] = field(default_factory=dict)
     # (document type, path relative to the documents directory). The type is set
     # only for Aligner, where it says which declared comparisons the file joins.
@@ -68,7 +69,7 @@ class Case:
 
     def context(self) -> dict[str, Any]:
         keys = ("org", "intervention_class", "indication", "source_type", "gate",
-                "published_since", "applicability_facts")
+                "published_since", "intended_use", "applicability_facts")
         return {key: getattr(self, key) for key in keys if getattr(self, key)}
 
 
@@ -131,6 +132,7 @@ def _case(entry: dict) -> Case:
         intervention_class=entry["intervention_class"], indication=entry["indication"],
         source_type=entry.get("source_type", ""), gate=entry.get("gate", ""),
         published_since=entry.get("published_since", ""),
+        intended_use=entry.get("intended_use", ""),
         applicability_facts=dict(entry.get("applicability_facts") or {}),
         documents=tuple((role, str(Path(folder) / name)) for role, name in pairs),
     )

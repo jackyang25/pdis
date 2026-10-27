@@ -3,10 +3,11 @@
 from .configuration import available_configs, find_config, has_config, load_config
 from .contract import validate_result_contract
 from .export import export_docx
-from .models import DraftResult, DrafterConfig, LLMClientProtocol
+from .models import MAX_INTENDED_USE_CHARS, DraftResult, DrafterConfig, LLMClientProtocol
 from .pipeline import run_pipeline
 
 __all__ = [
+    "MAX_INTENDED_USE_CHARS",
     "DraftResult",
     "DrafterConfig",
     "LLMClientProtocol",

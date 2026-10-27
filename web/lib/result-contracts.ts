@@ -349,6 +349,7 @@ function assertDrafterReadable(result: unknown): void {
   if (!draft || typeof draft !== "object") fail("drafter", "it carries no draft");
   requireText("drafter", draft.intervention_class, "the product type");
   requireText("drafter", draft.indication, "the disease / condition");
+  if (typeof draft.intended_use !== "string") fail("drafter", "it does not say what intended use it was drafted for");
   const variables = requireArray("drafter", draft.variables, "variables") as DraftVariable[];
   if (variables.length === 0) fail("drafter", "it carries no variable");
   const names = new Set<string>();

@@ -117,10 +117,16 @@ class Reading:
     unverified_quotes: int
 
 
-def build_system_prompt() -> str:
+def build_system_prompt(programme_context: str) -> str:
     return (
         "You read ONE source excerpt for ONE variable of an intervention target product profile "
         "(iTPP) that a team is drafting, and report what the excerpt says about that variable.\n\n"
+        f"The profile is for this setting:\n{programme_context.strip()}\n"
+        "Report what the excerpt says wherever it applies: the setting does not decide what you "
+        "report. Where the excerpt says where or in whom something applies - the countries a "
+        "product is licensed in, the programme a requirement serves, the population a result was "
+        "in - keep that in measure, so a comparable product's market and population can be told "
+        "apart from the setting and use the profile is for.\n\n"
         "Report two kinds of observation, and never mix them:\n"
         "- comparable_product: what an existing or investigational product achieved, showed or is "
         "specified to have for this variable. Name the product.\n"
@@ -163,6 +169,7 @@ def read_finding(
     *,
     indication: str,
     intervention_term: str,
+    programme_context: str,
 ) -> Reading:
     """The source's observations; raises ``ModelResponseError`` when no reading came back.
 
@@ -196,7 +203,7 @@ def read_finding(
 
     try:
         return request_validated(
-            llm_client, build_system_prompt(), message,
+            llm_client, build_system_prompt(programme_context), message,
             schema_name="drafter_evidence_reading", schema=SCHEMA, max_tokens=MAX_TOKENS,
             task=TASK, effort=EFFORT,
             parse=parse, failure=f"Evidence reading failed for {variable.name} from {finding.url}",

@@ -23,7 +23,7 @@ PROMPT_CATALOG: tuple[CatalogEntry, ...] = (
         title="Question evidence selection",
         builder_name="build_selection_prompt",
         render=build_selection_prompt,
-        framing_slot=None,
+        framing_slots=(),
         result_fields=(),
         ui_labels=(),
     ),
@@ -36,7 +36,7 @@ PROMPT_CATALOG: tuple[CatalogEntry, ...] = (
         render=build_assessment_prompt,
         # Screener has no framing slot. The bank supplies each question's whole text,
         # so there is nothing for a configuration to interpolate.
-        framing_slot=None,
+        framing_slots=(),
         result_fields=(
             "disciplines[].questions[].state",
             "disciplines[].questions[].cited_block_ids",

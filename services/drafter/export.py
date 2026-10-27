@@ -28,6 +28,8 @@ def export_docx(result: dict[str, Any]) -> bytes:
     return word_document(WordReport(
         title="Draft iTPP targets",
         context=f"{result['display_name']} · {display_label(result['indication'])}",
+        # Beside the draft it aimed, so a reader of the file sees what steered it.
+        notes=[f"Intended use, as the team stated it: {result['intended_use']}"] if result["intended_use"] else [],
         about=(
             "Suggested by PDIS Drafter from comparable products' results and published guidance. "
             "Every target is a suggestion to check and edit; each row lists the sources it rests on."

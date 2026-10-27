@@ -1739,6 +1739,8 @@ export type DraftResult = {
   source_type: string;
   intervention_class: string;
   indication: string;
+  /** What the product is for, in the drafting team's words, or "" when they stated none. */
+  intended_use: string;
   display_name: string;
   sources: string[];
   /** Sources every request to which failed: their evidence is missing from the whole run. */
@@ -1754,13 +1756,16 @@ export type DrafterResponse = { result: DraftResult };
 
 /** Suggest a target for every iTPP variable of the configured product type. */
 export async function runDrafter(
-  configuration: { org: string; intervention_class: string; indication: string },
+  configuration: { org: string; intervention_class: string; indication: string; intended_use: string },
   onStage?: (stage: string, progress?: StageProgress) => void,
 ): Promise<DrafterResponse> {
   const form = new FormData();
   Object.entries(configuration).forEach(([key, value]) => form.append(key, value));
   return streamRequest("/api/drafter/run", form, onStage);
 }
+
+/** The longest intended use a team may state, as the server enforces it. */
+export const MAX_INTENDED_USE_CHARS = 600;
 
 /** The tools whose final result exports to Word, each at `/api/<tool>/export`. */
 export type WordExportTool = "inspector" | "aligner" | "screener" | "scout" | "drafter";

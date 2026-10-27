@@ -13,6 +13,7 @@ from shared.vocabulary import AttributeDefinition, searchable_attribute_phrase
 from services.searcher import QueryFacets, RetrievalIntent, SourceQueryIntent
 
 from ..models import DrafterConfig, LLMClientProtocol
+from .intended_use import intended_use_line
 
 VARIABLES_PER_REQUEST = 1
 QUERIES_PER_VARIABLE = 4
@@ -58,7 +59,7 @@ SCHEMA = {
 }
 
 
-def build_system_prompt(query_guidance: str) -> str:
+def build_system_prompt(query_guidance: str, programme_context: str) -> str:
     return (
         "You plan literature, registry and guidance searches for ONE variable of an intervention "
         "target product profile (iTPP) that a team is drafting.\n\n"
@@ -70,6 +71,11 @@ def build_system_prompt(query_guidance: str) -> str:
         "Write at least one of each where the variable could plausibly have both.\n\n"
         "For each query also state its facets: condition, intervention, population and outcome, "
         "each blank when the query does not state it. Do not restate the condition in other words.\n\n"
+        f"Who the profile is for:\n{programme_context.strip()}\n\n"
+        "Aim the guidance queries at that setting: the guidance, programmes and procurement that "
+        "serve it. Search for comparable products wherever they are licensed.\n\n"
+        "The team may state the product's intended use - who receives it and what it prevents or "
+        "treats. Where they do, plan the queries for that use.\n\n"
         f"Domain guidance:\n{query_guidance.strip()}"
     )
 
@@ -81,9 +87,11 @@ def plan_searches(
     *,
     indication: str,
     intervention_term: str,
+    intended_use: str = "",
 ) -> RetrievalIntent:
     message = (
         f"Product type: {intervention_term}. Disease / condition: {indication}.\n"
+        f"{intended_use_line(intended_use)}"
         f"Variable: {variable.name} ({searchable_attribute_phrase(variable.name)})\n"
         f"What it covers: {variable.description.strip()}"
     )
@@ -103,7 +111,7 @@ def plan_searches(
         )
 
     return request_validated(
-        llm_client, build_system_prompt(config.query_guidance), message,
+        llm_client, build_system_prompt(config.query_guidance, config.programme_context), message,
         schema_name="drafter_search_plan", schema=SCHEMA, max_tokens=MAX_TOKENS,
         task=TASK, effort=EFFORT,
         parse=parse, failure=f"Search planning failed for {variable.name}",

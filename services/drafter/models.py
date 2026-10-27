@@ -49,6 +49,11 @@ class DrafterConfig:
     sources: tuple[str, ...]
     #: Domain framing for search planning, read into the prompt verbatim.
     query_guidance: str
+    #: Who a draft is for - the countries, programmes and settings the product is meant to
+    #: serve. Read by every stage that asks a model, so searches look for that setting,
+    #: readings keep where each source applies, and suggestions aim at it. The organisation's
+    #: own statement of purpose, not a copy of any guidance document.
+    programme_context: str
 
 
 # --- vocabularies ------------------------------------------------------------------------
@@ -76,6 +81,8 @@ FAILURE_CODES = ("search_planning_failed", "evidence_unavailable", "suggestion_f
 #: (`shared.ai.FAILURE_CODES`). `evidence_unavailable` is concluded from counts, not raised.
 RAISED_FAILURES = ("search_planning_failed", "suggestion_failed")
 CAUSE_CODES = _ai.FAILURE_CODES
+#: The longest intended use a team may state: a sentence or two, not a brief.
+MAX_INTENDED_USE_CHARS = 600
 
 
 # --- result ------------------------------------------------------------------------------
@@ -177,6 +184,11 @@ class DraftResult:
     source_type: str
     intervention_class: str
     indication: str
+    #: What the product is for, as the team drafting it stated it - who receives it and what
+    #: it prevents or treats - or "" when they stated nothing. Context the searches and the
+    #: suggestions are aimed by, never evidence and never a target value; kept on the result
+    #: so every reader sees what steered the draft.
+    intended_use: str
     display_name: str
     sources: tuple[str, ...]
     #: Sources every request to which failed in this run.

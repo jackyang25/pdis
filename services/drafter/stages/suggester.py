@@ -24,6 +24,7 @@ from shared.schemas import blank_text, non_empty_text
 from shared.vocabulary import AttributeDefinition, searchable_attribute_phrase
 
 from ..contract import check_suggestion
+from .intended_use import intended_use_line
 from ..models import LEANS_ON_BY_BASES, GroupSummary, LLMClientProtocol, Observation, Suggestion
 
 VARIABLES_PER_REQUEST = 1
@@ -38,10 +39,24 @@ EFFORT: Effort = "medium"
 MAX_TOKENS = 12000
 
 
-def build_system_prompt() -> str:
+def build_system_prompt(programme_context: str) -> str:
     return (
         "You suggest a target for ONE variable of an intervention target product profile (iTPP) "
         "that a team is drafting, from the evidence supplied and nothing else.\n\n"
+        f"The profile is for this setting:\n{programme_context.strip()}\n"
+        "A comparable product's results, schedule, route, presentation and the people it was "
+        "studied in are evidence of what a product like this can do, wherever it was studied: use "
+        "them. The countries it is licensed in and its price are evidence about that product, never "
+        "a target for this one: for where or at what cost this product is used, lean on guidance "
+        "that speaks to this setting, and where the evidence holds none, the answer is insufficient "
+        "rather than a comparable product's market. Where the evidence supports more than one "
+        "choice - a presentation, a schedule, a delivery channel - prefer the one that serves this "
+        "setting.\n\n"
+        "The team may state the product's intended use - who receives it and what it prevents or "
+        "treats. It is context, never evidence and never a value to put in a target. Where it is "
+        "stated, a target rests on evidence for that use; evidence from another population or use "
+        "is leaned on only when nothing for the stated use speaks to the variable, and the "
+        "rationale then says so.\n\n"
         "Choose a kind:\n"
         "- range: for a variable measured in numbers. Give a minimum (the least a product must "
         "reach to be worth developing) and a preferred value (what would make it clearly better), "
@@ -70,6 +85,8 @@ def suggest(
     *,
     indication: str,
     intervention_term: str,
+    programme_context: str,
+    intended_use: str = "",
 ) -> Suggestion:
     if not observations:
         # Nothing could be cited, so nothing could be suggested; no model is asked to say so.
@@ -103,8 +120,9 @@ def suggest(
         return suggestion
 
     return request_validated(
-        llm_client, build_system_prompt(),
-        _message(variable, observations, statistics, indication=indication, intervention_term=intervention_term),
+        llm_client, build_system_prompt(programme_context),
+        _message(variable, observations, statistics, indication=indication, intervention_term=intervention_term,
+                 intended_use=intended_use),
         schema_name="drafter_suggestion", schema=_schema([observation.id for observation in observations]),
         max_tokens=MAX_TOKENS, task=TASK, effort=EFFORT,
         parse=parse, failure=f"Suggestion failed for {variable.name}",
@@ -148,7 +166,7 @@ def _schema(observation_ids: list[str]) -> dict:
     }
 
 
-def _message(variable, observations, statistics, *, indication, intervention_term) -> str:
+def _message(variable, observations, statistics, *, indication, intervention_term, intended_use="") -> str:
     """The variable, each observation as the reader recorded it, and the computed figures.
 
     Each observation says what was measured, when its source was published, the number the
@@ -177,6 +195,7 @@ def _message(variable, observations, statistics, *, indication, intervention_ter
     ]
     return (
         f"Product type: {intervention_term}. Disease / condition: {indication}.\n"
+        f"{intended_use_line(intended_use)}"
         f"Variable: {searchable_attribute_phrase(variable.name)}\n"
         f"What it covers: {variable.description.strip()}\n\n"
         "Observations:\n" + "\n".join(lines)

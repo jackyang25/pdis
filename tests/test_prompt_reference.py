@@ -123,9 +123,9 @@ class PromptReferenceTest(unittest.TestCase):
         """
         reference = json.loads(REFERENCE.read_text())
         declared = {
-            (prompt["tool"], prompt["framing_slot"])
+            (prompt["tool"], slot)
             for prompt in reference["prompts"]
-            if prompt["framing_slot"]
+            for slot in prompt["framing_slots"]
         }
         published = {
             (configuration["tool"], slot)

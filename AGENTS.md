@@ -707,6 +707,11 @@ no priority card, no verdicts and no score, and reads no other tool's output.
   found insufficient. A failed call also records its `cause` from `shared.ai.FAILURE_CODES`.
 - Published guidance is found by searching, never stored in configuration: a copy of a
   document that is revised goes stale without anyone noticing.
+- Who a draft is for is configuration, not a stage's assumption: `programme_context` is read
+  by every Drafter stage that asks a model. A comparable product's markets and price are
+  evidence about that product, never a target for the one being drafted. A team may state the
+  product's intended use; it aims the searches and suggestions, is never evidence or a target
+  value, and is carried on the result (`intended_use`) so every reader sees what steered it.
 - A run is final when it finishes and is exported as it is, every target labelled a
   suggestion with its sources; the Word table is built by the server from the result. There
   is no review step: a checkpoint earns its place only before something it controls, and

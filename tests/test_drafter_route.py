@@ -36,7 +36,7 @@ class RunRouteTests(unittest.TestCase):
         self.assertEqual(response.status_code, 500)
 
     def test_a_run_without_a_draft_streams_its_result(self):
-        fake = DraftResult(org="bmgf", source_type="itpp", intervention_class="vaccine", indication="malaria",
+        fake = DraftResult(org="bmgf", source_type="itpp", intervention_class="vaccine", indication="malaria", intended_use="",
                            display_name="Vaccine", sources=("pubmed",), failed_sources=(), unconfigured_sources=(), source_errors=(),
                            variables=())
         with patch("api.routes.drafter.get_openai_client", return_value=object()), \
@@ -47,6 +47,19 @@ class RunRouteTests(unittest.TestCase):
         complete = [event for event in events if event["event"] == "complete"]
         self.assertEqual(complete[0]["result"]["result"]["indication"], "malaria")
         self.assertEqual(run.call_args.kwargs["indication"], "malaria")
+        self.assertEqual(run.call_args.kwargs["intended_use"], "")
+
+    def test_the_intended_use_reaches_the_run_and_an_over_long_one_is_refused(self):
+        fake = DraftResult(org="bmgf", source_type="itpp", intervention_class="vaccine", indication="malaria",
+                           intended_use="Maternal immunization to protect infants in their first six months.", display_name="Vaccine", sources=("pubmed",), failed_sources=(),
+                           unconfigured_sources=(), source_errors=(), variables=())
+        with patch("api.routes.drafter.get_openai_client", return_value=object()), \
+             patch("api.routes.drafter.get_search_runtime", return_value=object()), \
+             patch("api.routes.drafter.run_pipeline", return_value=fake) as run:
+            self.client.post("/api/drafter/run", data={**FORM, "intended_use": "Maternal immunization to protect infants in their first six months."})
+            refused = self.client.post("/api/drafter/run", data={**FORM, "intended_use": "x" * 601})
+        self.assertEqual(run.call_args.kwargs["intended_use"], "Maternal immunization to protect infants in their first six months.")
+        self.assertEqual(refused.status_code, 400)
 
     def test_a_failure_cause_and_set_aside_quotes_reach_the_wire(self):
         failed = VariableDraft(
@@ -54,7 +67,7 @@ class RunRouteTests(unittest.TestCase):
             failure=Failure("suggestion_failed", "Cut off.", "response_truncated"), observations=(), statistics=(),
             suggestion=None, unread_findings=1, unverified_quotes=2,
         )
-        fake = DraftResult(org="bmgf", source_type="itpp", intervention_class="vaccine", indication="malaria",
+        fake = DraftResult(org="bmgf", source_type="itpp", intervention_class="vaccine", indication="malaria", intended_use="",
                            display_name="Vaccine", sources=("pubmed",), failed_sources=(), unconfigured_sources=(),
                            source_errors=(), variables=(failed,))
         with patch("api.routes.drafter.get_openai_client", return_value=object()), \

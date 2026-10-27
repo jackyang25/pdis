@@ -145,8 +145,8 @@ before parsing, whichever caller started the run.
 
 ### One document collection
 
-Uploads accept the formats every tool does - DOCX, PPTX, XLSX (and legacy XLS), and
-text-based PDF - through Chunker's `DOCUMENT_SUFFIXES`. Documents can contain any evidence relevant to the gate; they need
+Uploads accept the formats every tool does - DOCX, PPTX, XLSX and their legacy DOC, PPT
+and XLS forms, and text-based PDF - through Chunker's `DOCUMENT_SUFFIXES`. Documents can contain any evidence relevant to the gate; they need
 no iTPP, cTPP, or IPDP type, section taxonomy, or matching Chunker configuration.
 TXT, Markdown, and standalone image uploads are not supported. Images embedded
 in DOCX, PPTX and XLSX remain retained, labeled by block ID, and citable. PDF supplies

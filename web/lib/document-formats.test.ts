@@ -45,10 +45,11 @@ test("the mirrored set matches services/chunker", () => {
 
 test("derived values stay consistent with the set", () => {
   assert.equal(DOCUMENT_FORMATS.accept, DOCUMENT_SUFFIXES.join(","));
-  assert.equal(DOCUMENT_FORMAT_HINT, "DOCX, PPTX, XLSX, XLS, PDF");
+  assert.equal(DOCUMENT_FORMAT_HINT, "DOCX, DOC, PPTX, PPT, XLSX, XLS, PDF");
   assert.ok(isSupportedDocument("Plan.DOCX"), "extension matching must ignore case");
   assert.ok(isSupportedDocument("REPORT.PDF") && isSupportedDocument("targets.xlsx"));
-  assert.ok(!isSupportedDocument("report.pdf.doc"), "only the last extension counts");
+  assert.ok(!isSupportedDocument("report.pdf.txt"), "only the last extension counts");
+  assert.ok(isSupportedDocument("old-plan.DOC") && isSupportedDocument("old-deck.ppt"));
   assert.ok(!isSupportedDocument("docx"), "a bare word is not an extension");
 });
 
@@ -73,7 +74,7 @@ test("an attachment accepts every document plus its own media types", () => {
     assert.ok(ATTACHMENT_ACCEPT.includes(suffix), `${suffix} is not attachable`);
   }
   assert.equal(ATTACHMENT_ACCEPT, `${DOCUMENT_FORMATS.accept},image/*`);
-  assert.equal(ATTACHMENT_FORMAT_HINT, "DOCX, PPTX, XLSX, XLS, PDF, or image files");
+  assert.equal(ATTACHMENT_FORMAT_HINT, "DOCX, DOC, PPTX, PPT, XLSX, XLS, PDF, or image files");
 });
 
 function sourceFiles(): string[] {
@@ -101,7 +102,7 @@ test("no component restates a document extension", () => {
   for (const file of sourceFiles()) {
     const relative = path.relative(WEB, file);
     if (relative === AUTHORITY) continue;
-    for (const [match] of readFileSync(file, "utf8").matchAll(/"[^"\n]*\.(?:docx|pptx|xlsx|xls|pdf)[^"\n]*"/gi)) {
+    for (const [match] of readFileSync(file, "utf8").matchAll(/"[^"\n]*\.(?:docx?|pptx?|xlsx?|pdf)\b[^"\n]*"/gi)) {
       offenders.push(`${relative}: ${match}`);
     }
   }

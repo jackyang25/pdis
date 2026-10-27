@@ -9,7 +9,7 @@
  * from here. Restating the extensions in a component lets a control advertise
  * one set while accepting another.
  */
-export const DOCUMENT_SUFFIXES = [".docx", ".pptx", ".xlsx", ".xls", ".pdf"] as const;
+export const DOCUMENT_SUFFIXES = [".docx", ".doc", ".pptx", ".ppt", ".xlsx", ".xls", ".pdf"] as const;
 
 export type DocumentFormats = {
   suffixes: readonly string[];
@@ -27,10 +27,10 @@ function documentFormats(suffixes: readonly string[]): DocumentFormats {
 
 export const DOCUMENT_FORMATS: DocumentFormats = {
   ...documentFormats(DOCUMENT_SUFFIXES),
-  note: "Word, PowerPoint and Excel files keep their structure, so findings point to the exact passage, slide or row. PDFs are read as page text with an image of each page: tables and columns may be out of order and findings point to the page, so upload the original file when you have it. PDFs must be unlocked, up to 20 MB and 200 pages, with selectable text on every page; scans are not supported. Workbooks may be up to 20 MB and 2,000 filled rows.",
+  note: "Word, PowerPoint and Excel files keep their structure (older DOC, PPT and XLS files are converted first), so findings point to the exact passage, slide or row. PDFs are read as page text with an image of each page: tables and columns may be out of order and findings point to the page, so upload the original file when you have it. PDFs must be unlocked, up to 20 MB and 200 pages, with selectable text on every page; scans are not supported. Workbooks may be up to 20 MB and 2,000 filled rows.",
 };
 
-/** Reader-facing format list, e.g. `DOCX, PPTX, XLSX, XLS, PDF`. */
+/** Reader-facing format list, e.g. `DOCX, DOC, PPTX, PPT, XLSX, XLS, PDF`. */
 export const DOCUMENT_FORMAT_HINT = DOCUMENT_FORMATS.hint;
 
 /**
@@ -47,7 +47,7 @@ export const ATTACHMENT_ACCEPT = [
   ...ATTACHMENT_MEDIA_PREFIXES.map((prefix) => `${prefix}*`),
 ].join(",");
 
-/** Reader-facing attachment list, e.g. `DOCX, PPTX, XLSX, XLS, PDF, or image files`. */
+/** Reader-facing attachment list, e.g. `DOCX, DOC, PPTX, PPT, XLSX, XLS, PDF, or image files`. */
 export const ATTACHMENT_FORMAT_HINT = `${DOCUMENT_FORMAT_HINT}, or image files`;
 
 /** How many files one conversation may attach. */

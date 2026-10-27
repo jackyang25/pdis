@@ -20,8 +20,15 @@ from services.chunker.stages.parser import parse_document
 
 
 class SupportedFormatTests(unittest.TestCase):
-    def test_the_supported_set_is_the_four_formats_and_legacy_excel(self) -> None:
-        self.assertEqual(DOCUMENT_SUFFIXES, {".docx", ".pptx", ".xlsx", ".xls", ".pdf"})
+    def test_the_supported_set_is_the_four_formats_and_their_legacy_forms(self) -> None:
+        self.assertEqual(DOCUMENT_SUFFIXES, {".docx", ".doc", ".pptx", ".ppt", ".xlsx", ".xls", ".pdf"})
+
+    def test_every_legacy_format_converts_to_a_format_with_its_own_reader(self) -> None:
+        from services.chunker.formats import LEGACY_SUFFIXES
+        from services.chunker.stages.parser import _PARSERS
+
+        self.assertEqual(set(LEGACY_SUFFIXES), DOCUMENT_SUFFIXES - set(_PARSERS))
+        self.assertLessEqual(set(LEGACY_SUFFIXES.values()), set(_PARSERS))
 
     def test_a_format_outside_the_set_is_refused_naming_the_set(self) -> None:
         with self.assertRaises(ValueError) as caught:

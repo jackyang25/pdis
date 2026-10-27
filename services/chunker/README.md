@@ -49,9 +49,12 @@ location. These describe structure, not importance: even a header drawing remain
 flagged, and consumers do not guess whether it is decoration. Older saved blocks
 without object details keep a general warning.
 
-Formats live in `formats.py`: `DOCUMENT_SUFFIXES` is DOCX, PPTX, XLSX, legacy XLS
-and PDF, the one set every tool and Ask attachments accept. DOCX/PPTX/XLSX declare
-tables, rows, headings and order; PDF is page text.
+Formats live in `formats.py`: `DOCUMENT_SUFFIXES` is DOCX, PPTX, XLSX and PDF and their
+legacy forms DOC, PPT and XLS, the one set every tool and Ask attachments accept.
+DOCX/PPTX/XLSX declare tables, rows, headings and order; PDF is page text. A legacy file
+has no reader of its own: `LEGACY_SUFFIXES` maps it to its modern format, LibreOffice
+converts it, and the modern reader reads the converted file, images and slide renders
+included. Its blocks keep the uploaded format (`doc`, `ppt`, `xls`).
 
 XLSX uses openpyxl and keeps layout without deciding meaning. A sheet's filled cells
 split into regions at fully blank rows; a region's leading row whose filled cells are
@@ -64,8 +67,6 @@ Values are the stored results, shown as Excel states them for integers, `%` form
 and dates; merged ranges repeat across their cells. Raster images are image blocks,
 charts carry `unsupported_document_visual`. A workbook over 20 MB or 2,000 filled
 rows, an empty one, or one whose formulas were never calculated is refused whole.
-`.xls` files are converted to XLSX by LibreOffice, then read by the same reader, and
-their blocks say `xls`.
 
 PDF uses pypdf for one text block per page and PDFium for one full-page image,
 with stable IDs, a one-based `structural_meta.page`, and

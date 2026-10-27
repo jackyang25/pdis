@@ -373,7 +373,7 @@
             },
             {
               "question": "Which files can I supply for a document review?",
-              "answer": "Every tool and Ask accept the same formats: DOCX, PPTX, XLSX (older .xls workbooks are converted) and text-based PDF. Word, PowerPoint and Excel keep their structure, so findings point to the exact passage, slide or row; an Excel row is read with its sheet, table title and column headers. PDFs are read as page text with one rendered image per page: the image preserves visible charts and timelines, but extracted text can misorder columns and tables, so a quote match does not verify their interpretation, and findings point to the page. Every tool states that limit the same way. PPTX retains slide text and full-slide visuals; a warning identifies fallback when slide rendering fails or is unavailable. Encrypted, malformed, textless or over-limit PDFs are refused, including files over 20 MB or 200 pages, as are workbooks over 20 MB or 2,000 filled rows and workbooks whose formulas were never calculated. There is no OCR, TXT, Markdown or standalone-image document upload. Older results retain their original coverage; rerun the original documents to gain improved extraction."
+              "answer": "Every tool and Ask accept the same formats: DOCX, PPTX, XLSX (older DOC, PPT and XLS files are converted first) and text-based PDF. Word, PowerPoint and Excel keep their structure, so findings point to the exact passage, slide or row; an Excel row is read with its sheet, table title and column headers. PDFs are read as page text with one rendered image per page: the image preserves visible charts and timelines, but extracted text can misorder columns and tables, so a quote match does not verify their interpretation, and findings point to the page. Every tool states that limit the same way. PPTX retains slide text and full-slide visuals; a warning identifies fallback when slide rendering fails or is unavailable. Encrypted, malformed, textless or over-limit PDFs are refused, including files over 20 MB or 200 pages, as are workbooks over 20 MB or 2,000 filled rows and workbooks whose formulas were never calculated. There is no OCR, TXT, Markdown or standalone-image document upload. Older results retain their original coverage; rerun the original documents to gain improved extraction."
             },
             {
               "question": "What does “not found” actually mean?",
@@ -1163,7 +1163,7 @@
                   "kind": "input",
                   "layer": "Input",
                   "inputs": [
-                    "DOCX, PPTX, XLSX (or legacy XLS), or text-based PDF",
+                    "DOCX, PPTX, XLSX, their legacy DOC, PPT and XLS forms, or text-based PDF",
                     "Stable doc_id and provenance"
                   ],
                   "guarantee": "Temporary upload names never enter citations."
@@ -1194,9 +1194,16 @@
                       "layer": "Format adapter"
                     },
                     {
+                      "id": "legacy",
+                      "title": "Legacy conversion",
+                      "summary": "Converts DOC, PPT and XLS files to their modern format with LibreOffice, then reads them with that format's parser; passages keep the uploaded format.",
+                      "kind": "deterministic",
+                      "layer": "Format adapter"
+                    },
+                    {
                       "id": "xlsx",
                       "title": "XLSX parser",
-                      "summary": "Reads each sheet's tables as rows carrying their sheet, title and column headers, with exact cell ranges; legacy XLS is converted first.",
+                      "summary": "Reads each sheet's tables as rows carrying their sheet, title and column headers, with exact cell ranges.",
                       "kind": "deterministic",
                       "layer": "Format adapter"
                     },

@@ -39,15 +39,14 @@ class SourceFormatTests(unittest.TestCase):
         self.assertEqual(set(SOURCE_FORMAT_BY_SUFFIX), set(DOCUMENT_SUFFIXES))
         self.assertLessEqual(set(SOURCE_FORMAT_BY_SUFFIX.values()), SOURCE_FORMATS)
 
-    def test_the_dispatch_stamps_the_format_of_the_parser_it_chose(self) -> None:
+    def test_the_dispatch_stamps_the_format_of_the_file_uploaded(self) -> None:
+        """A converted legacy file is read by its modern reader and still names the format
+        it arrived in."""
+        read = lambda path, doc_id: [_block(doc_id), _block(doc_id)]
         for suffix, expected in SOURCE_FORMAT_BY_SUFFIX.items():
-            reader = (
-                {"_parse_legacy_workbook": lambda path, doc_id: [_block(doc_id), _block(doc_id)]}
-                if suffix == ".xls"
-                else {"_PARSERS": {suffix: lambda path, doc_id: [_block(doc_id), _block(doc_id)]}}
-            )
-            ((name, replacement),) = reader.items()
-            with patch.object(parser, name, replacement):
+            with patch.object(parser, "_read", side_effect=read), patch.object(
+                parser, "convert_legacy_document", side_effect=lambda path, directory, target: f"converted{target}"
+            ):
                 blocks = parser.parse_document(f"plan{suffix}", "plan")
             self.assertEqual({block.source_format for block in blocks}, {expected}, suffix)
 

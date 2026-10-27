@@ -34,26 +34,35 @@ table. The reader decides nothing semantic.
 
 - **Values are what the file last calculated** (`data_only`), written the way Excel
   displays the kinds it can state exactly: integers without `.0`, percentages from a `%`
-  number format, dates as ISO dates. A formula with no stored result is refused, with the
-  instruction to open and save the file: reading it as empty would report a value as absent.
-- **Regions.** A sheet's filled cells split into regions at fully blank rows. A region is
-  layout, not a declared table, so it creates no Screener expansion group.
+  number format, dates as ISO dates. A workbook whose formulas were never calculated is
+  refused, with the instruction to open and save it: reading it would report every computed
+  value as absent. One empty formula result is not that signal (`=IF(x, "", ...)`).
+- **Regions.** A sheet's filled cells split into regions at fully blank rows, and side by
+  side at a fully blank column when the two sides cover different rows (a side table); a
+  spacer column inside one table covers the same rows on both sides and splits nothing. A
+  region is layout, not a declared table, so it creates no Screener expansion group.
 - **Rows.** A multi-column region follows the DOCX rule: its first row supplies the column
   headers, and each later row is one `table_row` passage serialized by the same
-  `serialize_table_row` DOCX uses, with `table_cells`. A region's leading row holding a
-  single filled cell is its title. A one-column region yields one paragraph per cell; a
-  one-row region yields one paragraph joining its cells.
+  `serialize_table_row` DOCX uses, with `table_cells`. A header row holding a cell merged
+  across columns is a group label over the row beneath, which joins the header ("Targets ›
+  Minimum"), up to three rows. A region's leading row whose filled cells are one source
+  cell starting at its first column is its title. A one-column region yields one paragraph
+  per cell; a one-row region yields one paragraph joining its cells.
 - **Context.** Every passage's `heading_stack` is the sheet name, then the region title when
   there is one, so a row is read with what it is about. Location is
   `structural_meta.sheet` and `cell_range` (`Targets!B4:F4`). Merged ranges repeat their
   value across the cells they cover, as a DOCX merged cell does.
-- **Hidden sheets are read and marked** (`hidden_sheet: true`), never dropped silently.
+- **Hidden sheets and rows are read and marked** (`hidden_sheet`, `hidden_row`), never
+  dropped silently: hidden content is often superseded, and a model told so can weigh it.
 - **Visuals.** Embedded raster images are image passages through the existing image-asset
   path; charts are recorded with the existing `unsupported_document_visual` warning.
-- **Bounds.** Over 20 MB, or over the row bound, the whole workbook is refused with its
-  reason, as an over-limit PDF is.
-- **Legacy `.xls`** converts to XLSX through the LibreOffice already in the image, then reads
-  as XLSX; its passages say `xls` as their source format.
+- **Bounds.** Over 20 MB, over 2,000 filled rows, a sheet stretched past two million cells,
+  or no filled cells: the whole workbook is refused with its reason, as an over-limit PDF
+  is. The cell bound is checked before any cell is walked.
+- **Legacy `.doc`, `.ppt` and `.xls`** have no reader of their own: one mapping
+  (`LEGACY_SUFFIXES`) names each one's modern format, one LibreOffice step converts it,
+  and the modern reader reads the result; passages keep the uploaded format. The image
+  adds LibreOffice's Writer and Calc for this.
 
 ## Non-goals
 

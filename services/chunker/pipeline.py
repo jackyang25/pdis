@@ -20,7 +20,7 @@ from .models import (
     LLMClientProtocol,
     PipelineResult,
 )
-from .stages.image_assets import attach_image_assets, image_asset_from_bytes
+from .stages.image_assets import image_asset_from_bytes
 from .stages.mapper import label_blocks
 from .stages.parser import parse_document
 
@@ -72,7 +72,7 @@ def run_pipeline(
 
 
 def _parse(file_path: str, doc_id: str) -> list[ContentBlock]:
-    return attach_image_assets(parse_document(file_path, doc_id), file_path)
+    return parse_document(file_path, doc_id)
 
 
 def parse_context_file(

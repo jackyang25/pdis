@@ -242,7 +242,7 @@ class UploadParityTests(unittest.TestCase):
         with self.assertRaises(HTTPException) as caught:
             document_upload_parts("report.rtf", tool="Chunker")
         self.assertEqual(caught.exception.status_code, 400)
-        self.assertIn("DOCX, PDF, PPTX, XLS, XLSX", caught.exception.detail)
+        self.assertIn("DOC, DOCX, PDF, PPT, PPTX, XLS, XLSX", caught.exception.detail)
 
     def test_every_tool_accepts_the_same_formats(self) -> None:
         """One set for every tool: a format one tool refuses and another reads would make

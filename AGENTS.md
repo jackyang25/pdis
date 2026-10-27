@@ -186,10 +186,13 @@ web/ → api/ → services/ → shared/
   passage's file type from that field and never infers it from a page or slide
   number. A block saved before the field existed has none, and shows as unknown.
 - Document formats live in `services/chunker/formats.py`, one set for every tool
-  and Ask: DOCX, PPTX, XLSX (legacy `.xls` converted to XLSX by LibreOffice) and
-  PDF. There is no per-tool format list and no `accepted_suffixes` option; a format
-  one tool refused and another read would make them judge different evidence. Each
-  format has one reader in Chunker, so a passage has one shape wherever it is read.
+  and Ask: DOCX, PPTX, XLSX and PDF. There is no per-tool format list and no
+  `accepted_suffixes` option; a format one tool refused and another read would make
+  them judge different evidence. Each format has one reader in Chunker, so a passage
+  has one shape wherever it is read. Legacy `.doc`, `.ppt` and `.xls` have no reader of
+  their own: `LEGACY_SUFFIXES` maps each to its modern format, LibreOffice converts it,
+  and that format's reader reads the converted file - images included - while the
+  blocks keep the uploaded file's `source_format`.
 - DOCX, PPTX and XLSX declare their structure. The XLSX reader keeps layout and
   decides nothing semantic: regions split at blank rows, a leading single-cell row
   is the region's title, and a multi-column region follows the DOCX table rule
@@ -215,7 +218,7 @@ web/ → api/ → services/ → shared/
   blocks; no tool has a PDF branch of its own.
 - Images are canonical blocks, not generated descriptions. Retain supported
   raster bytes, normalize other rasters with Pillow, and use LibreOffice only
-  for vector fallback, PPTX slide rendering and `.xls` conversion.
+  for vector fallback, PPTX slide rendering and legacy `.doc`/`.ppt`/`.xls` conversion.
 - Text quotations and visual references are separate provenance. A visual reference
   resolves to a retained asset; `[image]` is not a validated quotation. Inspector
   may include a same-slide overview with mapped section text without remapping

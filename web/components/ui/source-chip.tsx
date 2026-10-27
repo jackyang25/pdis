@@ -86,7 +86,9 @@ export function PassageSource({
 
 const FORMAT_TAG: Record<SourceFormat, string> = {
   docx: "DOCX",
+  doc: "DOC",
   pptx: "PPTX",
+  ppt: "PPT",
   xlsx: "XLSX",
   xls: "XLS",
   pdf: "PDF",

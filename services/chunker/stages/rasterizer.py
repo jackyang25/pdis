@@ -1,8 +1,8 @@
-"""Rasterize document visuals, and convert legacy workbooks, through the office boundary.
+"""Rasterize document visuals, and convert legacy Office files, through the office boundary.
 
 This is the only optional system-binary boundary in Chunker. It is invoked only for
-formats that cannot be carried directly as a browser/model image, and for `.xls`
-workbooks, which are converted to XLSX before reading.
+formats that cannot be carried directly as a browser/model image, and for `.doc`, `.ppt`
+and `.xls` files, which are converted to their modern format before reading.
 """
 
 from __future__ import annotations
@@ -244,27 +244,29 @@ def _render_page_image(document, page_index: int):
         page.close()
 
 
-def convert_workbook_to_xlsx(file_path: str, directory: str) -> str:
-    """Convert a legacy `.xls` workbook to XLSX in `directory` and return its path.
+def convert_legacy_document(file_path: str, directory: str, target: str) -> str:
+    """Convert a legacy Office file (`.doc`, `.ppt`, `.xls`) to `target` in `directory`.
 
-    The workbook is then read by the one XLSX reader, so a legacy file yields the same
-    passages a current one does. Typed failures, as for slide rendering.
+    Returns the converted file's path. The file is then read by the one reader for its
+    modern format, so a legacy file yields the same passages a current one does. Typed
+    failures, as for slide rendering.
     """
     soffice = _soffice_path()
     if not soffice:
         raise RendererUnavailableError("LibreOffice is unavailable")
     profile = f"file://{os.path.join(directory, 'profile')}"
+    extension = target.removeprefix(".")
     try:
         _run_office(
             [soffice, f"-env:UserInstallation={profile}", "--headless",
-             "--convert-to", "xlsx", "--outdir", directory, file_path],
+             "--convert-to", extension, "--outdir", directory, file_path],
             timeout=CONVERT_TIMEOUT_SECONDS,
         )
     except (subprocess.SubprocessError, OSError) as exc:
-        raise RenderFailedError(f"Workbook conversion failed: {exc}") from exc
-    converted = os.path.join(directory, f"{Path(file_path).stem}.xlsx")
+        raise RenderFailedError(f"Document conversion failed: {exc}") from exc
+    converted = os.path.join(directory, f"{Path(file_path).stem}{target}")
     if not os.path.exists(converted):
-        raise RenderFailedError("LibreOffice produced no XLSX output")
+        raise RenderFailedError(f"LibreOffice produced no {extension.upper()} output")
     return converted
 
 

@@ -206,7 +206,7 @@ class XlsxReaderTests(unittest.TestCase):
         self.targets().save(converted)
         legacy = self.directory / "plan.xls"
         legacy.write_bytes(b"legacy")
-        with patch.object(parser, "convert_workbook_to_xlsx", return_value=str(converted)) as convert:
+        with patch.object(parser, "convert_legacy_document", return_value=str(converted)) as convert:
             blocks = run_pipeline(str(legacy), "plan")
         convert.assert_called_once()
         self.assertEqual({block.source_format for block in blocks}, {"xls"})

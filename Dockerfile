@@ -3,15 +3,15 @@
 # Uses Docker (rather than a platform's native Python runtime) for one reason:
 # it lets us install LibreOffice, which Chunker uses to rasterize uncommon
 # EMF/WMF/SVG figures, render PPTX slides into portable PNG image assets, and
-# convert legacy .xls workbooks to XLSX.
+# convert legacy .doc, .ppt and .xls files to their modern formats.
 # Everything else is a standard slim-Python app.
 # The converter is self-gating, so the app also runs fine without LibreOffice.
 FROM python:3.11-slim
 
-# Draw handles vector figures; Impress handles PPTX rendering; Calc converts .xls.
-# Installing only those modules keeps the image smaller than the full office suite.
+# Draw handles vector figures; Impress renders PPTX and converts .ppt; Writer converts
+# .doc; Calc converts .xls. Only those modules, not the full office suite.
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends libreoffice-core libreoffice-draw libreoffice-impress libreoffice-calc fonts-liberation \
+    && apt-get install -y --no-install-recommends libreoffice-core libreoffice-draw libreoffice-impress libreoffice-calc libreoffice-writer fonts-liberation \
     && rm -rf /var/lib/apt/lists/*
 
 # Installed from the Python index rather than copied from `ghcr.io/astral-sh/uv`,

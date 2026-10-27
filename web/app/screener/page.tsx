@@ -27,7 +27,6 @@ import { ScreenerSignalHelp } from "@/components/screener-signal-help";
 import { FinalResultActions } from "@/components/final-result-actions";
 import { PageHeader } from "@/components/page-header";
 import { RunPanel, type DocumentSlot } from "@/components/run-panel";
-import { TEXT_EXTRACTION_FORMATS } from "@/lib/document-formats";
 import { DocumentExtractionNotice } from "@/components/document-extraction-notice";
 import { ContextFields } from "@/components/configuration-fields";
 import {
@@ -169,7 +168,6 @@ export default function ScreenerPage() {
             busy={session.busy}
             startedAt={session.startedAt}
             documents={slots}
-            documentFormats={TEXT_EXTRACTION_FORMATS}
             onAddDocument={() => {
               const id = `document-${nextDocumentId.current++}`;
               setDocumentIds((ids) => [...ids, id]);

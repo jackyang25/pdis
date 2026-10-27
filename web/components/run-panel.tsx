@@ -8,8 +8,7 @@ import { ErrorMessage } from "./ui/error-message";
 import { EmptyState } from "./empty-state";
 import { ProgressSteps, type Step } from "./progress-steps";
 import {
-  STRUCTURED_DOCUMENT_FORMATS,
-  type DocumentFormats,
+  DOCUMENT_FORMATS,
   isSupportedDocument,
 } from "@/lib/document-formats";
 import { placeFiles } from "@/lib/document-slots";
@@ -40,8 +39,6 @@ type Props = {
    * its documents yet and so cannot run.
    */
   documents?: readonly DocumentSlot[] | null;
-  /** One capability governs the picker, drag/drop validation, and format hint. */
-  documentFormats?: DocumentFormats;
   /** Explain an empty slot list before the caller has chosen document roles. */
   emptyDocumentsHint?: string;
   /**
@@ -83,7 +80,6 @@ export function RunPanel({
   className,
   configuration,
   documents = SINGLE_DOCUMENT,
-  documentFormats = STRUCTURED_DOCUMENT_FORMATS,
   emptyDocumentsHint = "Complete the configuration to add documents.",
   onAddDocument,
   onRemoveDocument,
@@ -117,9 +113,9 @@ export function RunPanel({
   }, []);
 
   function chooseFile(slotId: string, picked: File | null) {
-    const rejected = picked !== null && !isSupportedDocument(picked.name, documentFormats.suffixes);
+    const rejected = picked !== null && !isSupportedDocument(picked.name);
     setTypeError(
-      rejected ? `Unsupported file type. Supports ${documentFormats.hint}.` : null,
+      rejected ? `Unsupported file type. Supports ${DOCUMENT_FORMATS.hint}.` : null,
     );
     setFiles((current) => {
       const next = { ...current };
@@ -144,11 +140,10 @@ export function RunPanel({
       picked,
       slotIds: (documents ?? []).map((slot) => slot.id),
       held: files,
-      suffixes: documentFormats.suffixes,
     });
     const added = Object.fromEntries(overflow.map((file) => [onAddDocument(), file]));
     setTypeError([
-      unsupported.length ? `Unsupported file type: ${unsupported.join(", ")}. Supports ${documentFormats.hint}.` : "",
+      unsupported.length ? `Unsupported file type: ${unsupported.join(", ")}. Supports ${DOCUMENT_FORMATS.hint}.` : "",
       repeated.length ? `Already added: ${repeated.join(", ")}. Each document needs a distinct filename.` : "",
     ].filter(Boolean).join(" ") || null);
     setFiles((current) => {
@@ -227,7 +222,6 @@ export function RunPanel({
               <DocumentField
                 key={slot.id}
                 slot={slot}
-                formats={documentFormats}
                 file={files[slot.id] ?? null}
                 multiple={Boolean(onAddDocument)}
                 disabled={disabled || busy}
@@ -257,8 +251,8 @@ export function RunPanel({
             </Button>
           )}
           {typeError && <ErrorMessage size="xs">{typeError}</ErrorMessage>}
-          {documentFormats.note && (
-            <p className="text-xs leading-relaxed text-muted-foreground">{documentFormats.note}</p>
+          {DOCUMENT_FORMATS.note && (
+            <p className="text-xs leading-relaxed text-muted-foreground">{DOCUMENT_FORMATS.note}</p>
           )}
 
             </>
@@ -314,7 +308,6 @@ export function RunPanel({
 /** One labeled drop zone. Every tool's upload affordance is this component. */
 function DocumentField({
   slot,
-  formats,
   file,
   multiple = false,
   disabled,
@@ -322,7 +315,6 @@ function DocumentField({
   onRemove,
 }: {
   slot: DocumentSlot;
-  formats: DocumentFormats;
   file: File | null;
   /** Whether a pick or drop may carry several files; the panel decides where they go. */
   multiple?: boolean;
@@ -338,7 +330,7 @@ function DocumentField({
       <div className="flex min-h-6 items-center justify-between gap-4">
         <Label>{slot.label}</Label>
         <span className="flex items-center gap-1 text-[10px] text-muted-foreground">
-          {formats.hint}
+          {DOCUMENT_FORMATS.hint}
           {onRemove && (
             <Button
               variant="quiet"
@@ -409,7 +401,7 @@ function DocumentField({
       <input
         ref={inputRef}
         type="file"
-        accept={formats.accept}
+        accept={DOCUMENT_FORMATS.accept}
         multiple={multiple}
         className="hidden"
         onChange={(event) => onChange(Array.from(event.target.files ?? []))}

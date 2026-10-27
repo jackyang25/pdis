@@ -373,7 +373,7 @@
             },
             {
               "question": "Which files can I supply for a document review?",
-              "answer": "DOCX and PPTX across document tools. Screener also accepts text-based PDFs, retaining extracted text and one rendered image per page. The image preserves visible charts and timelines; extracted text can still misorder columns and tables, so a quote match does not verify their interpretation. PPTX retains slide text and full-slide visuals; a warning identifies fallback when slide rendering fails or is unavailable. Encrypted, malformed, textless or over-limit PDFs are refused, including files over 20 MiB or 200 pages. Other tools and Ask attachments do not accept PDFs. There is no OCR, TXT, Markdown or standalone-image document upload. Older results retain their original coverage; rerun the original documents to gain improved extraction."
+              "answer": "Every tool and Ask accept the same formats: DOCX, PPTX, XLSX (older .xls workbooks are converted) and text-based PDF. Word, PowerPoint and Excel keep their structure, so findings point to the exact passage, slide or row; an Excel row is read with its sheet, table title and column headers. PDFs are read as page text with one rendered image per page: the image preserves visible charts and timelines, but extracted text can misorder columns and tables, so a quote match does not verify their interpretation, and findings point to the page. Every tool states that limit the same way. PPTX retains slide text and full-slide visuals; a warning identifies fallback when slide rendering fails or is unavailable. Encrypted, malformed, textless or over-limit PDFs are refused, including files over 20 MB or 200 pages, as are workbooks over 20 MB or 2,000 filled rows and workbooks whose formulas were never calculated. There is no OCR, TXT, Markdown or standalone-image document upload. Older results retain their original coverage; rerun the original documents to gain improved extraction."
             },
             {
               "question": "What does “not found” actually mean?",
@@ -902,7 +902,7 @@
                   "kind": "input",
                   "layer": "Input",
                   "inputs": [
-                    "One or more evidence documents in DOCX, PPTX or text-based PDF format",
+                    "One or more evidence documents in DOCX, PPTX, XLSX or text-based PDF format",
                     "The stage gate under preparation",
                     "Organization, health product type, and disease or health need"
                   ],
@@ -934,7 +934,7 @@
                   "kind": "integration",
                   "layer": "Source",
                   "inputs": [
-                    "DOCX, PPTX and text-based PDF uploads"
+                    "DOCX, PPTX, XLSX and text-based PDF uploads"
                   ],
                   "outputs": [
                     "Ordered ContentBlocks with stable IDs"
@@ -1154,7 +1154,7 @@
             {
               "id": "chunker",
               "title": "Chunker",
-              "summary": "Normalizes documents into one ordered block contract: DOCX/PPTX with retained visuals, and PDF page text and visuals for Screener.",
+              "summary": "Normalizes documents into one ordered block contract for every tool: DOCX, PPTX and XLSX with their structure and visuals, and PDF as page text and page images.",
               "nodes": [
                 {
                   "id": "file",
@@ -1163,7 +1163,7 @@
                   "kind": "input",
                   "layer": "Input",
                   "inputs": [
-                    "DOCX or PPTX; text-based PDF when explicitly enabled",
+                    "DOCX, PPTX, XLSX (or legacy XLS), or text-based PDF",
                     "Stable doc_id and provenance"
                   ],
                   "guarantee": "Temporary upload names never enter citations."
@@ -1171,7 +1171,7 @@
                 {
                   "id": "parse",
                   "title": "Format-native parsing",
-                  "summary": "DOCX/PPTX preserve native structure and visuals; PDF retains page text and a rendered page image, with explicit extraction limits.",
+                  "summary": "DOCX, PPTX and XLSX preserve native structure and visuals; PDF retains page text and a rendered page image, with explicit extraction limits.",
                   "kind": "deterministic",
                   "layer": "Parsing",
                   "outputs": [
@@ -1194,9 +1194,16 @@
                       "layer": "Format adapter"
                     },
                     {
+                      "id": "xlsx",
+                      "title": "XLSX parser",
+                      "summary": "Reads each sheet's tables as rows carrying their sheet, title and column headers, with exact cell ranges; legacy XLS is converted first.",
+                      "kind": "deterministic",
+                      "layer": "Format adapter"
+                    },
+                    {
                       "id": "pdf",
                       "title": "PDF page reader",
-                      "summary": "Opt-in page text and rendered page images with stable IDs and extraction warnings; no OCR, inferred headings or reconstructed tables.",
+                      "summary": "Page text and rendered page images with stable IDs and extraction warnings; no OCR, inferred headings or reconstructed tables.",
                       "kind": "deterministic",
                       "layer": "Format adapter"
                     }

@@ -25,6 +25,16 @@ def extraction_context(metadata: dict[str, Any]) -> str:
     slide = metadata.get("slide")
     if type(slide) is int and slide > 0:
         parts.append(f"slide={slide}")
+    sheet = metadata.get("sheet")
+    if isinstance(sheet, str) and sheet:
+        parts.append(f"sheet={sheet}")
+        if metadata.get("hidden_sheet") is True:
+            parts.append("hidden_sheet=true")
+    if metadata.get("hidden_row") is True:
+        parts.append("hidden_row=true")
+    cell_range = metadata.get("cell_range")
+    if isinstance(cell_range, str) and cell_range:
+        parts.append(f"cells={cell_range}")
     scope = metadata.get("visual_scope")
     if isinstance(scope, str) and scope in {"full_slide", "full_page"}:
         parts.append(f"visual_scope={scope}; overview of the same source, not independent evidence")

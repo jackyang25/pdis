@@ -101,7 +101,7 @@ class ContentBlockOut(BaseModel):
     structural_meta: dict[str, Any] = Field(default_factory=dict)
     style_hint: dict[str, Any] = Field(default_factory=dict)
     image: ImageAssetOut | None = None
-    source_format: Literal["docx", "pptx", "pdf", "image"] | None = Field(
+    source_format: Literal["docx", "pptx", "xlsx", "xls", "pdf", "image"] | None = Field(
         None,
         description="The kind of file this block was parsed from. Null on a block saved before the field existed.",
     )

@@ -123,9 +123,13 @@ _PARTS = {"header": "Header", "footer": "Footer", "footnote": "Footnote", "endno
 
 
 def passage_location(block: Mapping[str, Any]) -> str:
-    """Where a passage sits, as the app's passage lists name it: "Page 4", "Slide 3", a
-    footnote, or its section heading."""
+    """Where a passage sits, as the app's passage lists name it: "Page 4", "Slide 3",
+    "Targets!B4:F4", a footnote, or its section heading."""
     meta = block.get("structural_meta") or {}
+    # The web's `documentBlockLocationLabel`: a workbook passage is its sheet and cells.
+    if isinstance(sheet := meta.get("sheet"), str) and sheet:
+        cells = meta.get("cell_range")
+        return f"{sheet}!{cells}" if isinstance(cells, str) and cells else sheet
     # The web's `documentBlockBoundary`: one positive whole page or slide, never both.
     page, slide = (value if isinstance(value, int) and not isinstance(value, bool) and value > 0 else None
                    for value in (meta.get("page"), meta.get("slide")))

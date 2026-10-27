@@ -17,6 +17,11 @@ export function documentBlockBoundary(block: ContentBlock): DocumentBlockBoundar
 export function documentBlockLocationLabel(block: ContentBlock): string {
   const boundary = documentBlockBoundary(block);
   if (boundary) return boundary.label;
+  // A workbook passage is its sheet and cells, as Excel writes a reference.
+  const { sheet, cell_range: cells } = block.structural_meta;
+  if (typeof sheet === "string" && sheet) {
+    return typeof cells === "string" && cells ? `${sheet}!${cells}` : sheet;
+  }
   const { document_part_kind: kind, note_id: noteId } = block.structural_meta;
   const labels: Record<string, string> = {
     header: "Header", footer: "Footer", footnote: "Footnote", endnote: "Endnote", textbox: "Text box",

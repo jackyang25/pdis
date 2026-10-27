@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import type { ContentBlock } from "./api.ts";
+import { documentBlockLocationLabel } from "./document-extraction.ts";
 import {
   documentBlockPresentation,
   documentBlockSpacing,
@@ -198,4 +199,156 @@ test("a heading in short is its own first line", () => {
   assert.equal(tableHeaderLabel("Minimum\nThe minimal target should be considered."), "Minimum");
   assert.equal(tableHeaderLabel("Variable"), "Variable");
   assert.equal(tableHeaderLabel("\n  Optimistic \nguidance"), "Optimistic");
+});
+
+
+/** Two consecutive rows exactly as the XLSX reader emits them for a TPP sheet. */
+const WORKBOOK_ROWS = [
+  {
+    "id": "parity-itpp/b-0003",
+    "doc_id": "parity-itpp",
+    "ordinal": 3,
+    "block_type": "table_row",
+    "content": "Attribute: Efficacy, Minimum: 50%, Preferred: 75%, Rationale: Against clinical malaria over 12 months",
+    "heading_stack": [
+      "iTPP",
+      "Intervention TPP: malaria vaccine for children in sub-Saharan Africa"
+    ],
+    "structural_meta": {
+      "sheet": "iTPP",
+      "sheet_index": 1,
+      "cell_range": "A5:D5",
+      "header_range": "A2:D2",
+      "column_headers": [
+        "Attribute",
+        "Minimum",
+        "Preferred",
+        "Rationale"
+      ],
+      "table_cells": [
+        {
+          "column_index": 0,
+          "header": "Attribute",
+          "value": "Efficacy",
+          "content_start": 0,
+          "content_end": 19,
+          "value_start": 11,
+          "value_end": 19
+        },
+        {
+          "column_index": 1,
+          "header": "Minimum",
+          "value": "50%",
+          "content_start": 21,
+          "content_end": 33,
+          "value_start": 30,
+          "value_end": 33
+        },
+        {
+          "column_index": 2,
+          "header": "Preferred",
+          "value": "75%",
+          "content_start": 35,
+          "content_end": 49,
+          "value_start": 46,
+          "value_end": 49
+        },
+        {
+          "column_index": 3,
+          "header": "Rationale",
+          "value": "Against clinical malaria over 12 months",
+          "content_start": 51,
+          "content_end": 101,
+          "value_start": 62,
+          "value_end": 101
+        }
+      ]
+    },
+    "style_hint": {
+      "source": "table_row"
+    },
+    "source_format": "xlsx",
+    "section_label": null,
+    "image": null
+  },
+  {
+    "id": "parity-itpp/b-0004",
+    "doc_id": "parity-itpp",
+    "ordinal": 4,
+    "block_type": "table_row",
+    "content": "Attribute: Dosing schedule, Minimum: 3 doses plus booster, Preferred: 2 doses, Rationale: Fits EPI contacts",
+    "heading_stack": [
+      "iTPP",
+      "Intervention TPP: malaria vaccine for children in sub-Saharan Africa"
+    ],
+    "structural_meta": {
+      "sheet": "iTPP",
+      "sheet_index": 1,
+      "cell_range": "A6:D6",
+      "header_range": "A2:D2",
+      "column_headers": [
+        "Attribute",
+        "Minimum",
+        "Preferred",
+        "Rationale"
+      ],
+      "table_cells": [
+        {
+          "column_index": 0,
+          "header": "Attribute",
+          "value": "Dosing schedule",
+          "content_start": 0,
+          "content_end": 26,
+          "value_start": 11,
+          "value_end": 26
+        },
+        {
+          "column_index": 1,
+          "header": "Minimum",
+          "value": "3 doses plus booster",
+          "content_start": 28,
+          "content_end": 57,
+          "value_start": 37,
+          "value_end": 57
+        },
+        {
+          "column_index": 2,
+          "header": "Preferred",
+          "value": "2 doses",
+          "content_start": 59,
+          "content_end": 77,
+          "value_start": 70,
+          "value_end": 77
+        },
+        {
+          "column_index": 3,
+          "header": "Rationale",
+          "value": "Fits EPI contacts",
+          "content_start": 79,
+          "content_end": 107,
+          "value_start": 90,
+          "value_end": 107
+        }
+      ]
+    },
+    "style_hint": {
+      "source": "table_row"
+    },
+    "source_format": "xlsx",
+    "section_label": null,
+    "image": null
+  }
+] as unknown as ContentBlock[];
+
+test("a workbook row is one table record, located by its sheet and cells", () => {
+  const [efficacy, dosing] = WORKBOOK_ROWS;
+  assert.equal(documentBlockPresentation(efficacy), "table-row");
+  const row = documentTableCells(efficacy);
+  assert.deepEqual(row?.cells.map((cell) => [cell.header, cell.value]), [
+    ["Attribute", "Efficacy"], ["Minimum", "50%"], ["Preferred", "75%"],
+    ["Rationale", "Against clinical malaria over 12 months"],
+  ]);
+  // Rows sharing their headers continue one table, as a Word table's rows do.
+  assert.equal(documentTableRowContinues(efficacy, dosing), true);
+  assert.equal(documentBlockLocationLabel(efficacy), "iTPP!A5:D5");
 });

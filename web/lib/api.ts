@@ -30,7 +30,7 @@ export type DocumentType = {
  * the two diverge. Absent on a block saved before the parser recorded it, which a reader
  * shows as unknown rather than working out from a page or slide number.
  */
-export const SOURCE_FORMATS = ["docx", "pptx", "pdf", "image"] as const;
+export const SOURCE_FORMATS = ["docx", "pptx", "xlsx", "xls", "pdf", "image"] as const;
 export type SourceFormat = (typeof SOURCE_FORMATS)[number];
 
 export type ContentBlock = {

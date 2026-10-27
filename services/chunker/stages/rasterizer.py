@@ -1,7 +1,8 @@
-"""Rasterize document visuals through the optional office boundary.
+"""Rasterize document visuals, and convert legacy workbooks, through the office boundary.
 
-This is the only optional system-binary boundary in Chunker. It is invoked only
-for formats that cannot be carried directly as a browser/model image.
+This is the only optional system-binary boundary in Chunker. It is invoked only for
+formats that cannot be carried directly as a browser/model image, and for `.xls`
+workbooks, which are converted to XLSX before reading.
 """
 
 from __future__ import annotations
@@ -241,6 +242,30 @@ def _render_page_image(document, page_index: int):
             bitmap.close()
     finally:
         page.close()
+
+
+def convert_workbook_to_xlsx(file_path: str, directory: str) -> str:
+    """Convert a legacy `.xls` workbook to XLSX in `directory` and return its path.
+
+    The workbook is then read by the one XLSX reader, so a legacy file yields the same
+    passages a current one does. Typed failures, as for slide rendering.
+    """
+    soffice = _soffice_path()
+    if not soffice:
+        raise RendererUnavailableError("LibreOffice is unavailable")
+    profile = f"file://{os.path.join(directory, 'profile')}"
+    try:
+        _run_office(
+            [soffice, f"-env:UserInstallation={profile}", "--headless",
+             "--convert-to", "xlsx", "--outdir", directory, file_path],
+            timeout=CONVERT_TIMEOUT_SECONDS,
+        )
+    except (subprocess.SubprocessError, OSError) as exc:
+        raise RenderFailedError(f"Workbook conversion failed: {exc}") from exc
+    converted = os.path.join(directory, f"{Path(file_path).stem}.xlsx")
+    if not os.path.exists(converted):
+        raise RenderFailedError("LibreOffice produced no XLSX output")
+    return converted
 
 
 def render_presentation_slides(

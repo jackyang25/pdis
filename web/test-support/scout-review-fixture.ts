@@ -142,7 +142,9 @@ export function evidenceReviewFixture(state: ReviewFixtureState = "pending"): Sc
   items.push(candidate("recommended-a", 72, "recommended-choice", "reject"), candidate("recommended-b", 82, "recommended-choice", "admit"));
   items.push(candidate("reject-a", 68, "rejected-choice", "reject"), candidate("reject-b", 78, "rejected-choice", "reject"));
   attachEvidence(result, items);
-  if (state !== "pending") result.conformity = applyEvidenceReviewRecommendations(result.conformity);
+  if (state !== "pending") {
+    for (const kind of ["reject", "admit"] as const) result.conformity = applyEvidenceReviewRecommendations(result.conformity, kind);
+  }
   if (state === "completed") {
     result.conformity[0] = reviewQuantitativeCandidateGroup(result.conformity[0], ["alternative-a", "alternative-b"], "alternative-b");
     result.conformity[0] = reviewQuantitativeCandidateGroup(result.conformity[0], ["single-flag"], null);

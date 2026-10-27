@@ -1,10 +1,8 @@
-"""Only formats that declare their own structure are accepted.
+"""One set of document formats for every tool, read by one reader per format.
 
-DOCX and PPTX state tables, rows, and headings in the file itself, so a parsed
-block's structure is read rather than inferred. A rendering format carries glyph
-positions only, and reconstructing structure from geometry can merge unrelated
-table columns into one block whose text still passes exact-quote validation. The
-suite refuses that class of silent provenance error at the format boundary.
+DOCX, PPTX and XLSX declare their structure, so a block's structure is read rather than
+inferred. PDF is accepted as page text, its limit carried on every block it produces; a
+format outside the set is refused at the parser boundary, naming the set.
 """
 
 from __future__ import annotations
@@ -22,24 +20,15 @@ from services.chunker.stages.parser import parse_document
 
 
 class SupportedFormatTests(unittest.TestCase):
-    def test_declared_structure_formats_are_the_supported_set(self) -> None:
-        self.assertEqual(DOCUMENT_SUFFIXES, {".docx", ".pptx"})
+    def test_the_supported_set_is_the_four_formats_and_legacy_excel(self) -> None:
+        self.assertEqual(DOCUMENT_SUFFIXES, {".docx", ".pptx", ".xlsx", ".xls", ".pdf"})
 
-    def test_a_rendering_format_is_rejected_at_the_parser_boundary(self) -> None:
-        with self.assertRaises(ValueError) as caught:
-            parse_document("profile.pdf", "profile")
-
-        message = str(caught.exception)
-        self.assertIn(".pdf", message)
-        self.assertIn(".docx", message)
-        self.assertIn(".pptx", message)
-
-    def test_the_error_names_only_supported_formats_as_available(self) -> None:
+    def test_a_format_outside_the_set_is_refused_naming_the_set(self) -> None:
         with self.assertRaises(ValueError) as caught:
             parse_document("profile.rtf", "profile")
-
         supported = str(caught.exception).split("Supported:", 1)[1]
-        self.assertNotIn(".pdf", supported)
+        for suffix in DOCUMENT_SUFFIXES:
+            self.assertIn(suffix, supported)
 
 
 class UnreadableDocumentTests(unittest.TestCase):
@@ -54,7 +43,7 @@ class UnreadableDocumentTests(unittest.TestCase):
             "a zip without its parts": archive.getvalue(),
             "a truncated zip": archive.getvalue()[:40],
         }
-        for suffix in (".docx", ".pptx"):
+        for suffix in (".docx", ".pptx", ".xlsx"):
             for case, payload in payloads.items():
                 with self.subTest(suffix=suffix, case=case):
                     with tempfile.NamedTemporaryFile(suffix=suffix, delete=False) as handle:

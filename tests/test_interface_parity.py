@@ -54,7 +54,6 @@ OPERATIONAL = {
     "max_tokens": "token budget, a deployment concern",
     "raise_source_errors": "the standalone tool always prefers partial results",
     "progress_callback": "streaming plumbing",
-    "accepted_suffixes": "server-owned document input capability, never a browser override",
 }
 
 #: Pipeline parameters the route supplies from something the reader did give, and from
@@ -241,9 +240,18 @@ class UploadParityTests(unittest.TestCase):
         from fastapi import HTTPException
 
         with self.assertRaises(HTTPException) as caught:
-            document_upload_parts("report.pdf", tool="Chunker")
+            document_upload_parts("report.rtf", tool="Chunker")
         self.assertEqual(caught.exception.status_code, 400)
-        self.assertIn("DOCX or PPTX", caught.exception.detail)
+        self.assertIn("DOCX, PDF, PPTX, XLS, XLSX", caught.exception.detail)
+
+    def test_every_tool_accepts_the_same_formats(self) -> None:
+        """One set for every tool: a format one tool refuses and another reads would make
+        the tools judge different kinds of evidence."""
+        from services.chunker import DOCUMENT_SUFFIXES
+
+        for suffix in sorted(DOCUMENT_SUFFIXES):
+            with self.subTest(suffix=suffix):
+                self.assertEqual(document_upload_parts(f"plan{suffix}", tool="Inspector"), ("plan", suffix))
 
     def test_a_file_with_no_extension_is_refused_not_assumed(self) -> None:
         """The regression this replaced: `suffix or ".docx"` guessed a format.

@@ -168,27 +168,6 @@ class RunGuardTests(unittest.TestCase):
         self.assertFalse(any(e["event"] == "complete" for e in events))
         self.assertEqual(client.triage_calls, [])
 
-    def test_other_document_routes_still_refuse_pdf(self):
-        data = {"org": "bmgf", "source_type": "itpp", "intervention_class": "drug", "indication": "malaria"}
-        for tool in ("chunker", "inspector", "scout"):
-            with self.subTest(tool=tool):
-                response = self.client.post(f"/api/{tool}/run", data=data,
-                    files={"files" if tool == "scout" else "file":
-                           ("study.pdf", pdf_bytes("Text"), "application/pdf")})
-                self.assertEqual(response.status_code, 400, response.text)
-                self.assertIn("DOCX", response.json()["detail"])
-
-    def test_aligner_still_refuses_pdf_with_an_otherwise_valid_document_pair(self):
-        response = self.client.post("/api/aligner/run", data={
-            "org": "bmgf", "source_types": ["itpp", "ctpp"],
-            "intervention_class": "drug", "indication": "malaria",
-        }, files=[
-            ("files", ("reference.pdf", pdf_bytes("Text"), "application/pdf")),
-            ("files", ("candidate.docx", b"unused", "application/octet-stream")),
-        ])
-        self.assertEqual(response.status_code, 400, response.text)
-        self.assertIn("DOCX", response.json()["detail"])
-
     def test_two_documents_with_one_filename_are_refused(self) -> None:
         response = self.post(
             [docx(), docx()]

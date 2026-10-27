@@ -145,12 +145,11 @@ before parsing, whichever caller started the run.
 
 ### One document collection
 
-Uploads accept DOCX, PPTX, and text-based PDF through Chunker's
-`TEXT_EXTRACTION_SUFFIXES` capability, exported here as `SUPPORTED_DOCUMENT_SUFFIXES`
-for the API. Documents can contain any evidence relevant to the gate; they need
+Uploads accept the formats every tool does - DOCX, PPTX, XLSX (and legacy XLS), and
+text-based PDF - through Chunker's `DOCUMENT_SUFFIXES`. Documents can contain any evidence relevant to the gate; they need
 no iTPP, cTPP, or IPDP type, section taxonomy, or matching Chunker configuration.
 TXT, Markdown, and standalone image uploads are not supported. Images embedded
-in DOCX/PPTX remain retained, labeled by block ID, and citable. PDF supplies
+in DOCX, PPTX and XLSX remain retained, labeled by block ID, and citable. PDF supplies
 one text block and one rendered full-page image per page. Page rendering preserves
 visible charts and timelines without reconstructing their elements as text or
 tables. There is no OCR, inferred placement, or inferred table structure.

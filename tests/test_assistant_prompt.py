@@ -65,7 +65,7 @@ class PromptTests(unittest.TestCase):
 
     def test_corrected_legends(self):
         text = system_prompt(mixed_workspace())
-        self.assertIn("DOCX, PPTX or text-based PDF", text)
+        self.assertIn("DOCX, PPTX, XLSX or text-based PDF", text)
         self.assertNotIn("judges the iTPP, cTPP, and IPDP against each other", text)
 
     def test_map_does_not_grow_with_document_length(self):

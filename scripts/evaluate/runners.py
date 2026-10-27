@@ -14,7 +14,6 @@ from typing import Callable
 
 from api.deps import get_openai_client, get_quantitative_anthropic_client, get_search_runtime
 from api.uploads import document_upload_parts, require_distinct_doc_ids
-from services.chunker import DOCUMENT_SUFFIXES
 
 from .measure import Case
 
@@ -25,12 +24,12 @@ def run_case(case: Case, root: Path, progress: Progress) -> dict:
     return _RUNNERS[case.tool](case, root, progress)
 
 
-def _documents(case: Case, root: Path, tool: str, suffixes=DOCUMENT_SUFFIXES) -> list[tuple[str, str, str]]:
+def _documents(case: Case, root: Path, tool: str) -> list[tuple[str, str, str]]:
     """(document type, absolute path, doc_id) per document, doc_id derived as uploads derive it."""
     documents = []
     for role, relative in case.documents:
         path = Path(root) / relative
-        doc_id, _ = document_upload_parts(path.name, tool=tool, accepted_suffixes=suffixes)
+        doc_id, _ = document_upload_parts(path.name, tool=tool)
         documents.append((role, str(path), doc_id))
     require_distinct_doc_ids([doc_id for _, _, doc_id in documents])
     return documents
@@ -67,13 +66,13 @@ def _aligner(case: Case, root: Path, progress: Progress) -> dict:
 def _screener(case: Case, root: Path, progress: Progress) -> dict:
     from api.schemas import GateReviewOut, ScreenerRunResponse
     from services.screener import (
-        SUPPORTED_DOCUMENT_SUFFIXES, DocumentInput, find_config, resolve_questions, run_pipeline,
+        DocumentInput, find_config, resolve_questions, run_pipeline,
     )
 
     config = find_config(case.org, case.gate)
     resolve_questions(config, intervention_class=case.intervention_class)
     documents = [DocumentInput(file_path=path, doc_id=doc_id)
-                 for _, path, doc_id in _documents(case, root, "Screener", SUPPORTED_DOCUMENT_SUFFIXES)]
+                 for _, path, doc_id in _documents(case, root, "Screener")]
     result = run_pipeline(
         documents, org=case.org, intervention_class=case.intervention_class,
         indication=case.indication, config=config, llm_client=get_openai_client(),

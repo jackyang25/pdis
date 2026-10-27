@@ -11,7 +11,6 @@ from fastapi.responses import Response, StreamingResponse
 
 from services.screener import (
     DocumentInput,
-    SUPPORTED_DOCUMENT_SUFFIXES,
     available_gates,
     export_docx,
     find_config,
@@ -64,7 +63,7 @@ async def run_screener(
     uploads: list[tuple[UploadFile, str, str]] = []
     for upload in files:
         doc_id, suffix = document_upload_parts(
-            upload.filename, tool="Screener", accepted_suffixes=SUPPORTED_DOCUMENT_SUFFIXES,
+            upload.filename, tool="Screener",
         )
         uploads.append((upload, doc_id, suffix))
 

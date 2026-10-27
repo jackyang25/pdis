@@ -159,12 +159,13 @@ def doc_id_of(block: dict[str, Any]) -> str:
 
 
 def location_of(block: dict[str, Any]) -> str:
-    """Where a block sits, as "slide 3" or "page 2", or "" when the parser recorded neither."""
+    """Where a block sits, as "slide 3", "page 2" or "sheet 1", or "" when the parser
+    recorded none of them."""
     meta = block.get("structural_meta") or {}
-    for key in ("slide", "page"):
+    for key in ("slide", "page", "sheet_index"):
         value = meta.get(key)
         if isinstance(value, int) or (isinstance(value, str) and value.isdigit()):
-            return f"{key} {int(value)}"
+            return f"{key.removesuffix('_index')} {int(value)}"
     return ""
 
 

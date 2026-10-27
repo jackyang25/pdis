@@ -18,9 +18,9 @@ from unittest.mock import patch
 from PIL import Image
 
 from services.chunker.formats import (
+    DOCUMENT_SUFFIXES,
     SOURCE_FORMAT_BY_SUFFIX,
     SOURCE_FORMATS,
-    TEXT_EXTRACTION_SUFFIXES,
 )
 from services.chunker.models import ContentBlock
 from services.chunker.pipeline import parse_context_file
@@ -36,14 +36,19 @@ def _block(doc_id: str) -> ContentBlock:
 
 class SourceFormatTests(unittest.TestCase):
     def test_every_accepted_suffix_names_a_format(self) -> None:
-        self.assertEqual(set(SOURCE_FORMAT_BY_SUFFIX), set(TEXT_EXTRACTION_SUFFIXES))
+        self.assertEqual(set(SOURCE_FORMAT_BY_SUFFIX), set(DOCUMENT_SUFFIXES))
         self.assertLessEqual(set(SOURCE_FORMAT_BY_SUFFIX.values()), SOURCE_FORMATS)
 
     def test_the_dispatch_stamps_the_format_of_the_parser_it_chose(self) -> None:
         for suffix, expected in SOURCE_FORMAT_BY_SUFFIX.items():
-            name = {".docx": "parse_docx", ".pptx": "parse_pptx", ".pdf": "parse_pdf"}[suffix]
-            with patch.object(parser, name, side_effect=lambda path, doc_id: [_block(doc_id), _block(doc_id)]):
-                blocks = parser.parse_document(f"plan{suffix}", "plan", accepted_suffixes=TEXT_EXTRACTION_SUFFIXES)
+            reader = (
+                {"_parse_legacy_workbook": lambda path, doc_id: [_block(doc_id), _block(doc_id)]}
+                if suffix == ".xls"
+                else {"_PARSERS": {suffix: lambda path, doc_id: [_block(doc_id), _block(doc_id)]}}
+            )
+            ((name, replacement),) = reader.items()
+            with patch.object(parser, name, replacement):
+                blocks = parser.parse_document(f"plan{suffix}", "plan")
             self.assertEqual({block.source_format for block in blocks}, {expected}, suffix)
 
     def test_a_standalone_image_attachment_is_an_image(self) -> None:

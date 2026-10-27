@@ -163,22 +163,15 @@ test("an empty upload collection explains the next step and cannot run", () => {
   assert.match(withSlot, /Browse/);
 });
 
-test("PDF upload capability changes both the picker and its visible hint, not other tools", () => {
+test("every tool's upload accepts the same formats and states the PDF limit", () => {
   const { RunPanel } = loadComponent(resolve(root, "components/run-panel.tsx"));
-  const { TEXT_EXTRACTION_FORMATS } = loadComponent(resolve(root, "lib/document-formats.ts"));
-  const ordinary = renderToStaticMarkup(React.createElement(RunPanel, { onRun: () => {} }));
-  const screening = renderToStaticMarkup(React.createElement(RunPanel, {
-    onRun: () => {}, documentFormats: TEXT_EXTRACTION_FORMATS,
-  }));
-  assert.match(ordinary, /accept="\.docx,\.pptx"/);
-  assert.match(screening, /accept="\.docx,\.pptx,\.pdf"/);
-  assert.match(screening, /DOCX, PPTX, PDF/);
-  assert.match(screening, /Prefer DOCX or PPTX when available/);
-  assert.match(screening, /PDFs retain an image of every page, including visible charts and drawings/);
-  assert.match(screening, /Extracted text may misorder columns or tables/);
-  assert.match(screening, /20 MiB and 200 pages, with selectable text on every page/);
-  assert.doesNotMatch(screening, /directly placed embedded images|vector drawings.*are not/);
-  assert.doesNotMatch(ordinary, /Prefer DOCX or PPTX when available/);
+  const html = renderToStaticMarkup(React.createElement(RunPanel, { onRun: () => {} }));
+  assert.match(html, /accept="\.docx,\.pptx,\.xlsx,\.xls,\.pdf"/);
+  assert.match(html, /DOCX, PPTX, XLSX, XLS, PDF/);
+  assert.match(html, /PDFs are read as page text with an image of each page/);
+  assert.match(html, /findings point to the page/);
+  assert.match(html, /20 MB and 200 pages, with selectable text on every page/);
+  assert.match(html, /2,000 filled rows/);
 });
 
 test("a tool that reads no document shows no upload area and can run", () => {

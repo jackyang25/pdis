@@ -161,7 +161,7 @@ test("none applies rejects every alternative without changing statistics", () =>
   ));
 });
 
-test("complete AI recommendations can be accepted in one deterministic action", () => {
+test("each kind of complete AI recommendation can be accepted on its own", () => {
   const recommended = score();
   recommended.excluded_measurements = recommended.excluded_measurements.map(
     (item, index) => ({
@@ -178,19 +178,25 @@ test("complete AI recommendations can be accepted in one deterministic action", 
     flag: 0,
     total: 2,
   });
-  const [reviewed] = applyEvidenceReviewRecommendations([recommended]);
-  assert.equal(reviewed.benchmark_count, 1);
-  assert.equal(reviewed.measurements[0].candidate_id, "high");
+  // Rejections alone: the admission stays pending for the reviewer to read.
+  const [rejectedOnly] = applyEvidenceReviewRecommendations([recommended], "reject");
   assert.equal(
-    reviewed.excluded_measurements.find((item) => item.candidate_id === "low")?.admission_status,
+    rejectedOnly.excluded_measurements.find((item) => item.candidate_id === "low")?.admission_status,
     "rejected",
   );
+  assert.equal(rejectedOnly.benchmark_count, 0);
+  assert.deepEqual(evidenceReviewRecommendationSummary([rejectedOnly]), { admit: 1, reject: 0, flag: 0, total: 1 });
+  // Then admissions: together the two reach the same result as accepting everything.
+  const [reviewed] = applyEvidenceReviewRecommendations([rejectedOnly], "admit");
+  assert.equal(reviewed.benchmark_count, 1);
+  assert.equal(reviewed.measurements[0].candidate_id, "high");
 });
 
 test("flagged AI recommendations remain pending for focused review", () => {
   const recommended = score();
-  const [reviewed] = applyEvidenceReviewRecommendations([recommended]);
-  assert.equal(reviewed, recommended);
+  for (const kind of ["admit", "reject"] as const) {
+    assert.equal(applyEvidenceReviewRecommendations([recommended], kind)[0], recommended);
+  }
   assert.equal(evidenceReviewRecommendationSummary([recommended]).flag, 2);
 });
 

@@ -44,10 +44,9 @@ action directly below the uploads, independent of the configuration rail's heigh
 Pages retain saved-result parsing and compatibility. The panel explains empty document
 collections; tools supply a more specific next-step instruction where needed.
 
-`RunPanel.documentFormats` selects one capability from `lib/document-formats.ts`
-for picker acceptance, drag/drop validation, format hints, and limitations.
-The default remains DOCX/PPTX. Screener opts into PDF text extraction; the panel
-does not branch on tool names. Parser-authored result limitations render through
+`RunPanel` takes its picker acceptance, drag/drop validation, format hint and
+limitations from `DOCUMENT_FORMATS` in `lib/document-formats.ts`, the one set every
+tool accepts; the panel has no per-tool format option. Parser-authored result limitations render through
 `DocumentExtractionNotice`, including after saved-result import, as a `CaveatNotice`: the
 warning's icon without its box, which `WarningNotice` keeps for facts that change what a
 result says.

@@ -1,4 +1,4 @@
-"""PDF opt-in produces real citable text, never invented document structure."""
+"""PDF produces real citable page text, never invented document structure."""
 
 import unittest
 import io
@@ -31,11 +31,11 @@ class PdfTests(unittest.TestCase):
     def parse(self, payload):
         self.path.write_bytes(payload)
         return run_pipeline(
-            str(self.path), "study", accepted_suffixes={".docx", ".pptx", ".pdf"},
+            str(self.path), "study",
             org="bmgf", intervention_class="drug", indication="malaria",
         )
 
-    def test_pdf_opt_in_retains_page_text_and_one_full_page_visual(self):
+    def test_pdf_retains_page_text_and_one_full_page_visual(self):
         blocks = self.parse(pdf_bytes("The dose is 10 mg.", "The trial is planned."))
         self.assertEqual([b.id for b in blocks], [
             "study/b-0001", "study/b-0001-image-0001",
@@ -104,11 +104,14 @@ class PdfTests(unittest.TestCase):
         ), self.assertRaisesRegex(ValueError, "aggregate encoded-image limit"):
             self.parse(pdf_bytes("Readable"))
 
-    def test_default_pipeline_and_ask_still_refuse_pdf(self):
+    def test_every_tool_and_ask_read_a_pdf_the_same_way(self):
+        """One reader: the tools' pipeline and an Ask attachment yield the same page
+        passages, each carrying the same limitation."""
         self.path.write_bytes(pdf_bytes("Readable text."))
-        for parse in (run_pipeline, parse_context_file):
-            with self.subTest(parse=parse.__name__), self.assertRaisesRegex(ValueError, "Unsupported"):
-                parse(str(self.path), "study")
+        readings = [parse(str(self.path), "study") for parse in (run_pipeline, parse_context_file)]
+        self.assertEqual(*[[(b.id, b.content, b.source_format) for b in blocks] for blocks in readings])
+        for block in readings[1]:
+            self.assertIn("pdf_text_layout", block.structural_meta["extraction_warnings"])
 
     def test_one_unreadable_page_refuses_the_whole_document(self):
         with self.assertRaisesRegex(ValueError, "study.*page 2.*no extractable text"):
@@ -263,8 +266,8 @@ class PdfTests(unittest.TestCase):
 
         handlers_before = list(logging.getLogger("pypdf").handlers)
         with patch.object(PageObject, "extract_text", synchronized_extract), ThreadPoolExecutor(2) as pool:
-            clean = pool.submit(run_pipeline, str(good), "good", accepted_suffixes={".pdf"})
-            broken = pool.submit(run_pipeline, str(bad), "bad", accepted_suffixes={".pdf"})
+            clean = pool.submit(run_pipeline, str(good), "good")
+            broken = pool.submit(run_pipeline, str(bad), "bad")
             self.assertEqual(clean.result()[0].content, "Complete text.")
             with self.assertRaisesRegex(ValueError, "bad.*extraction warnings"):
                 broken.result()
@@ -275,10 +278,10 @@ class PdfTests(unittest.TestCase):
         code = '''
 import sys
 from api.logging_config import configure_logging
-from services.chunker import run_pipeline, TEXT_EXTRACTION_SUFFIXES
+from services.chunker import run_pipeline
 configure_logging()
 try:
-    run_pipeline(sys.argv[1], "study", accepted_suffixes=TEXT_EXTRACTION_SUFFIXES)
+    run_pipeline(sys.argv[1], "study")
 except ValueError as exc:
     assert "extraction warnings" in str(exc), str(exc)
 else:

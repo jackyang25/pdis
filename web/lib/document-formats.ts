@@ -1,17 +1,15 @@
 /**
  * The one web-side statement of which document formats PDIS accepts.
  *
- * `services/chunker/formats.py` owns document capabilities. Defaults require
- * declared structure; PDF text extraction is an explicit opt-in. This mirrors
- * those sets for the browser, and
- * `document-formats.test.ts` fails if the two stop matching.
+ * `services/chunker/formats.py` owns the set, and every tool and Ask accepts all of it:
+ * DOCX, PPTX and XLSX with their structure, PDF as page text. This mirrors that set for
+ * the browser, and `document-formats.test.ts` fails if the two stop matching.
  *
  * Upload controls derive both their `accept` attribute and their visible hint
  * from here. Restating the extensions in a component lets a control advertise
  * one set while accepting another.
  */
-export const DOCUMENT_SUFFIXES = [".docx", ".pptx"] as const;
-export const TEXT_EXTRACTION_SUFFIXES = [...DOCUMENT_SUFFIXES, ".pdf"] as const;
+export const DOCUMENT_SUFFIXES = [".docx", ".pptx", ".xlsx", ".xls", ".pdf"] as const;
 
 export type DocumentFormats = {
   suffixes: readonly string[];
@@ -27,20 +25,19 @@ function documentFormats(suffixes: readonly string[]): DocumentFormats {
   };
 }
 
-export const STRUCTURED_DOCUMENT_FORMATS = documentFormats(DOCUMENT_SUFFIXES);
-export const TEXT_EXTRACTION_FORMATS: DocumentFormats = {
-  ...documentFormats(TEXT_EXTRACTION_SUFFIXES),
-  note: "Prefer DOCX or PPTX when available. PDFs retain an image of every page, including visible charts and drawings. Extracted text may misorder columns or tables; check the page images for context. PDFs must be unlocked, up to 20 MiB and 200 pages, with selectable text on every page. Scanned-only or blank pages are not supported.",
+export const DOCUMENT_FORMATS: DocumentFormats = {
+  ...documentFormats(DOCUMENT_SUFFIXES),
+  note: "Word, PowerPoint and Excel files keep their structure, so findings point to the exact passage, slide or row. PDFs are read as page text with an image of each page: tables and columns may be out of order and findings point to the page, so upload the original file when you have it. PDFs must be unlocked, up to 20 MB and 200 pages, with selectable text on every page; scans are not supported. Workbooks may be up to 20 MB and 2,000 filled rows.",
 };
 
-/** Reader-facing format list, e.g. `DOCX, PPTX`. */
-export const DOCUMENT_FORMAT_HINT = STRUCTURED_DOCUMENT_FORMATS.hint;
+/** Reader-facing format list, e.g. `DOCX, PPTX, XLSX, XLS, PDF`. */
+export const DOCUMENT_FORMAT_HINT = DOCUMENT_FORMATS.hint;
 
 /**
  * Media-type prefixes a conversation attachment may add on top of documents.
  *
- * `services/chunker/pipeline.py` owns this set. Attachments add images to the
- * default document set; a tool's PDF opt-in does not widen Ask's attachment picker.
+ * `services/chunker/pipeline.py` owns this set. Attachments add images to the document
+ * formats every tool accepts.
  */
 export const ATTACHMENT_MEDIA_PREFIXES = ["image/"] as const;
 
@@ -50,7 +47,7 @@ export const ATTACHMENT_ACCEPT = [
   ...ATTACHMENT_MEDIA_PREFIXES.map((prefix) => `${prefix}*`),
 ].join(",");
 
-/** Reader-facing attachment list, e.g. `DOCX, PPTX, or image files`. */
+/** Reader-facing attachment list, e.g. `DOCX, PPTX, XLSX, XLS, PDF, or image files`. */
 export const ATTACHMENT_FORMAT_HINT = `${DOCUMENT_FORMAT_HINT}, or image files`;
 
 /** How many files one conversation may attach. */
@@ -92,7 +89,7 @@ export function attachablePaste(transfer: DataTransfer | null): AttachablePaste 
 }
 
 /** Whether a picked file carries a supported document extension. */
-export function isSupportedDocument(name: string, suffixes: readonly string[] = DOCUMENT_SUFFIXES): boolean {
+export function isSupportedDocument(name: string): boolean {
   const lowered = name.toLowerCase();
-  return suffixes.some((suffix) => lowered.endsWith(suffix));
+  return DOCUMENT_SUFFIXES.some((suffix) => lowered.endsWith(suffix));
 }

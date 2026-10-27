@@ -20,8 +20,8 @@ from typing import Sequence
 from shared.batching import map_ordered
 
 from services.chunker import (
+    DOCUMENT_SUFFIXES,
     ContentBlock,
-    TEXT_EXTRACTION_SUFFIXES,
     run_pipeline as chunker_run_pipeline,
 )
 
@@ -39,8 +39,6 @@ from .models import (
 )
 from .stages.assessor import assess_question, check_selection
 from .stages.selector import check_document, select_evidence
-
-SUPPORTED_DOCUMENT_SUFFIXES = TEXT_EXTRACTION_SUFFIXES
 
 # Documents are parsed concurrently but bounded: each parse is itself parallel
 # inside chunker, and an unbounded fan-out here would multiply that.
@@ -76,7 +74,7 @@ def run_pipeline(
     if len(set(doc_ids)) != len(doc_ids):
         raise ValueError("Two documents share a doc_id; filenames must be distinct.")
     for document in documents:
-        if Path(document.file_path).suffix.lower() not in SUPPORTED_DOCUMENT_SUFFIXES:
+        if Path(document.file_path).suffix.lower() not in DOCUMENT_SUFFIXES:
             raise ValueError(f"Unsupported document format: {document.file_path}")
 
     # Resolve first: the one state config owns is decided here, with no I/O, and a
@@ -93,7 +91,6 @@ def run_pipeline(
             org=org,
             intervention_class=intervention_class,
             indication=indication,
-            accepted_suffixes=SUPPORTED_DOCUMENT_SUFFIXES,
         )
         if not blocks:
             raise ValueError(f"Document {document.doc_id!r} produced no readable content.")

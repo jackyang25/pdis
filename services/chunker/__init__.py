@@ -9,7 +9,7 @@ it's a Python package in this monorepo. The public surface below is the
 wire protocol — keep it small and stable.
 """
 
-from .formats import DOCUMENT_SUFFIXES, TEXT_EXTRACTION_SUFFIXES
+from .formats import DOCUMENT_SUFFIXES
 from .models import (
     LLMClientProtocol,
     ContentBlock,
@@ -35,7 +35,6 @@ __all__ = [
     "ATTACHMENT_FORMAT_HINT",
     "ATTACHMENT_MEDIA_PREFIXES",
     "DOCUMENT_SUFFIXES",
-    "TEXT_EXTRACTION_SUFFIXES",
     "DocumentTypeConfig",
     "ImageAsset",
     "PipelineResult",

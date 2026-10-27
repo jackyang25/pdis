@@ -34,11 +34,10 @@ from .models import (
     resolve_questions,
 )
 from .export import export_docx
-from .pipeline import SUPPORTED_DOCUMENT_SUFFIXES, run_pipeline
+from .pipeline import run_pipeline
 
 __all__ = [
     "export_docx",
-    "SUPPORTED_DOCUMENT_SUFFIXES",
     "DisciplineReview",
     "DisciplineSpec",
     "DocumentInput",

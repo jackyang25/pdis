@@ -539,18 +539,12 @@ function ScoutView({ header, ready }: { header: Header; ready: boolean }) {
     });
   }
 
-  function handleAcceptTargetRecommendations() {
+  function handleAcceptTargetRecommendations(kind: "confirm" | "exclude") {
     if (!result || result.phase !== "target_review") return;
-    const updateTarget = (target: QuantitativeTarget): QuantitativeTarget => {
-      if (target.review_status !== "needs_review") return target;
-      if (target.ai_recommendation === "confirm") {
-        return { ...target, review_status: "approved" };
-      }
-      if (target.ai_recommendation === "exclude") {
-        return { ...target, review_status: "rejected" };
-      }
-      return target;
-    };
+    const updateTarget = (target: QuantitativeTarget): QuantitativeTarget =>
+      target.review_status === "needs_review" && target.ai_recommendation === kind
+        ? { ...target, review_status: kind === "confirm" ? "approved" : "rejected" }
+        : target;
     setResult({
       ...result,
       quantitative_ledger: {
@@ -604,9 +598,9 @@ function ScoutView({ header, ready }: { header: Header; ready: boolean }) {
     });
   }
 
-  function handleAcceptEvidenceRecommendations() {
+  function handleAcceptEvidenceRecommendations(kind: "admit" | "reject") {
     if (!result || result.phase !== "evidence_review") return;
-    const conformity = applyEvidenceReviewRecommendations(result.conformity);
+    const conformity = applyEvidenceReviewRecommendations(result.conformity, kind);
     if (conformity.every((score, index) => score === result.conformity[index]))
       return;
     setResult({ ...result, conformity });
@@ -711,7 +705,8 @@ function DocumentTargetReviewCheckpoint({
     decision: "approved" | "rejected",
   ) => void;
   onStatementDecision: (unitId: string) => void;
-  onAcceptRecommendations: () => void;
+  /** Accept every pending AI recommendation of one kind. */
+  onAcceptRecommendations: (kind: "confirm" | "exclude") => void;
   /** The draft's new `not_searched_fields`: the one record of the reviewer's field choice. */
   onFieldSearchChange: (notSearchedFields: string[]) => void;
   onContinue: () => void;
@@ -778,11 +773,8 @@ function DocumentTargetReviewCheckpoint({
     statements.filter((item) => item.review_status === "accepted_exclusion")
       .length;
   const flaggedCount = pendingTargets.length + pendingStatements.length;
-  const recommendedTargetCount = pendingTargets.filter(
-    (item) =>
-      item.ai_recommendation === "confirm" ||
-      item.ai_recommendation === "exclude",
-  ).length;
+  const recommendedExclusions = pendingTargets.filter((item) => item.ai_recommendation === "exclude").length;
+  const recommendedConfirmations = pendingTargets.filter((item) => item.ai_recommendation === "confirm").length;
   const fieldSelection = fieldSelectionSummary(result);
   const blockedId = useId();
 
@@ -891,11 +883,13 @@ function DocumentTargetReviewCheckpoint({
             </>
           }
           actions={
-            recommendedTargetCount > 0 ? (
-              <Button variant="outline" size="sm" disabled={busy} onClick={onAcceptRecommendations}>
-                Accept {countLabel(recommendedTargetCount, "AI recommendation")}
-              </Button>
-            ) : undefined
+            <BulkRecommendations
+              disabled={busy}
+              choices={[
+                { count: recommendedExclusions, noun: "exclusion", onAccept: () => onAcceptRecommendations("exclude") },
+                { count: recommendedConfirmations, noun: "confirmation", onAccept: () => onAcceptRecommendations("confirm") },
+              ]}
+            />
           }
         >
           {targets.map((item) => {
@@ -1567,6 +1561,28 @@ function ReviewEstimateChoices({ measurements, selectedId, onSelect, pending }: 
   );
 }
 
+/**
+ * One bulk action per kind of AI recommendation, so a reviewer can accept every "leave it
+ * out" call without reading them and still decide what to keep one by one - or the reverse.
+ * A kind with nothing pending offers no button.
+ */
+function BulkRecommendations({ choices, disabled = false }: {
+  choices: { count: number; noun: string; onAccept: () => void }[];
+  disabled?: boolean;
+}) {
+  const offered = choices.filter((choice) => choice.count > 0);
+  if (!offered.length) return null;
+  return (
+    <>
+      {offered.map((choice) => (
+        <Button key={choice.noun} variant="outline" size="sm" disabled={disabled} onClick={choice.onAccept}>
+          Accept {countLabel(choice.count, choice.noun)}
+        </Button>
+      ))}
+    </>
+  );
+}
+
 function QuantitativeReviewCheckpoint({
   result,
   onNewAnalysis,
@@ -1582,7 +1598,8 @@ function QuantitativeReviewCheckpoint({
     candidateIds: string[],
     selectedCandidateId: string | null,
   ) => void;
-  onAcceptRecommendations: () => void;
+  /** Accept every pending AI recommendation of one kind. */
+  onAcceptRecommendations: (kind: "admit" | "reject") => void;
   readyToFinalize: boolean;
   onFinalize: () => void;
 }) {
@@ -1677,8 +1694,6 @@ function QuantitativeReviewCheckpoint({
   const recommendationSummary = evidenceReviewRecommendationSummary(
     result.conformity,
   );
-  const actionableRecommendations =
-    recommendationSummary.admit + recommendationSummary.reject;
 
   function sourceFindingFor(item: (typeof allCandidates)[number]) {
     return result.matches
@@ -1753,11 +1768,12 @@ function QuantitativeReviewCheckpoint({
             </>
           }
           actions={
-            actionableRecommendations > 0 ? (
-              <Button variant="outline" size="sm" onClick={onAcceptRecommendations}>
-                Accept {countLabel(actionableRecommendations, "AI recommendation")}
-              </Button>
-            ) : undefined
+            <BulkRecommendations
+              choices={[
+                { count: recommendationSummary.reject, noun: "rejection", onAccept: () => onAcceptRecommendations("reject") },
+                { count: recommendationSummary.admit, noun: "admission", onAccept: () => onAcceptRecommendations("admit") },
+              ]}
+            />
           }
         >
           {groups.map(([key, items]) => {

@@ -51,6 +51,7 @@ export const RELEASES: readonly Release[] = [
       {
         title: "Everywhere",
         changes: [
+          "Every tool and Ask accept the same files: Word, PowerPoint, Excel (including older XLS files) and PDF. Excel rows are read with their sheet, table title and column headers and cited to the exact cells; PDFs are read as page text, and every tool states that limit the same way.",
           "“Disease / condition” is now “Disease or health need”, and Contraception replaces Female contraception in its list, so searches use the word registries and labels index.",
           "Report a problem with any finding: an email opens with the finding’s details filled in.",
           "Export to Word from Inspector, Aligner, Screener and Scout, as Drafter already could: one layout for every tool, with each finding, its status and where it was read from.",

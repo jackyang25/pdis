@@ -28,15 +28,20 @@ export function evidenceReviewRecommendationSummary(
   return summary;
 }
 
-/** Apply every complete AI recommendation; flagged groups remain pending. */
+/**
+ * Apply one kind of complete AI recommendation - every admission, or every rejection -
+ * so a reviewer can accept one kind in bulk and still read the other. Flagged groups and
+ * the other kind remain pending.
+ */
 export function applyEvidenceReviewRecommendations(
   scores: Conformity[],
+  kind: "admit" | "reject",
 ): Conformity[] {
   return scores.map((original) => {
     let score = original;
     for (const candidates of pendingEvidenceUnits(original)) {
       const recommendation = groupRecommendation(candidates);
-      if (recommendation === "flag") continue;
+      if (recommendation !== kind) continue;
       const selected = recommendation === "admit"
         ? candidates.find((candidate) => candidate.ai_recommendation === "admit")
         : undefined;

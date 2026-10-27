@@ -185,11 +185,23 @@ web/ → api/ → services/ → shared/
   (`formats.SourceFormat`), stamped once by the parser dispatch; a reader names a
   passage's file type from that field and never infers it from a page or slide
   number. A block saved before the field existed has none, and shows as unknown.
-- Document input capabilities live in `services/chunker/formats.py`.
-  `DOCUMENT_SUFFIXES` defaults to DOCX/PPTX, which declare structure. Only
-  Screener opts into `TEXT_EXTRACTION_SUFFIXES`, adding text-based PDF sources.
-  This is an explicit quality tradeoff, not structural parity: PDF produces
-  page-level text blocks, never inferred headings or table cells. A quote match
+- Document formats live in `services/chunker/formats.py`, one set for every tool
+  and Ask: DOCX, PPTX, XLSX (legacy `.xls` converted to XLSX by LibreOffice) and
+  PDF. There is no per-tool format list and no `accepted_suffixes` option; a format
+  one tool refused and another read would make them judge different evidence. Each
+  format has one reader in Chunker, so a passage has one shape wherever it is read.
+- DOCX, PPTX and XLSX declare their structure. The XLSX reader keeps layout and
+  decides nothing semantic: regions split at blank rows, a leading single-cell row
+  is the region's title, and a multi-column region follows the DOCX table rule
+  (first row headers, one `table_row` per later row via `serialize_table_row`).
+  Every passage carries its sheet and title as `heading_stack` and its `cell_range`;
+  hidden sheets are read and marked. A region is layout, not a declared table, so
+  it creates no table group. Values are the stored results; a workbook whose
+  formulas were never calculated, an empty one, or one over the row bound is
+  refused whole.
+- PDF is the one less precise mode, an explicit quality tradeoff rather than
+  structural parity: PDF produces page-level text blocks, never inferred headings
+  or table cells. A quote match
   cannot establish correct table or column interpretation. Every PDF block
   carries its page and `pdf_text_layout` extraction warning through results and
   Ask; the UI displays the limitation. Encrypted, malformed, over-limit files
@@ -199,10 +211,11 @@ web/ → api/ → services/ → shared/
   No OCR, vector reconstruction, or inferred table structure. Rendering is bounded
   by page count, pixels, and retained image bytes. Historical `pdf_limited_structure`
   warnings keep their original meaning; imports never invent missing visuals.
-  Other tools and Ask attachments keep the default input capability.
+  Every tool shows the limitation through `DocumentExtractionNotice`, from the
+  blocks; no tool has a PDF branch of its own.
 - Images are canonical blocks, not generated descriptions. Retain supported
   raster bytes, normalize other rasters with Pillow, and use LibreOffice only
-  for vector fallback and PPTX slide rendering.
+  for vector fallback, PPTX slide rendering and `.xls` conversion.
 - Text quotations and visual references are separate provenance. A visual reference
   resolves to a retained asset; `[image]` is not a validated quotation. Inspector
   may include a same-slide overview with mapped section text without remapping
@@ -479,10 +492,10 @@ supplied material answers and which it does not.
 - The denominator never shrinks, and counts are derived by readers rather than carried:
   a stored count is a second authority that can disagree with its own list. Never
   publish a combined coverage figure.
-- **One evidence path.** Every upload conforms to Chunker's `TEXT_EXTRACTION_SUFFIXES`
+- **One evidence path.** Every upload conforms to Chunker's `DOCUMENT_SUFFIXES`
   and passes through its parse-only pipeline. There is no separate context reader,
   TXT/Markdown/standalone-image upload, document-type configuration lookup, or
-  section-mapping call. Supported images embedded in DOCX/PPTX remain canonical blocks.
+  section-mapping call. Supported images embedded in DOCX, PPTX and XLSX remain canonical blocks.
   All parsed blocks reach each question's document selectors and remain in the
   result, even when no final assessment selected them.
   The shared trace, portable result envelope and Ask consume those same block IDs.

@@ -49,11 +49,23 @@ location. These describe structure, not importance: even a header drawing remain
 flagged, and consumers do not guess whether it is decoration. Older saved blocks
 without object details keep a general warning.
 
-Input capabilities live in `formats.py`. `DOCUMENT_SUFFIXES` is the default:
-DOCX/PPTX declare tables, rows, headings and order. A caller may explicitly pass
-`accepted_suffixes=TEXT_EXTRACTION_SUFFIXES` to `run_pipeline` to also accept
-text-based PDF. Only Screener enables that capability; standalone Chunker,
-Inspector, Aligner, Scout and Ask attachments keep the default.
+Formats live in `formats.py`: `DOCUMENT_SUFFIXES` is DOCX, PPTX, XLSX, legacy XLS
+and PDF, the one set every tool and Ask attachments accept. DOCX/PPTX/XLSX declare
+tables, rows, headings and order; PDF is page text.
+
+XLSX uses openpyxl and keeps layout without deciding meaning. A sheet's filled cells
+split into regions at fully blank rows; a region's leading row whose filled cells are
+one source cell (a lone value or one merged range) is its title; a multi-column region
+takes its first row as headers and yields one `table_row` per later row through the
+same `serialize_table_row` as DOCX; one-column and one-row regions yield paragraphs.
+Each block's `heading_stack` is the sheet, then the title, and `structural_meta`
+carries `sheet`, `sheet_index`, `cell_range` and `hidden_sheet` on a hidden sheet.
+Values are the stored results, shown as Excel states them for integers, `%` formats
+and dates; merged ranges repeat across their cells. Raster images are image blocks,
+charts carry `unsupported_document_visual`. A workbook over 20 MB or 2,000 filled
+rows, an empty one, or one whose formulas were never calculated is refused whole.
+`.xls` files are converted to XLSX by LibreOffice, then read by the same reader, and
+their blocks say `xls`.
 
 PDF uses pypdf for one text block per page and PDFium for one full-page image,
 with stable IDs, a one-based `structural_meta.page`, and

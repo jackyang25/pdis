@@ -2,7 +2,6 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { documentIdentity, placeFiles } from "./document-slots.ts";
 
-const SUFFIXES = [".docx", ".pptx", ".pdf"];
 const file = (name: string) => new File(["x"], name);
 const names = (record: Record<string, File>) =>
   Object.fromEntries(Object.entries(record).map(([id, held]) => [id, held.name]));
@@ -13,7 +12,6 @@ test("a drop fills the slot it landed on, then the empty slots, then asks for ne
     picked: [file("one.docx"), file("two.pptx"), file("three.pdf"), file("four.docx")],
     slotIds: ["a", "b", "c"],
     held: { a: file("held.docx") },
-    suffixes: SUFFIXES,
   });
   assert.deepEqual(names(result.placed), { b: "one.docx", c: "two.pptx" });
   assert.deepEqual(result.overflow.map((held) => held.name), ["three.pdf", "four.docx"]);
@@ -25,7 +23,6 @@ test("a file the tool cannot read, or a second file of one name, is refused by n
     picked: [file("notes.txt"), file("plan.docx"), file("plan.pdf"), file("held.pptx")],
     slotIds: ["a", "b"],
     held: { b: file("held.docx") },
-    suffixes: SUFFIXES,
   });
   assert.deepEqual(names(result.placed), { a: "plan.docx" });
   assert.deepEqual(result.unsupported, ["notes.txt"]);
@@ -40,7 +37,6 @@ test("replacing a slot's file frees its name for the replacement", () => {
     picked: [file("plan.pptx")],
     slotIds: ["a"],
     held: { a: file("plan.docx") },
-    suffixes: SUFFIXES,
   });
   assert.deepEqual(names(result.placed), { a: "plan.pptx" });
   assert.deepEqual(result.repeated, []);

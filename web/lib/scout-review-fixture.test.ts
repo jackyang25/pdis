@@ -16,7 +16,7 @@ test("diagnostic seeds preserve usable proposals on unavailable reviews and reta
   const measurement = evidence.conformity[0].excluded_measurements[0];
   assert.ok(measurement.source_passage?.includes(measurement.source_quote));
   assert.ok(measurement.source_passage?.includes("first 6 months"));
-  const result = applyEvidenceReviewRecommendations(evidence.conformity)[0];
+  const result = applyEvidenceReviewRecommendations(applyEvidenceReviewRecommendations(evidence.conformity, "admit"), "reject")[0];
   assert.equal(result.measurements.length, 0);
   assert.equal(result.excluded_measurements[0].admission_status, "needs_review");
 });

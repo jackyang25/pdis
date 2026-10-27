@@ -4,12 +4,11 @@ Traceable document intelligence for product-development plans, evidence, and dec
 
 ![PDIS tools dashboard](./docs/pdis-tools-dashboard.png)
 
-PDIS turns DOCX and PPTX product-development documents into citable
-analysis. It supports target product profiles and development plans for
+PDIS turns product-development documents - Word, PowerPoint, Excel and PDF - into
+citable analysis. It supports target product profiles and development plans for
 vaccines, drugs, diagnostics, and devices while preserving the source blocks
-behind every result.
-Screener also accepts text-based PDFs, with the extraction limits described in its
-[document contract](services/screener/README.md#one-document-collection).
+behind every result. Every tool accepts the same formats; PDFs are read as page text,
+with the limits described in Chunker's [document formats](services/chunker/README.md).
 
 ## Contents
 

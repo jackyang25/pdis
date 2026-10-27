@@ -25,7 +25,7 @@ oversized request could take the memory the run cap reserves.
 from __future__ import annotations
 
 from pathlib import Path
-from collections.abc import Sequence, Set
+from collections.abc import Sequence
 
 from fastapi import HTTPException, UploadFile
 
@@ -38,7 +38,7 @@ MAX_UPLOAD_BYTES = 50 * 1024 * 1024
 MAX_REQUEST_UPLOAD_BYTES = 150 * 1024 * 1024
 
 def document_upload_parts(
-    filename: str | None, *, tool: str, accepted_suffixes: Set[str] = DOCUMENT_SUFFIXES,
+    filename: str | None, *, tool: str,
 ) -> tuple[str, str]:
     """Validate one upload's format and return its `(doc_id, suffix)`.
 
@@ -53,9 +53,9 @@ def document_upload_parts(
         HTTPException: 400, before any work begins and before the stream opens.
     """
     suffix = Path(filename or "").suffix.lower()
-    if suffix not in accepted_suffixes:
-        format_hint = " or ".join(
-            sorted(suffix.removeprefix(".").upper() for suffix in accepted_suffixes)
+    if suffix not in DOCUMENT_SUFFIXES:
+        format_hint = ", ".join(
+            sorted(suffix.removeprefix(".").upper() for suffix in DOCUMENT_SUFFIXES)
         )
         raise HTTPException(
             status_code=400,

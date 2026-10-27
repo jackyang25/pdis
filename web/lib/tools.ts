@@ -39,8 +39,8 @@ type ToolBase = {
    *      five intervention classes; what qualifies belongs in the attribute
    *      vocabulary.
    *
-   * Utility tools are a separate family and use imperative voice ("Turn DOCX and
-   * PPTX files into…"), because they perform a task rather than judge a document.
+   * Utility tools are a separate family and use imperative voice ("Turn Word,
+   * PowerPoint, Excel and PDF files into…"), because they perform a task rather than judge a document.
    * Keep each family internally consistent.
    *
    * Where these sit in a PPL's process is said once, in the section copy in
@@ -176,7 +176,7 @@ export const WORKSPACE_TOOLS: readonly WorkspaceToolDefinition[] = [
     href: "/chunker",
     title: "Chunker",
     description:
-      "Turn DOCX and PPTX files into ordered, citable text, table, and image blocks.",
+      "Turn Word, PowerPoint, Excel and PDF files into ordered, citable text, table, and image blocks.",
     activity: "1 minute",
     icon: "chunker",
     audience: "shared",

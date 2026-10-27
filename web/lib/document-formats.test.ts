@@ -17,9 +17,8 @@ import {
   attachablePaste,
   ATTACHMENT_MEDIA_PREFIXES,
   DOCUMENT_FORMAT_HINT,
+  DOCUMENT_FORMATS,
   DOCUMENT_SUFFIXES,
-  STRUCTURED_DOCUMENT_FORMATS,
-  TEXT_EXTRACTION_SUFFIXES,
   isSupportedDocument,
 } from "./document-formats.ts";
 
@@ -44,22 +43,12 @@ test("the mirrored set matches services/chunker", () => {
   );
 });
 
-test("text-extraction capability matches Chunker while default validation stays narrow", () => {
-  const source = readFileSync(CHUNKER_FORMATS, "utf8");
-  const declaration = /^TEXT_EXTRACTION_SUFFIXES\s*=\s*DOCUMENT_SUFFIXES\s*\|\s*\{([^}]*)\}/m.exec(source);
-  assert.ok(declaration);
-  const extra = [...declaration[1].matchAll(/"([^"]+)"/g)].map((match) => match[1]);
-  assert.deepEqual([...TEXT_EXTRACTION_SUFFIXES], [...DOCUMENT_SUFFIXES, ...extra]);
-  assert.equal(isSupportedDocument("REPORT.PDF", TEXT_EXTRACTION_SUFFIXES), true);
-  assert.equal(isSupportedDocument("REPORT.PDF"), false);
-  assert.equal(isSupportedDocument("report.pdf.doc", TEXT_EXTRACTION_SUFFIXES), false);
-});
-
 test("derived values stay consistent with the set", () => {
-  assert.equal(STRUCTURED_DOCUMENT_FORMATS.accept, DOCUMENT_SUFFIXES.join(","));
-  assert.equal(DOCUMENT_FORMAT_HINT, "DOCX, PPTX");
+  assert.equal(DOCUMENT_FORMATS.accept, DOCUMENT_SUFFIXES.join(","));
+  assert.equal(DOCUMENT_FORMAT_HINT, "DOCX, PPTX, XLSX, XLS, PDF");
   assert.ok(isSupportedDocument("Plan.DOCX"), "extension matching must ignore case");
-  assert.ok(!isSupportedDocument("plan.pdf"), "a rendered format is not a document source");
+  assert.ok(isSupportedDocument("REPORT.PDF") && isSupportedDocument("targets.xlsx"));
+  assert.ok(!isSupportedDocument("report.pdf.doc"), "only the last extension counts");
   assert.ok(!isSupportedDocument("docx"), "a bare word is not an extension");
 });
 
@@ -78,13 +67,13 @@ test("the attachment set matches services/chunker", () => {
 });
 
 test("an attachment accepts every document plus its own media types", () => {
-  // A conversation attachment is read once and discarded, so it may include
-  // formats the analysis path refuses. It may never exclude one the path accepts.
+  // A conversation attachment is read once and discarded, so it may add media types the
+  // analysis path refuses. It may never exclude a document format a tool accepts.
   for (const suffix of DOCUMENT_SUFFIXES) {
     assert.ok(ATTACHMENT_ACCEPT.includes(suffix), `${suffix} is not attachable`);
   }
-  assert.equal(ATTACHMENT_ACCEPT, `${STRUCTURED_DOCUMENT_FORMATS.accept},image/*`);
-  assert.equal(ATTACHMENT_FORMAT_HINT, "DOCX, PPTX, or image files");
+  assert.equal(ATTACHMENT_ACCEPT, `${DOCUMENT_FORMATS.accept},image/*`);
+  assert.equal(ATTACHMENT_FORMAT_HINT, "DOCX, PPTX, XLSX, XLS, PDF, or image files");
 });
 
 function sourceFiles(): string[] {
@@ -112,14 +101,14 @@ test("no component restates a document extension", () => {
   for (const file of sourceFiles()) {
     const relative = path.relative(WEB, file);
     if (relative === AUTHORITY) continue;
-    for (const [match] of readFileSync(file, "utf8").matchAll(/"[^"\n]*\.(?:docx|pptx)[^"\n]*"/gi)) {
+    for (const [match] of readFileSync(file, "utf8").matchAll(/"[^"\n]*\.(?:docx|pptx|xlsx|xls|pdf)[^"\n]*"/gi)) {
       offenders.push(`${relative}: ${match}`);
     }
   }
   assert.deepEqual(
     offenders,
     [],
-    "import STRUCTURED_DOCUMENT_FORMATS or DOCUMENT_SUFFIXES from lib/document-formats.ts",
+    "import DOCUMENT_FORMATS or DOCUMENT_SUFFIXES from lib/document-formats.ts",
   );
 });
 
@@ -182,11 +171,19 @@ test("a plain text paste reports nothing to say", () => {
 
 test("an unsupported file is not attached", () => {
   const { files, textWon } = attachablePaste(
-    transfer({ files: [{ name: "notes.pdf", type: "application/pdf" }] }),
+    transfer({ files: [{ name: "notes.rtf", type: "application/rtf" }] }),
   );
   assert.deepEqual(files, []);
   // Nothing to report either: an unsupported file is not something text won over.
   assert.equal(textWon, false);
+});
+
+test("a PDF or a workbook attaches like any document", () => {
+  const { files } = attachablePaste(transfer({ files: [
+    { name: "study.pdf", type: "application/pdf" },
+    { name: "targets.xlsx", type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" },
+  ] }));
+  assert.deepEqual(files.map((file) => file.name), ["study.pdf", "targets.xlsx"]);
 });
 
 test("nothing at all is handled without throwing", () => {

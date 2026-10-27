@@ -25,7 +25,7 @@ export type FilePlacement = {
   repeated: string[];
 };
 
-export function placeFiles({ slotId, picked, slotIds, held, suffixes }: {
+export function placeFiles({ slotId, picked, slotIds, held }: {
   /** The slot the files were picked or dropped on. */
   slotId: string;
   picked: readonly File[];
@@ -33,7 +33,6 @@ export function placeFiles({ slotId, picked, slotIds, held, suffixes }: {
   slotIds: readonly string[];
   /** Files already held, keyed by slot id. */
   held: Readonly<Record<string, File>>;
-  suffixes: readonly string[];
 }): FilePlacement {
   const unsupported: string[] = [];
   const repeated: string[] = [];
@@ -45,7 +44,7 @@ export function placeFiles({ slotId, picked, slotIds, held, suffixes }: {
   );
   const accepted: File[] = [];
   for (const file of picked) {
-    if (!isSupportedDocument(file.name, suffixes)) {
+    if (!isSupportedDocument(file.name)) {
       unsupported.push(file.name);
       continue;
     }

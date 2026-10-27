@@ -183,21 +183,27 @@ test("completed evidence remains correctable and advancement stays outside the p
   assert.doesNotMatch(html.match(/<header[\s\S]*?<\/header>/)?.[0] ?? "", /Finalize result/);
 });
 
-test("a single actionable recommendation uses singular copy in both checkpoints", () => {
+test("each kind of recommendation has its own bulk action, in singular copy", () => {
   const result = reviewFixture();
   result.conformity[0].excluded_measurements[0].ai_recommendation = "admit";
   const evidence = renderToStaticMarkup(React.createElement(QuantitativeReviewCheckpoint, {
     result, onNewAnalysis: () => {}, onReview: () => {}, onAcceptRecommendations: () => {},
     readyToFinalize: false, onFinalize: () => {},
   }));
-  assert.match(evidence, />Accept 1 AI recommendation<\/button>/);
+  assert.match(evidence, />Accept 1 admission<\/button>/);
+  assert.doesNotMatch(evidence, /Accept \d+ rejection/);
   const targetResult = reviewFixture("target_review");
   const target = renderToStaticMarkup(React.createElement(DocumentTargetReviewCheckpoint, {
     result: targetResult, busy: false, stage: null, progress: null,
     onNewAnalysis: () => {}, onTargetDecision: () => {}, onStatementDecision: () => {},
     onAcceptRecommendations: () => {}, onContinue: () => {},
   }));
-  assert.match(target, />Accept 1 AI recommendation<\/button>/);
+  const targetMarkup = target;
+  const recommended = targetResult.quantitative_ledger.targets.filter((item) => item.review_status === "needs_review");
+  const kinds = new Set(recommended.map((item) => item.ai_recommendation));
+  if (kinds.has("confirm")) assert.match(targetMarkup, /Accept \d+ confirmations?<\/button>/);
+  if (kinds.has("exclude")) assert.match(targetMarkup, /Accept \d+ exclusions?<\/button>/);
+  assert.doesNotMatch(targetMarkup, /AI recommendation<\/button>/);
 });
 
 test("one overview contains single estimates and grouped alternatives without presenting an arbitrary alternative as the group", () => {

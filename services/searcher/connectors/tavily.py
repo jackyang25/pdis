@@ -1,8 +1,9 @@
 """Minimal client for Tavily's search API.
 
-Shaped like `ToolUniverseHTTPConnector` and for the same reason: the connector executes one
-request and returns parsed JSON, while the source adapter owns query grammar and turns
-records into Findings. Nothing here knows what a Finding is.
+A connector because the lane cannot run without the deployment's paid key and its options
+(depth, endpoint, timeout): the API builds it and injects it. It executes one request and
+returns parsed JSON, while the source adapter owns query grammar and turns records into
+Findings. Nothing here knows what a Finding is.
 
 Why Tavily exists beside the `web` lane at all. The `web` lane is OpenAI's Responses API with
 its `web_search` tool: a model is asked a question, it searches internally, writes an answer,
@@ -22,7 +23,7 @@ from typing import Any
 
 from ..transport import fetch_json
 
-#: Tavily's public endpoint. Overridable for a proxy, validated like any other base URL.
+#: Tavily's public endpoint. A test may construct the connector with another.
 DEFAULT_BASE_URL = "https://api.tavily.com"
 
 #: `advanced` costs two credits and `basic` one. Advanced is the default because the reason to

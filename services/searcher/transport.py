@@ -12,6 +12,11 @@ otherwise the wait is a jittered exponential backoff, and every attempt shares o
 deadline so a retry can never make a request slower than the caller allowed. A refused
 connection is not retried: nothing is listening, and waiting will not change that.
 
+A retry is a call like any other, so it spends the provider's quota like any other: before
+each retry the transport waits for the caller's pacing slot (`retry_pacing`). Retrying on
+its own timer put retries on top of the paced stream, so a provider answering 429 at one
+call a second got more than one a second, and answered 429 again.
+
 Address selection is scoped here too. Some containers resolve a provider to IPv4 and IPv6
 addresses but can only route IPv4, and urllib does not fall back, so a lookup yielding IPv6
 first fails with "Network is unreachable". The connections this module opens try IPv4
@@ -22,6 +27,7 @@ which changed name resolution for every library in the API, not only for Searche
 
 from __future__ import annotations
 
+import contextvars
 import http.client
 import json
 import random
@@ -29,9 +35,10 @@ import socket
 import time
 import urllib.error
 import urllib.request
+from contextlib import contextmanager
 from email.utils import parsedate_to_datetime
 from datetime import datetime, timezone
-from typing import Any, Mapping, Sequence
+from typing import Any, Callable, Iterator, Mapping, Sequence
 
 from .errors import RetrievalError
 
@@ -44,10 +51,28 @@ DEFAULT_TIMEOUT_SECONDS = 35.0
 #: Total time one call may take across every attempt and wait.
 DEFAULT_DEADLINE_SECONDS = 90.0
 MAX_ATTEMPTS = 4
+#: Attempts at a call the provider rate-limits. A second 429 after a paced wait means the
+#: quota is spent - often by another client of the same key - and every further retry
+#: waits behind the whole paced queue: four attempts let one saturated key hold a run's
+#: retrieval for minutes. So a rate-limited call retries once, then fails with its code.
+MAX_RATE_LIMITED_ATTEMPTS = 2
 BACKOFF_BASE_SECONDS = 0.5
 BACKOFF_CAP_SECONDS = 8.0
 MAX_MESSAGE_CHARS = 300
 _MESSAGE_KEYS = ("error", "message", "detail", "errors", "description")
+_RETRY_PACING: contextvars.ContextVar[Callable[[], None] | None] = contextvars.ContextVar(
+    "searcher_retry_pacing", default=None
+)
+
+
+@contextmanager
+def retry_pacing(wait_for_slot: Callable[[], None]) -> Iterator[None]:
+    """Make every retry inside the block wait for `wait_for_slot` first."""
+    token = _RETRY_PACING.set(wait_for_slot)
+    try:
+        yield
+    finally:
+        _RETRY_PACING.reset(token)
 
 
 def user_agent(contact: str = "") -> str:
@@ -111,17 +136,24 @@ def fetch(
                     http.client.IncompleteRead,
                 ),
             )
-        if not retryable or attempt == max_attempts:
+        limit = min(max_attempts, MAX_RATE_LIMITED_ATTEMPTS) if error.code == "rate_limited" else max_attempts
+        if not retryable or attempt >= limit:
             raise error from cause
         delay = retry_after if retry_after is not None else backoff_delay(attempt)
         if time.monotonic() + delay >= deadline:
             raise error from cause
         pause(delay)
+        if (wait_for_slot := _RETRY_PACING.get()) is not None:
+            wait_for_slot()
     raise AssertionError("unreachable")
 
 
 def fetch_json(url: str, *, provider: str, **kwargs: Any) -> Any:
-    body = fetch(url, provider=provider, **kwargs)
+    return json_body(fetch(url, provider=provider, **kwargs), provider)
+
+
+def json_body(body: bytes, provider: str) -> Any:
+    """A provider's JSON answer, or `invalid_response` for anything that is not JSON."""
     try:
         return json.loads(body.decode("utf-8"))
     except (UnicodeDecodeError, json.JSONDecodeError) as exc:

@@ -30,7 +30,7 @@ async def run_drafter(
     except LookupError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     if indication not in indications_for(intervention_class):
-        raise HTTPException(status_code=400, detail=f"Unknown disease / condition {indication!r} for {intervention_class}.")
+        raise HTTPException(status_code=400, detail=f"Unknown disease or health need {indication!r} for {intervention_class}.")
     if len(" ".join(intended_use.split())) > MAX_INTENDED_USE_CHARS:
         raise HTTPException(status_code=400, detail=f"The intended use is at most {MAX_INTENDED_USE_CHARS} characters.")
 

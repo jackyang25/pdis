@@ -26,6 +26,7 @@ export const RELEASES: readonly Release[] = [
           "A check that could not run now says “Not assessed” instead of looking like an answer, and a field with no evidence says so.",
           "Scout’s judgements read each source’s title, date and opening words, and Drafter checks every number against the words that state it.",
           "Searches find much more: PubMed and Europe PMC queries return many more relevant records, and repeated records from different sources are merged.",
+          "Every source is now searched directly, so searches are faster and no longer fail when a shared service goes down. WHO results are only WHO guidelines on the condition searched, and FDA and ISRCTN results show more of what each record says.",
           "Word form fields and PowerPoint decks with hidden slides are read in full.",
         ],
       },
@@ -50,6 +51,7 @@ export const RELEASES: readonly Release[] = [
       {
         title: "Everywhere",
         changes: [
+          "“Disease / condition” is now “Disease or health need”, and Contraception replaces Female contraception in its list, so searches use the word registries and labels index.",
           "Report a problem with any finding: an email opens with the finding’s details filled in.",
           "Export to Word from Inspector, Aligner, Screener and Scout, as Drafter already could: one layout for every tool, with each finding, its status and where it was read from.",
           "Clicking a highlighted passage in a PDF opens its details, and each tool’s Documents view opens on a layer with marks.",

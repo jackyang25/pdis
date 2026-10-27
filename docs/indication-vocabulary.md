@@ -4,7 +4,8 @@
 to the **NLM MeSH 2026 descriptor release**, not a list of approved indications,
 portfolio commitments, or disease-specific tool capabilities.
 
-The input is labelled **Disease / condition** in the UI; `indication` remains its
+The input is labelled **Disease or health need** in the UI, because the list holds
+needs such as contraception as well as diseases; `indication` remains its
 API, configuration and saved-result key. This context is not a full intended-use
 statement or an approved indication. **Health product type** similarly displays
 the existing `intervention_class` field without changing its values or meaning.

@@ -26,10 +26,9 @@ install: install-python install-web ## Both toolchains
 
 dev: install ## First-time setup: env files, dependencies, next steps
 	@test -f .env || cp .env.example .env
-	@test -f .env.tooluniverse || cp .env.tooluniverse.example .env.tooluniverse
 	@test -f web/.env.local || cp web/.env.local.example web/.env.local
 	@echo
-	@echo "Set OPENAI_API_KEY, ANTHROPIC_API_KEY, and TOOLUNIVERSE_API_TOKEN in .env,"
+	@echo "Set KONG_KEY (or OPENAI_API_KEY and ANTHROPIC_API_KEY) and the retrieval keys in .env,"
 	@echo "then: docker compose up --build"
 
 check: lint test test-web ## Everything CI runs, in one command

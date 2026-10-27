@@ -345,20 +345,12 @@ class BoundaryWiringTests(unittest.TestCase):
 
         with patch.dict(
             os.environ,
-            {"TAVILY_API_KEY": "k", "TAVILY_BASE_URL": "", "TAVILY_SEARCH_DEPTH": ""},
+            {"TAVILY_API_KEY": "k"},
             clear=False,
         ):
             built = get_search_integrations()[TAVILY_INTEGRATION]
         self.assertEqual(built.base_url, DEFAULT_BASE_URL)
         self.assertEqual(built.search_depth, DEFAULT_SEARCH_DEPTH)
-
-    def test_the_depth_can_be_lowered_for_a_cheaper_run(self):
-        from api.deps import get_search_integrations
-
-        with patch.dict(os.environ, {"TAVILY_API_KEY": "k", "TAVILY_SEARCH_DEPTH": "basic"}):
-            self.assertEqual(
-                get_search_integrations()[TAVILY_INTEGRATION].search_depth, "basic"
-            )
 
 
 if __name__ == "__main__":

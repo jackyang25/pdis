@@ -45,6 +45,11 @@ TAVILY_INTEGRATION = "tavily"
 #: tight; the cap exists so one query cannot dominate an attribute's finding budget.
 MAX_RESULTS = 10
 
+#: Tavily allows 1,000 requests a minute on a production key (100 on a development key, which
+#: answers 429 here and is retried in paced slots). Ten calls a second stays well inside the
+#: production limit; unpaced, a Drafter run's burst of 32 concurrent searches drew 429s.
+MIN_REQUEST_INTERVAL_SECONDS = 0.1
+
 #: Long enough for the passage a number or a claim sits in, short enough that a page of
 #: boilerplate cannot crowd out the rest of a batch. The same bound the literature lanes use.
 MAX_EXCERPT_CHARS = 1200
@@ -58,10 +63,10 @@ class TavilySource:
         # concurrency: a lane that is throttled differently will look slower for a reason that
         # has nothing to do with what it returns.
         worker_limit=32,
+        request_interval_seconds=MIN_REQUEST_INTERVAL_SECONDS,
         # Declared, so the source disables itself when no key is configured rather than
         # failing every request. `unconfigured_source_keys` reads this.
         integration_key=TAVILY_INTEGRATION,
-        operations=("search",),
         attribution=SourceAttribution(label="Tavily", url="https://tavily.com"),
         # No `evidence_domains`, like `web`: a general web search serves every field. Gating
         # it would make this lane answer a different question from the one it is compared
@@ -145,7 +150,7 @@ def _records(result: Any) -> list[dict[str, Any]]:
     if not isinstance(result, dict):
         raise RetrievalError("Tavily", "invalid_response", "unexpected result shape")
     if error := result.get("error"):
-        raise RetrievalError("Tavily", "tool_error", f"Tavily failed: {error}")
+        raise RetrievalError("Tavily", "rejected", f"Tavily failed: {error}")
     records = result.get("results")
     if not isinstance(records, list):
         raise RetrievalError("Tavily", "invalid_response", "no results list")

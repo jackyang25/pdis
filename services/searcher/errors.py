@@ -18,7 +18,9 @@ RETRIEVAL_ERROR_CODES = frozenset(
         "unavailable",
         "timeout",
         "invalid_response",
-        "tool_error",
+        # The provider answered, but with a failure of its own instead of records: a query
+        # it refused, an error inside a successful envelope.
+        "rejected",
         "not_configured",
     }
 )

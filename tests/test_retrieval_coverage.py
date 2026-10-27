@@ -106,7 +106,7 @@ MISSING_SCOPE_CONSUMERS: dict[str, str] = {}
 #: lane layer could not reach, and they arrived as web prose whose excerpts cannot
 #: support a quantitative claim.
 MISSING_COVERAGE = {
-    "access": "no procurement or financing body is reachable: the ToolUniverse catalogue exposes no Gavi, Global Fund or UNICEF Supply tool",
+    "access": "no procurement or financing body is reachable: Gavi, the Global Fund and UNICEF Supply publish no search API",
     "news": "reached by the web lane's program query set rather than a lane of its own, since no news provider is exposed",
     "epidemiology": (
         "the WHO GHO lane was removed: its readings reached a tab and no reasoning stage, "
@@ -123,7 +123,7 @@ MISSING_COVERAGE = {
 #: written for: SAHPRA, NMPA, CDSCO, BPOM and ANVISA are named priority institutions,
 #: and WHO ICTRP is the one source that would aggregate the registries behind them.
 MISSING_JURISDICTIONS = {
-    "lmic": "no LMIC-specific provider is reachable: the catalogue exposes no WHO ICTRP, CTRI, ChiCTR, ReBEC or PACTR tool, and no national regulator outside the US. WHO Guidelines covers the normative half at global scope",
+    "lmic": "no LMIC-specific provider is reachable: WHO ICTRP, CTRI, ChiCTR, ReBEC and PACTR offer no search a lane can call, and no national regulator outside the US does. WHO Guidelines covers the normative half at global scope",
 }
 
 #: Registries that cannot narrow by `region`, and why not.

@@ -1,19 +1,6 @@
 name: pdis
 
 services:
-  tooluniverse:
-    container_name: pdis-tooluniverse
-    build:
-      context: ./deploy/tooluniverse
-    env_file:
-      - .env.tooluniverse
-    environment:
-      PORT: 8080
-      TOOLUNIVERSE_API_TOKEN: ${TOOLUNIVERSE_API_TOKEN:?Set TOOLUNIVERSE_API_TOKEN in .env}
-    ports:
-      - "8080:8080"
-    restart: unless-stopped
-
   api:
     container_name: pdis-api
     build:
@@ -23,11 +10,6 @@ services:
       - .env
     environment:
       PORT: 8000
-      CORS_ALLOW_ORIGINS: http://localhost:3000
-      TOOLUNIVERSE_BASE_URL: http://tooluniverse:8080
-    depends_on:
-      tooluniverse:
-        condition: service_healthy
     healthcheck:
       test:
         - CMD

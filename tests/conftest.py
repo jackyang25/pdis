@@ -26,17 +26,12 @@ from __future__ import annotations
 
 import os
 
+from shared.settings import SETTINGS
+
 # Emptied before any test module imports `api.main`, which is where the
 # `load_dotenv()` call lives. pytest imports conftest before collecting tests.
-ISOLATED_CREDENTIALS = (
-    "KONG_KEY",
-    "OPENAI_API_KEY",
-    "ANTHROPIC_API_KEY",
-    "NCBI_API_KEY",
-    "TAVILY_API_KEY",
-    "TOOLUNIVERSE_API_TOKEN",
-    "SEMANTIC_SCHOLAR_API_KEY",
-)
+# Every credential the settings table declares, so a new one is isolated by declaring it.
+ISOLATED_CREDENTIALS = tuple(setting.name for setting in SETTINGS if setting.secret)
 
 for _name in ISOLATED_CREDENTIALS:
     os.environ[_name] = ""

@@ -71,7 +71,7 @@ def run_pipeline(
 ) -> DraftResult:
     config = find_config(org, SOURCE_TYPE, intervention_class)
     if indication not in indications_for(intervention_class):
-        raise ValueError(f"Unknown disease / condition {indication!r} for {intervention_class}.")
+        raise ValueError(f"Unknown disease or health need {indication!r} for {intervention_class}.")
     intended_use = " ".join(intended_use.split())
     if len(intended_use) > MAX_INTENDED_USE_CHARS:
         raise ValueError(f"The intended use is at most {MAX_INTENDED_USE_CHARS} characters.")

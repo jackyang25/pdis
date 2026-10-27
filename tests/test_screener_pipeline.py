@@ -136,7 +136,7 @@ class PipelineTests(unittest.TestCase):
         retained_images = [b for b in review.blocks if b.image]
         self.assertEqual(len(retained_images), 2)
         for message, images in client.calls:
-            self.assertIn("Disease / condition: malaria", message)
+            self.assertIn("Disease or health need: malaria", message)
             self.assertIn("Intervention class: drug", message)
             self.assertIn("Dosing regimen", message)
             self.assertIn("Independent laboratory findings", message)

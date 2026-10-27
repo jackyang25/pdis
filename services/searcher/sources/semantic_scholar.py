@@ -1,11 +1,12 @@
-"""Semantic Scholar adapter executed through an injected ToolUniverse connector."""
+"""Semantic Scholar paper search, called directly through its Graph API."""
 
 from __future__ import annotations
 
 from datetime import datetime, timezone
 from typing import Any
 
-from ..dates import partial_date
+from ..calls import provider_request
+from ..dates import iso_partial_date, partial_date
 from ..errors import RetrievalError
 from ..models import (
     Finding,
@@ -21,26 +22,32 @@ from .literature import (
     queries_for_track,
 )
 from .planning import request_lineage
-from .tooluniverse_records import TOOLUNIVERSE_INTEGRATION, run_tool
+from .records import bounded, text
 
-SEARCH_TOOL = "SemanticScholar_search_papers"
+SEARCH_URL = "https://api.semanticscholar.org/graph/v1/paper/search"
+#: The rate group, and the key's name in `SearchRuntime.credentials`.
+SEMANTIC_SCHOLAR = "semantic_scholar"
 MAX_RESULTS = 10
-MAX_EXCERPT_CHARS = 16_000
-# The issued Semantic Scholar key is limited to one request per second across
-# all endpoints. Stay deliberately below that threshold rather than relying on
-# ToolUniverse's generic keyed-account assumption.
+#: An issued key is limited to one request per second across all endpoints. Stay just
+#: below it.
 MIN_REQUEST_INTERVAL_SECONDS = 1.1
+#: What a finding reads, and nothing else. `tldr` is fetched only as the excerpt of a
+#: paper without an abstract.
+FIELDS = "paperId,title,abstract,tldr,year,publicationDate,externalIds,url"
 
 
 class SemanticScholarSource:
     spec = SourceSpec(
         key="semantic_scholar",
         label="Semantic Scholar",
-        worker_limit=4,
+        # Calls start one a second, so more workers would only wait their turn.
+        worker_limit=2,
         request_interval_seconds=MIN_REQUEST_INTERVAL_SECONDS,
-        default_enabled=False,
-        integration_key=TOOLUNIVERSE_INTEGRATION,
-        operations=(SEARCH_TOOL,),
+        rate_group=SEMANTIC_SCHOLAR,
+        # Required, not optional: keyless calls share one public pool, which answered
+        # the first call of a live check with 429. A lane that fails every request
+        # without its key reports itself unconfigured instead.
+        required_credential=SEMANTIC_SCHOLAR,
         attribution=SourceAttribution(
             label="Semantic Scholar",
             url="https://www.semanticscholar.org/?utm_source=api",
@@ -50,6 +57,9 @@ class SemanticScholarSource:
         jurisdiction="global",
         reads=("text", "condition", "intervention", "product", "population", "outcome", "subject"),
         feeds=("insights",),
+        # `publicationDateOrYear`, which bounds by date and admits a paper dated only
+        # by its year when that year can fall inside the window.
+        honors_date_bound=True,
         max_results=MAX_RESULTS,
     )
 
@@ -67,10 +77,7 @@ class SemanticScholarSource:
                     document_refs=document_refs,
                     intent_ids=intent_ids,
                     input_queries=input_queries,
-                    connector=TOOLUNIVERSE_INTEGRATION,
-                    operation=SEARCH_TOOL,
-                    # Scout needs evidence text, not title-only metadata.
-                    options=(("include_abstract", "true"),),
+                    options=(("published_since", intent.published_since),),
                 )
             )
         return requests
@@ -82,83 +89,74 @@ class SemanticScholarSource:
         *,
         max_tokens: int,
     ) -> list[Finding]:
-        result = run_tool(
+        query: dict[str, Any] = {
+            "query": request.query,
+            "limit": self.spec.max_results,
+            "fields": FIELDS,
+        }
+        if since := request.option("published_since"):
+            query["publicationDateOrYear"] = f"{since}:"
+        key = runtime.credential(SEMANTIC_SCHOLAR)
+        payload = provider_request(
             runtime,
             self.spec,
-            SEARCH_TOOL,
-            {
-                "query": request.query,
-                "limit": self.spec.max_results,
-                "include_abstract": request.option("include_abstract") == "true",
-            },
+            operation="paper/search",
+            url=SEARCH_URL,
+            query=query,
+            auth_headers={"x-api-key": key} if key else None,
         )
-        records = _records(result)
+        records = payload.get("data") if isinstance(payload, dict) else None
+        # A search matching nothing omits `data`; one that failed carries no `total`.
+        if records is None and isinstance(payload, dict) and "total" in payload:
+            records = []
+        if not isinstance(records, list):
+            raise RetrievalError("Semantic Scholar", "invalid_response", "no result list")
         retrieved_at = datetime.now(timezone.utc)
         findings: list[Finding] = []
         for record in records:
-            url = _paper_url(record)
-            if not url:
+            if not isinstance(record, dict):
                 continue
-            abstract = _text(record.get("abstract"))
-            # A TLDR is Semantic Scholar's model-written summary, not the paper's words.
-            excerpt = abstract or _text(record.get("tldr"))
-            if len(excerpt) > MAX_EXCERPT_CHARS:
-                excerpt = excerpt[:MAX_EXCERPT_CHARS].rstrip() + "..."
-            paper_id = _text(record.get("paper_id") or record.get("paperId"))
-            year = record.get("year")
-            published_at, precision = (
-                partial_date(year) if isinstance(year, int) and 1000 <= year <= 9999 else (None, "")
+            paper_id = text(record.get("paperId"))
+            if not paper_id:
+                continue
+            ids = record.get("externalIds") if isinstance(record.get("externalIds"), dict) else {}
+            doi = text(ids.get("DOI"))
+            url = f"https://doi.org/{doi}" if doi else (
+                text(record.get("url")) or f"https://www.semanticscholar.org/paper/{paper_id}"
             )
+            abstract = text(record.get("abstract"))
+            tldr = record.get("tldr") if isinstance(record.get("tldr"), dict) else {}
+            # A TLDR is Semantic Scholar's model-written summary, not the paper's words.
+            excerpt = abstract or text(tldr.get("text"))
+            published_at, precision = _published(record)
             findings.append(
                 Finding(
                     url=url,
-                    title=_text(record.get("title")) or url,
+                    title=text(record.get("title")) or url,
                     query=request.query,
                     retrieved_at=retrieved_at,
-                    excerpt=excerpt or None,
+                    excerpt=bounded(excerpt) or None,
                     excerpt_kind="passage" if abstract else "generated",
                     published_at=published_at,
                     published_precision=precision,
-                    identifiers={"doi": _text(record.get("doi"))},
-                    record_key=f"semantic_scholar:{paper_id}" if paper_id else "",
+                    identifiers={
+                        "doi": doi,
+                        "pmid": text(ids.get("PubMed")),
+                        "pmcid": text(ids.get("PubMedCentral")),
+                    },
+                    record_key=f"semantic_scholar:{paper_id}",
                     source=self.spec.key,
                 )
             )
         return findings
 
 
-def _records(result: Any) -> list[dict[str, Any]]:
-    if isinstance(result, dict):
-        if result.get("status") == "error" or result.get("error"):
-            raise RetrievalError(
-                "Semantic Scholar", "tool_error", str(result.get("error") or "search failed")
-            )
-        result = result.get("data", result.get("results", []))
-    if not isinstance(result, list):
-        raise RetrievalError("Semantic Scholar", "invalid_response", "unexpected result shape")
-    records: list[dict[str, Any]] = []
-    for item in result:
-        if not isinstance(item, dict):
-            continue
-        if item.get("error"):
-            raise RetrievalError("Semantic Scholar", "tool_error", str(item["error"]))
-        records.append(item)
-    return records
-
-
-def _paper_url(record: dict[str, Any]) -> str:
-    doi_url = _text(record.get("doi_url"))
-    if doi_url:
-        return doi_url
-    doi = _text(record.get("doi"))
-    if doi:
-        return f"https://doi.org/{doi.removeprefix('https://doi.org/')}"
-    url = _text(record.get("url"))
-    if url:
-        return url
-    paper_id = _text(record.get("paper_id") or record.get("paperId"))
-    return f"https://www.semanticscholar.org/paper/{paper_id}" if paper_id else ""
-
-
-def _text(value: Any) -> str:
-    return value.strip() if isinstance(value, str) else ""
+def _published(record: dict[str, Any]) -> tuple[datetime | None, str]:
+    """The publication date when the record states one, else its year alone."""
+    published_at, precision = iso_partial_date(record.get("publicationDate"))
+    if published_at is not None:
+        return published_at, precision
+    year = record.get("year")
+    if isinstance(year, int) and 1000 <= year <= 9999:
+        return partial_date(year)
+    return None, ""

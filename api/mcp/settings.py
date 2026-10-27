@@ -1,9 +1,10 @@
 """Opt-in remote access, with no anonymous or insecure fallback."""
 
 from dataclasses import dataclass
-import os
 from urllib.parse import urlsplit
 from pydantic import AnyHttpUrl
+
+from shared import settings
 
 MCP_PATH = "/api/mcp"
 MCP_METADATA_PATH = "/api/.well-known/oauth-protected-resource"
@@ -79,20 +80,17 @@ class MCPSettings:
 
 
 def load_mcp_settings() -> MCPSettings | None:
-    enabled = os.getenv("PDIS_MCP_ENABLED", "false").strip().lower()
-    if enabled not in {"true", "false"}:
-        raise ValueError("PDIS_MCP_ENABLED must be true or false")
-    if enabled == "false":
+    try:
+        enabled = settings.flag("PDIS_MCP_ENABLED")
+    except settings.ConfigurationError as exc:
+        raise ValueError(str(exc)) from None
+    if not enabled:
         return None
     return MCPSettings(
-        url=os.getenv("PDIS_MCP_URL", "").strip(),
-        issuer=os.getenv("PDIS_MCP_ISSUER", "").strip(),
-        jwks_url=os.getenv("PDIS_MCP_JWKS_URL", "").strip(),
-        audience=os.getenv("PDIS_MCP_AUDIENCE", "").strip(),
-        scope=os.getenv("PDIS_MCP_SCOPE", "pdis:search").strip(),
-        browser_origins=tuple(
-            origin.strip()
-            for origin in os.getenv("PDIS_MCP_BROWSER_ORIGINS", "").split(",")
-            if origin.strip()
-        ),
+        url=settings.text("PDIS_MCP_URL"),
+        issuer=settings.text("PDIS_MCP_ISSUER"),
+        jwks_url=settings.text("PDIS_MCP_JWKS_URL"),
+        audience=settings.text("PDIS_MCP_AUDIENCE"),
+        scope=settings.text("PDIS_MCP_SCOPE"),
+        browser_origins=settings.listed("PDIS_MCP_BROWSER_ORIGINS"),
     )

@@ -271,7 +271,9 @@ class SearcherRunResponse(BaseModel):
 class SearchSourceOut(BaseModel):
     key: str = Field(description="Source key to pass in a search's `sources`.")
     label: str = Field(description="Display name.")
-    default_enabled: bool = Field(description="Searched when a request names no sources.")
+    default_enabled: bool = Field(
+        description="Searched when a request names no sources, if this server has it configured."
+    )
     configured: bool = Field(True, description="Whether this server can currently use the source.")
     attribution: SourceAttributionOut | None = Field(
         None, description="Attribution required when showing this source's data."

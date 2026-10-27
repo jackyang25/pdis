@@ -9,7 +9,6 @@ requests cannot select the provider or model.
 from __future__ import annotations
 
 import base64
-import os
 import time
 from typing import Any
 
@@ -24,9 +23,13 @@ from shared.ai import (
     log_model_call,
 )
 from shared.transport import MAX_RETRIES, http_client, structured_timeout
+from shared import settings
 from shared.visuals import labelled_image_parts
 
-DEFAULT_QUANTITATIVE_MODEL = "claude-opus-5"
+
+#: Scout's quantitative-mapping model. Code, not configuration, for the reason
+#: `shared.openai_client.MODELS` states.
+QUANTITATIVE_MODEL = "claude-opus-5"
 
 #: Kong's native-Anthropic endpoint. Overridable for local/dev use against
 #: Anthropic directly, validated like any other base URL.
@@ -63,15 +66,12 @@ class AnthropicQuantitativeClient:
         # KONG_KEY, when present, routes through Kong's native-Anthropic
         # endpoint with Kong's own credential. Otherwise fall back to calling
         # Anthropic directly with ANTHROPIC_API_KEY, as before Kong existed.
-        kong_key = os.environ.get("KONG_KEY", "").strip()
+        kong_key = settings.text("KONG_KEY")
         if api_key is None and kong_key:
             api_key = kong_key
-            base_url = (
-                base_url or os.environ.get("ANTHROPIC_BASE_URL", "").strip() or DEFAULT_BASE_URL
-            )
+            base_url = base_url or DEFAULT_BASE_URL
         else:
-            api_key = api_key or os.environ.get("ANTHROPIC_API_KEY")
-            base_url = base_url or os.environ.get("ANTHROPIC_BASE_URL", "").strip() or None
+            api_key = api_key or settings.text("ANTHROPIC_API_KEY")
         if not api_key:
             raise ValueError("KONG_KEY or ANTHROPIC_API_KEY is required")
         self.client = Anthropic(
@@ -80,11 +80,7 @@ class AnthropicQuantitativeClient:
             http_client=http_client(RequestStalledError),
             max_retries=max_retries,
         )
-        self.model = (
-            model
-            or os.environ.get("ANTHROPIC_QUANTITATIVE_MODEL")
-            or DEFAULT_QUANTITATIVE_MODEL
-        )
+        self.model = model or QUANTITATIVE_MODEL
 
     def call_structured(
         self,

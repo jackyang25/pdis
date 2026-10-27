@@ -648,7 +648,7 @@
                   "layer": "Input",
                   "inputs": [
                     "ContentBlocks",
-                    "Organization, document type, health product type, and disease / condition",
+                    "Organization, document type, health product type, and disease or health need",
                     "An optional publication window"
                   ],
                   "outputs": [
@@ -676,7 +676,7 @@
                   "children": [
                     {
                       "id": "indication",
-                      "title": "Disease / condition check",
+                      "title": "Disease or health need check",
                       "summary": "Stops only a clear, block-cited mismatch; ambiguity remains explicit.",
                       "kind": "model",
                       "layer": "Context validation"
@@ -904,7 +904,7 @@
                   "inputs": [
                     "One or more evidence documents in DOCX, PPTX or text-based PDF format",
                     "The stage gate under preparation",
-                    "Organization, health product type, and disease / condition"
+                    "Organization, health product type, and disease or health need"
                   ],
                   "outputs": [
                     "The gate's question bank",
@@ -948,7 +948,7 @@
                   "layer": "Selection",
                   "inputs": [
                     "One question and one complete parsed document with retained images",
-                    "The selected disease / condition and health product type as review context"
+                    "The selected disease or health need and health product type as review context"
                   ],
                   "outputs": [
                     "Selected source IDs, expanded to retain explicit page, slide and table groups"
@@ -1028,7 +1028,7 @@
                   "layer": "Input",
                   "summary": "The product type selects the iTPP's variables; every one is suggested. The configuration states who drafts are for, such as low- and middle-income countries, and the team may state the product's intended use; both aim the searches and suggestions and neither is evidence.",
                   "inputs": [
-                    "Organization, health product type, and disease / condition"
+                    "Organization, health product type, and disease or health need"
                   ],
                   "outputs": [
                     "The shared variable list for the product type"
@@ -1300,7 +1300,7 @@
                   "outputs": [
                     "Source-native requests or traced skips"
                   ],
-                  "guarantee": "Unknown source keys fail explicitly; ToolUniverse remains an injected connector, not a router. A source needing a named entity is ruled out with its reason rather than failing the run, and becomes plannable as soon as any caller states one. A source must declare both what it can be told and a downstream output it reaches, so a lane a reader can enable cannot be one nothing reads, and a dimension a caller can state cannot be one no lane can act on.",
+                  "guarantee": "Unknown source keys fail explicitly; every lane calls its provider directly, and a lane this server cannot run, for want of its connector or a key its provider requires, is left out of defaults and plans rather than failing every request. A source needing a named entity is ruled out with its reason rather than failing the run, and becomes plannable as soon as any caller states one. A source must declare both what it can be told and a downstream output it reaches, so a lane a reader can enable cannot be one nothing reads, and a dimension a caller can state cannot be one no lane can act on.",
                   "children": [
                     {
                       "id": "applicability",

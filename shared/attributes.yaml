@@ -159,7 +159,7 @@ drug:
 - name: drug.indication
   evidence_domain: clinical
   description: |
-    The disease or condition the drug is intended to treat. Should be specific and aligned with regulatory language.
+    What the drug is for: the disease it treats or prevents, or the health need it serves, such as contraception. Should be specific and aligned with regulatory language.
 - name: drug.product
   evidence_domain: biological
   description: |

@@ -9,12 +9,13 @@ from typing import Callable
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from api.deps import (
-    ConfigurationError,
     MissingCredentialError,
+    get_search_credentials,
     get_search_integrations,
     get_search_runtime,
 )
 from api.operations.errors import OperationError
+from shared.settings import ConfigurationError
 from api.schemas import (
     FindingOut,
     SearchLaneOut,
@@ -32,6 +33,7 @@ from services.searcher import (
     findings_to_dicts,
     outcomes_to_dicts,
     run_pipeline,
+    source_keys,
     source_specs,
     unconfigured_source_keys,
     validate_source_keys,
@@ -105,19 +107,19 @@ def prepare_search(request: SearchInput) -> PreparedSearch:
     """Validate source selection and construct the server-owned runtime once."""
     requested = tuple(source.strip() for source in request.sources if source.strip())
     try:
-        selected = (
-            validate_source_keys(requested)
-            if requested
-            else tuple(
-                source.key for source in source_specs() if source.default_enabled
-            )
-        )
+        selected = validate_source_keys(requested)
     except ValueError as exc:
         raise OperationError("invalid_sources", str(exc)) from exc
     try:
         runtime = get_search_runtime()
     except (MissingCredentialError, ConfigurationError) as exc:
         raise _configuration_error(exc) from exc
+    if not selected:
+        # The defaults this server can run. A default it cannot - no connector, no key -
+        # is left out rather than failing a request that named nothing.
+        defaults = tuple(source.key for source in source_specs() if source.default_enabled)
+        unrunnable = set(unconfigured_source_keys(defaults, runtime))
+        selected = tuple(key for key in defaults if key not in unrunnable)
     missing = unconfigured_source_keys(selected, runtime)
     if missing:
         raise OperationError(
@@ -185,17 +187,21 @@ def _balanced(findings: list[FindingOut], limit: int | None) -> list[FindingOut]
 def list_sources() -> list[SearchSourceOut]:
     """Return registered source metadata with server configuration state."""
     try:
-        integrations = get_search_integrations()
+        # A runtime without a model: listing asks only what the deployment can reach.
+        capabilities = SearchRuntime(
+            llm_client=None,
+            credentials=get_search_credentials(),
+            integrations=get_search_integrations(),
+        )
     except ConfigurationError as exc:
         raise _configuration_error(exc) from exc
+    unconfigured = set(unconfigured_source_keys(source_keys(), capabilities))
     return [
         SearchSourceOut(
             key=source.key,
             label=source.label,
             default_enabled=source.default_enabled,
-            configured=(
-                not source.integration_key or source.integration_key in integrations
-            ),
+            configured=source.key not in unconfigured,
             evidence_domains=list(source.evidence_domains),
             required_entity_types=list(source.required_entity_types),
             reads=list(source.reads),

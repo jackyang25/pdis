@@ -22,6 +22,7 @@ from services.searcher import (
     dedupe_findings,
     plan_requests,
     run_requests,
+    unconfigured_source_keys,
 )
 
 from .context import (
@@ -414,7 +415,13 @@ def continue_pipeline(
         scope=retrieval_scope,
         published_since=prepared.published_since,
     )
-    search_tasks = plan_requests(retrieval_intents, sources=config.sources)
+    # A lane this deployment cannot run - no connector, or no key its provider requires -
+    # is left out rather than planned, as Drafter does: every one of its requests would
+    # fail the same way for a reason that is the deployment's, not the evidence's.
+    unrunnable = set(unconfigured_source_keys(config.sources, retrieval_runtime))
+    search_tasks = plan_requests(
+        retrieval_intents, sources=[key for key in config.sources if key not in unrunnable]
+    )
     # The run's own questions, planned against the lanes each set declares rather than
     # against every configured source. Appended to the same task list so they share one
     # execution, one date window and one deduplication pass - they are ordinary requests
@@ -422,7 +429,9 @@ def continue_pipeline(
     for program_intent, lanes in build_program_intents(
         retrieval_scope, published_since=prepared.published_since
     ):
-        search_tasks += plan_requests([program_intent], sources=lanes)
+        search_tasks += plan_requests(
+            [program_intent], sources=[key for key in lanes if key not in unrunnable]
+        )
     findings_by_attribute, total_findings, search_plan = _search_all(
         search_tasks,
         retrieval_runtime,

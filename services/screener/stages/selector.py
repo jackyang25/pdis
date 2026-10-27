@@ -78,7 +78,7 @@ Selection rules:
   Omit material only when it contributes neither evidence nor necessary context.
 
 Review context:
-- The selected disease / condition and intervention class describe the intended
+- The selected disease or health need and intervention class describe the intended
   review, not a unique product or facts about this document. They are not keyword
   filters. Product names and context need not repeat in every relevant passage.
 - Background research, comparators, shared methods and other indications can be

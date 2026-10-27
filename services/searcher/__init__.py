@@ -44,10 +44,9 @@ from .models import (
     outcomes_to_dicts,
 )
 from .dates import PUBLISHED_PRECISIONS, published_label
-from .connectors import TavilyHTTPConnector, ToolUniverseHTTPConnector
+from .connectors import TavilyHTTPConnector
 from .sources.tavily import TAVILY_INTEGRATION
 from .controller import (
-    integration_operations,
     lane_class,
     plan_requests,
     run_requests,
@@ -98,9 +97,7 @@ __all__ = [
     "SourceAttribution",
     "SourceQueryIntent",
     "SourceSpec",
-    "ToolUniverseHTTPConnector",
     "findings_to_dicts",
-    "integration_operations",
     "lane_class",
     "merge_findings",
     "outcomes_to_dicts",

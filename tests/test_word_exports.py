@@ -80,7 +80,7 @@ class ScreenerExportTests(unittest.TestCase):
         return schemas.GateReviewOut.model_validate({
             "gate_id": "lcs", "gate_label": "Lead Chemical Series Selection", "bank_source": "Bank v2",
             "documents": [{"doc_id": "plan"}], "org": "bmgf", "intervention_class": "drug",
-            "indication": "female_contraception", "blocks": [block("b1", page=2)],
+            "indication": "contraception", "blocks": [block("b1", page=2)],
             "disciplines": [
                 {"id": "cmc", "label": "CMC", "questions": [
                     question("CMC.1", "partly_answered", "anticipatory", missing="Impurities."),

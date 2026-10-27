@@ -172,10 +172,10 @@ benchmark read without it answers a different question, and each
 
 Twelve lanes across six evidence classes, declared on each `SourceSpec` and checked in
 `tests/test_retrieval_coverage.py`. Two classes have no lane and are declared gaps:
-`access`, because the ToolUniverse catalogue exposes no procurement or financing tool,
-and `news`, which the web lane's program query set reaches instead. No lane holds `lmic`
-jurisdiction, for the same reason - no WHO ICTRP, CTRI, ChiCTR, ReBEC or PACTR tool is
-exposed, and no national regulator outside the US. WHO Guidelines covers the normative
+`access`, because no procurement or financing body publishes a search API, and `news`,
+which the web lane's program query set reaches instead. No lane holds `lmic`
+jurisdiction, for the same reason - WHO ICTRP, CTRI, ChiCTR, ReBEC and PACTR publish no
+search API a lane could call, and no national regulator outside the US does. WHO Guidelines covers the normative
 half of that gap at global scope, which is what LMIC ministries and procurement bodies
 actually follow.
 

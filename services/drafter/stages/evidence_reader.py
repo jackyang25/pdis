@@ -137,7 +137,7 @@ def build_system_prompt(programme_context: str) -> str:
         "single figure, lower and upper for a range, the unit exactly as written, and in value_text "
         "the exact words of the quote that state the number. Leave the numbers null, and unit and "
         "value_text blank, for a statement in words. Report nothing when the excerpt does not speak "
-        "to this variable for this disease."
+        "to this variable for this disease or health need."
     )
 
 
@@ -178,7 +178,7 @@ def read_finding(
     """
     excerpt = (finding.excerpt or "")[:MAX_EXCERPT_CHARS]
     message = (
-        f"Product type: {intervention_term}. Disease / condition: {indication}.\n"
+        f"Product type: {intervention_term}. Disease or health need: {indication}.\n"
         f"Variable: {searchable_attribute_phrase(variable.name)}\n"
         f"What it covers: {variable.description.strip()}\n\n"
         f"Source: {finding.title}\nExcerpt:\n{excerpt}"

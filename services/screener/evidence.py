@@ -13,7 +13,7 @@ _GROUP_KEYS = ("page", "slide", "table_index")
 def review_context(indication: str, intervention_class: str) -> str:
     return (
         "Selected review context (user-supplied, not evidence):\n"
-        f"Disease / condition: {search_term(indication)}\n"
+        f"Disease or health need: {search_term(indication)}\n"
         f"Intervention class: {search_term(intervention_class)}"
     )
 

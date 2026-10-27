@@ -371,7 +371,10 @@ class FieldAddressedAnchorTests(unittest.TestCase):
 
         requests = FDASource().plan(intent)
 
-        self.assertEqual([request.query for request in requests], ["indication:malaria"])
+        self.assertEqual(
+            [request.query for request in requests],
+            ['indications_and_usage:"malaria" AND _exists_:openfda.generic_name'],
+        )
         self.assertEqual(len(requests[0].intent_ids), 2)
 
 

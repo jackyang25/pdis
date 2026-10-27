@@ -14,12 +14,12 @@ from shared.openai_client import OpenAIClient
 class ProviderGatewayTests(unittest.TestCase):
     def test_credentials_and_endpoint_are_selected_together(self):
         providers = [
-            (OpenAIClient, "openai.OpenAI", "OPENAI_API_KEY", "OPENAI_BASE_URL",
+            (OpenAIClient, "openai.OpenAI", "OPENAI_API_KEY",
              "https://ai-kong-gateway.bmgf.io/ai/v2"),
             (AnthropicQuantitativeClient, "anthropic.Anthropic", "ANTHROPIC_API_KEY",
-             "ANTHROPIC_BASE_URL", "https://ai-kong-gateway.bmgf.io/v2/anthropic"),
+             "https://ai-kong-gateway.bmgf.io/v2/anthropic"),
         ]
-        for client_type, sdk, key_name, url_name, gateway in providers:
+        for client_type, sdk, key_name, gateway in providers:
             cases = [
                 ("direct", {key_name: "direct-test"}, {}, "direct-test", None),
                 ("kong_only", {"KONG_KEY": "kong-test"}, {}, "kong-test", gateway),
@@ -27,11 +27,7 @@ class ProviderGatewayTests(unittest.TestCase):
                  {}, "kong-test", gateway),
                 ("explicit_key", {"KONG_KEY": "kong-test"},
                  {"api_key": "explicit-test"}, "explicit-test", None),
-                ("kong_url", {"KONG_KEY": "kong-test", url_name: "https://proxy.example.test"},
-                 {}, "kong-test", "https://proxy.example.test"),
-                ("direct_url", {key_name: "direct-test", url_name: "https://proxy.example.test"},
-                 {}, "direct-test", "https://proxy.example.test"),
-                ("explicit_url", {"KONG_KEY": "kong-test", url_name: "https://env.example.test"},
+                ("explicit_url", {"KONG_KEY": "kong-test"},
                  {"base_url": "https://explicit.example.test"},
                  "kong-test", "https://explicit.example.test"),
                 ("blank_kong", {"KONG_KEY": "   ", key_name: "direct-test"},

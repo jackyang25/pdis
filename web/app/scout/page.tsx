@@ -1956,7 +1956,7 @@ function ContextValidationNotice({ result }: { result: ScoutResponse }) {
   const message = unassessed
     ? `Scout could not check whether the document concerns ${validation.configured_indication}; the run continued without that check.`
     : validation.status === "mismatch"
-      ? `The document appears to concern ${validation.document_indication || "a different disease or condition"}, not ${validation.configured_indication}.`
+      ? `The document appears to concern ${validation.document_indication || "a different disease or health need"}, not ${validation.configured_indication}.`
       : `Scout could not confidently verify that the document concerns ${validation.configured_indication}.`;
 
   return (
@@ -1975,7 +1975,7 @@ function ContextValidationNotice({ result }: { result: ScoutResponse }) {
           </Reading>
         )}
         <p className="mt-1.5 leading-relaxed text-muted-foreground">
-          Check the selected disease or condition against the original document
+          Check the selected disease or health need against the original document
           before relying on the evidence. If the selection or document is wrong,
           start a new analysis with the correct inputs.
         </p>

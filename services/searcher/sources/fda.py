@@ -1,4 +1,4 @@
-"""FDA regulatory-evidence adapter via allowlisted ToolUniverse operations."""
+"""FDA regulatory evidence from openFDA: drug labels, and 510(k) clearances for devices."""
 
 from __future__ import annotations
 
@@ -15,22 +15,25 @@ from ..models import (
     SourceSpec,
 )
 from .literature import active_tracks
+from .openfda import MIN_REQUEST_INTERVAL_SECONDS, OPENFDA, first, openfda_search, phrase, strings
 from .planning import request_lineage
-from .tooluniverse_records import (
-    TOOLUNIVERSE_INTEGRATION,
-    parse_datetime,
-    result_records,
-    run_tool,
-    structured_excerpt,
-    text,
-)
+from .records import parse_datetime, structured_excerpt, text
 
-DRUG_LABEL_TOOL = "FDA_search_drug_labels"
-DEVICE_510K_TOOL = "OpenFDA_search_device_510k"
+DRUG_LABELS = "drug/label.json"
+DEVICE_510K = "device/510k.json"
 MAX_RESULTS = 10
-MIN_REQUEST_INTERVAL_SECONDS = 0.3
-#: openFDA counts every call from one client together, whichever lane makes it.
-OPENFDA_RATE_GROUP = "openfda"
+#: The label sections an excerpt reads, in reading order. A label states its warnings
+#: under `warnings_and_cautions` in the current format and `warnings` in the older one.
+LABEL_SECTIONS = (
+    ("indications_and_usage", "Indications and usage"),
+    ("clinical_studies", "Clinical studies"),
+    ("dosage_and_administration", "Dosage"),
+    ("boxed_warning", "Boxed warning"),
+    ("warnings_and_cautions", "Warnings and precautions"),
+    ("warnings", "Warnings"),
+    ("contraindications", "Contraindications"),
+    ("drug_interactions", "Drug interactions"),
+)
 
 
 class FDASource:
@@ -39,10 +42,7 @@ class FDASource:
         label="FDA Regulatory",
         worker_limit=4,
         request_interval_seconds=MIN_REQUEST_INTERVAL_SECONDS,
-        rate_group=OPENFDA_RATE_GROUP,
-        default_enabled=False,
-        integration_key=TOOLUNIVERSE_INTEGRATION,
-        operations=(DRUG_LABEL_TOOL, DEVICE_510K_TOOL),
+        rate_group=OPENFDA,
         evidence_domains=("clinical", "safety", "regulatory", "product"),
         attribution=SourceAttribution(
             label="U.S. Food and Drug Administration",
@@ -62,33 +62,32 @@ class FDASource:
         # every query in its lineage.
         intervention = intent.intervention_class.strip().casefold()
         intent_ids, input_queries, document_refs = request_lineage(list(intent.queries))
-        condition = (intent.indication or intent.topic).strip()
+        condition = phrase((intent.indication or intent.topic).strip())
         if intervention in {"device", "diagnostic"}:
-            operation = DEVICE_510K_TOOL
-            phrase = _lucene_phrase(condition)
+            endpoint = DEVICE_510K
             # A 510(k) record names its device twice: `device_name` is the trade name,
             # `openfda.device_name` the product-code classification ("Antigen, RSV").
             # A condition is usually in the second. Asking both (openFDA reads a space
             # as OR) found 57 RSV clearances live where the trade name alone found 16,
             # and the one HIV clearance the trade name missed entirely.
-            native_query = f'device_name:"{phrase}" openfda.device_name:"{phrase}"'
-            options: tuple[tuple[str, str], ...] = (("search", native_query),)
+            search = f"device_name:{condition} openfda.device_name:{condition}"
         else:
-            operation = DRUG_LABEL_TOOL
-            native_query = f"indication:{condition}"
-            options = (("indication", condition),)
+            endpoint = DRUG_LABELS
+            # Only labels openFDA has harmonized: an unharmonized label carries no brand,
+            # generic name or manufacturer, and was most of what a condition matched live
+            # (8 of the first 10 for tuberculosis), each a finding with nothing to name it.
+            search = f"indications_and_usage:{condition} AND _exists_:openfda.generic_name"
         return [
             SearchRequest(
                 scope_ref=intent.scope_ref,
                 source=self.spec.key,
-                query=native_query,
+                query=search,
                 tracks=tuple(active_tracks(intent)),
                 document_refs=document_refs,
                 intent_ids=intent_ids,
                 input_queries=input_queries,
-                connector=TOOLUNIVERSE_INTEGRATION,
-                operation=operation,
-                options=options,
+                operation=endpoint.removesuffix(".json"),
+                options=(("endpoint", endpoint),),
             )
         ]
 
@@ -99,60 +98,55 @@ class FDASource:
         *,
         max_tokens: int,
     ) -> list[Finding]:
-        if request.operation == DRUG_LABEL_TOOL:
-            return _search_labels(request, runtime)
-        if request.operation == DEVICE_510K_TOOL:
-            return _search_devices(request, runtime)
-        raise RuntimeError(f"Unsupported FDA operation: {request.operation}")
+        endpoint = request.option("endpoint")
+        records = openfda_search(
+            runtime, self.spec, endpoint, request.query, limit=self.spec.max_results
+        )
+        if endpoint == DEVICE_510K:
+            return _clearances(records, request)
+        return _labels(records, request)
 
 
-def _search_labels(request: SearchRequest, runtime: SearchRuntime) -> list[Finding]:
-    result = run_tool(
-        runtime,
-        FDASource.spec,
-        DRUG_LABEL_TOOL,
-        {
-            "indication": request.option("indication"),
-            "limit": FDASource.spec.max_results,
-        },
-    )
+def _labels(records: list[dict], request: SearchRequest) -> list[Finding]:
     retrieved_at = datetime.now(timezone.utc)
     findings: list[Finding] = []
-    for record in result_records(result, "data"):
-        # The tool's `spl_id` is openFDA's `id`: one version of a label, not the set id
-        # that names the label across versions. It was being sent to DailyMed as a set
-        # id, which DailyMed answers with an empty page (checked live), and a label with
-        # no id fell back to the API's documentation page - one URL for every such label.
-        spl_id = text(record.get("spl_id"))
+    for record in records:
+        # `id` is one version of a label and `set_id` the label across its versions.
+        # DailyMed addresses a label by its set id; the version id is what this finding
+        # quotes, so it is the identity and the API query for it is the URL.
+        spl_id = text(record.get("id"))
         if not spl_id:
             continue
-        brand = text(record.get("brand_name"))
-        generic = text(record.get("generic_name"))
+        names = record.get("openfda") if isinstance(record.get("openfda"), dict) else {}
+        brand = first(names.get("brand_name"))
+        generic = first(names.get("generic_name"))
         title = brand or generic or "FDA drug label"
         if generic and generic.casefold() != title.casefold():
             title += f" ({generic})"
-        url = "https://api.fda.gov/drug/label.json?" + urlencode(
-            {"search": f'id:"{spl_id}"'}
-        )
+        sections = {
+            field: " ".join(strings(record.get(field))) for field, _ in LABEL_SECTIONS
+        }
+        manufacturer = first(names.get("manufacturer_name"))
         findings.append(
             Finding(
-                url=url,
+                url="https://api.fda.gov/drug/label.json?"
+                + urlencode({"search": f'id:"{spl_id}"'}),
                 title=title,
                 query=request.query,
                 retrieved_at=retrieved_at,
+                published_at=parse_datetime(record.get("effective_time"), "%Y%m%d"),
                 excerpt_kind="structured_fields",
-                identifiers={"spl_id": spl_id},
+                identifiers={"spl_id": spl_id, "setid": text(record.get("set_id"))},
                 record_key=f"fda:label:{spl_id}",
                 excerpt=structured_excerpt(
-                    record,
+                    {
+                        **sections,
+                        "manufacturer": manufacturer,
+                        "route": strings(names.get("route")),
+                        "pharm_class": strings(names.get("pharm_class_epc")),
+                    },
                     (
-                        ("indications_and_usage", "Indications and usage"),
-                        ("clinical_studies", "Clinical studies"),
-                        ("dosage_and_administration", "Dosage"),
-                        ("boxed_warning", "Boxed warning"),
-                        ("warnings_and_precautions", "Warnings and precautions"),
-                        ("contraindications", "Contraindications"),
-                        ("drug_interactions", "Drug interactions"),
+                        *LABEL_SECTIONS,
                         ("manufacturer", "Manufacturer"),
                         ("route", "Route"),
                         ("pharm_class", "Pharmacologic class"),
@@ -164,7 +158,7 @@ def _search_labels(request: SearchRequest, runtime: SearchRuntime) -> list[Findi
                         program_name=brand or generic or title,
                         record_type="regulatory_label",
                         record_id=spl_id,
-                        sponsor=text(record.get("manufacturer")),
+                        sponsor=manufacturer,
                         status="FDA labeled",
                     )
                 ],
@@ -173,36 +167,24 @@ def _search_labels(request: SearchRequest, runtime: SearchRuntime) -> list[Findi
     return findings
 
 
-def _search_devices(request: SearchRequest, runtime: SearchRuntime) -> list[Finding]:
-    result = run_tool(
-        runtime,
-        FDASource.spec,
-        DEVICE_510K_TOOL,
-        {
-            "search": request.option("search"),
-            "limit": FDASource.spec.max_results,
-        },
-    )
+def _clearances(records: list[dict], request: SearchRequest) -> list[Finding]:
     retrieved_at = datetime.now(timezone.utc)
     findings: list[Finding] = []
-    for record in result_records(result, "results"):
+    for record in records:
         k_number = text(record.get("k_number"))
         if not k_number:
             continue
+        device = text(record.get("device_name")) or k_number
         findings.append(
             Finding(
                 url=(
                     "https://www.accessdata.fda.gov/scripts/cdrh/cfdocs/"
                     f"cfpmn/pmn.cfm?ID={quote(k_number)}"
                 ),
-                title=text(record.get("device_name")) or k_number,
+                title=device,
                 query=request.query,
                 retrieved_at=retrieved_at,
-                published_at=parse_datetime(
-                    record.get("decision_date"),
-                    "%Y%m%d",
-                    "%Y-%m-%d",
-                ),
+                published_at=parse_datetime(record.get("decision_date"), "%Y-%m-%d", "%Y%m%d"),
                 excerpt_kind="structured_fields",
                 identifiers={"k_number": k_number},
                 record_key=f"fda:510k:{k_number}",
@@ -220,7 +202,7 @@ def _search_devices(request: SearchRequest, runtime: SearchRuntime) -> list[Find
                 source="fda",
                 development_records=[
                     DevelopmentRecord(
-                        program_name=text(record.get("device_name")) or k_number,
+                        program_name=device,
                         record_type="regulatory_clearance",
                         record_id=k_number,
                         sponsor=text(record.get("applicant")),
@@ -230,7 +212,3 @@ def _search_devices(request: SearchRequest, runtime: SearchRuntime) -> list[Find
             )
         )
     return findings
-
-
-def _lucene_phrase(value: str) -> str:
-    return value.replace("\\", " ").replace('"', " ").strip()

@@ -596,8 +596,9 @@ supplied material answers and which it does not.
 - One transport (`services/searcher/transport.py`) makes every provider call:
   it retries 429/502/503/504, resets and timeouts with jittered backoff or the
   provider's `Retry-After` within one total deadline, and raises `RetrievalError`
-  carrying a code beside the provider's message. Pacing is per provider call and
-  per `SourceSpec.rate_group`, because a quota is the provider's, not the lane's.
+  carrying a code beside the provider's message. Pacing is per provider call,
+  retries included, and per `SourceSpec.rate_group`, because a quota is the provider's,
+  not the lane's.
   Identical native calls within a run are made once (`SearchRuntime.calls`), and
   every requesting intent keeps its own outcome and lineage. Searcher never
   changes process-wide state such as name resolution.
@@ -634,9 +635,15 @@ supplied material answers and which it does not.
   source means implementing and registering an adapter, injecting any connector,
   and opting configuration into its key—never adding source branches to Scout,
   API schemas, Ask, or UI.
-- ToolUniverse is an authenticated injected connector, not a generic evidence
-  lane or autonomous router. Every database remains a distinct adapter with a
-  fixed operation allowlist and complete trace.
+- Every lane calls its provider directly, through `calls.provider_request` and the
+  one transport, so pacing, reuse, retries and redaction are never re-implemented per
+  lane. A provider key that raises a quota is a credential on
+  `SearchRuntime.credentials`, keyed by rate group and optional unless the lane
+  declares `required_credential`; a connector is only for a client the deployment
+  must build and inject (Tavily). A lane the deployment cannot run is left out of
+  defaults and plans, never planned to fail. "Nothing matched" is an empty answer
+  wherever the provider says it in a status (openFDA's 404), and a provider's
+  refusal inside a successful body is `rejected`, never an empty list.
 - Source failures are isolated. Independent fan-outs use bounded concurrency,
   request-local inputs, lock-guarded progress, and order-preserving assembly. A
   slow source lane must not occupy capacity reserved for runnable lanes.

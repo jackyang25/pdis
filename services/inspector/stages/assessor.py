@@ -394,12 +394,12 @@ def review_context(config: InspectionConfig, indication: str | None) -> str:
     """What the document is about, as the user selected it. Context, never evidence.
 
     The same for every unit of a run, so it leads the shared prefix. A rubric unit about
-    the target population or dosing is read against the disease it is for.
+    the target population or dosing is read against the disease or health need it is for.
     """
     lines = ["Review context (user-selected, not evidence):",
              f"Intervention class: {config.intervention_term}"]
     if indication:
-        lines.append(f"Disease / condition: {search_term(indication)}")
+        lines.append(f"Disease or health need: {search_term(indication)}")
     return "\n".join(lines)
 
 

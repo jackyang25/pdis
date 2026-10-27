@@ -33,34 +33,11 @@ ROOT = pathlib.Path(__file__).resolve().parents[1]
 # are gitignored, and the example files carry deliberately empty values.
 DEPLOY_MANIFESTS = ("jobspec.nomad", "jobspec_acc.nomad", ".drone.yml", "compose.yaml")
 
-# Derived from the code, not listed here. A hand-kept list is a fourth place a
-# credential's name lives - after the code that reads it, `.env.example`, and the
-# jobspec that binds it - and the one that fails softest: adding a credential
-# everywhere except this tuple leaves the binding check silently not looking for
-# it, which is the failure this module exists to prevent.
-from test_env_var_parity import _env_names_read_in_code
+# Derived from the settings table, not listed here: a hand-kept list would be one more place
+# a credential's name lives, and the one that fails softest.
+from shared.settings import SETTINGS
 
-CREDENTIAL_SUFFIXES = ("_API_KEY", "_API_TOKEN")
-
-# Read by the ToolUniverse package inside the connector image rather than by any
-# code in this repository, so no scan of this source tree can find it. It is
-# named here because the connector still has to be handed it.
-CONNECTOR_ONLY_CREDENTIALS = ("SEMANTIC_SCHOLAR_API_KEY",)
-
-
-def _gateway_credentials() -> tuple[str, ...]:
-    """Every credential the gateway's own code reads."""
-    return tuple(
-        sorted(
-            name
-            for name in _env_names_read_in_code()
-            if name.endswith(CREDENTIAL_SUFFIXES)
-        )
-    )
-
-
-GATEWAY_CREDENTIALS = _gateway_credentials()
-CREDENTIALS = tuple(sorted({*GATEWAY_CREDENTIALS, *CONNECTOR_ONLY_CREDENTIALS}))
+GATEWAY_CREDENTIALS = tuple(sorted(setting.name for setting in SETTINGS if setting.secret))
 
 
 def _manifest(name: str) -> str:
@@ -71,7 +48,7 @@ class DeploySecretTests(unittest.TestCase):
     def test_no_manifest_assigns_a_credential_a_literal_value(self) -> None:
         for name in DEPLOY_MANIFESTS:
             text = _manifest(name)
-            for credential in CREDENTIALS:
+            for credential in GATEWAY_CREDENTIALS:
                 with self.subTest(manifest=name, credential=credential):
                     for line in text.splitlines():
                         stripped = line.strip()
@@ -100,7 +77,7 @@ class DeploySecretTests(unittest.TestCase):
         still comes up healthy. Nothing reports it but the absent capability."""
         for name in ("jobspec.nomad", "jobspec_acc.nomad"):
             text = _manifest(name)
-            gateway = text[text.index('task "api"') : text.index('task "tooluniverse"')]
+            gateway = text[text.index('task "api"') : text.index('group "web"')]
             for credential in GATEWAY_CREDENTIALS:
                 with self.subTest(jobspec=name, credential=credential):
                     # assertTrue rather than assertIn: the haystack is the whole
@@ -110,18 +87,6 @@ class DeploySecretTests(unittest.TestCase):
                         credential in gateway,
                         f"{name} never binds {credential} for the gateway",
                     )
-
-    def test_the_shared_connector_token_is_bound_on_both_sides(self) -> None:
-        """It authenticates the gateway to the connector, so one value has to
-        reach two jobs. Render generated it and injected it into both; nothing
-        generates it now, which makes forgetting one side the likely failure."""
-        for name in ("jobspec.nomad", "jobspec_acc.nomad"):
-            text = _manifest(name)
-            gateway = text[text.index('task "api"') : text.index('task "tooluniverse"')]
-            connector = text[text.index('task "tooluniverse"') :]
-            with self.subTest(jobspec=name):
-                self.assertIn("TOOLUNIVERSE_API_TOKEN", gateway)
-                self.assertIn("TOOLUNIVERSE_API_TOKEN", connector)
 
 
 if __name__ == "__main__":

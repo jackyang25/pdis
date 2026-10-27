@@ -18,7 +18,7 @@ test("context selectors use reader-facing labels in loaded and loading states", 
     });
     const html = renderToStaticMarkup(React.createElement(ContextFields));
     assert.match(html, /Health product type/);
-    assert.match(html, /Disease \/ condition/);
+    assert.match(html, /Disease or health need/);
     assert.doesNotMatch(html, /Intervention class|>Indication</);
   }
 });
@@ -131,10 +131,10 @@ test("result import stays available before configuration is complete but not dur
 test("searchable fields retain the field label, selected value, help and disabled state", () => {
   const { ConfigField, ConfigSelect } = loadComponent(resolve(root, "components/ui/config-field.tsx"));
   const html = renderToStaticMarkup(React.createElement(ConfigField, {
-    label: "Disease / condition", id: "indication", note: "Context for this run",
+    label: "Disease or health need", id: "indication", note: "Context for this run",
   }, React.createElement(ConfigSelect, {
     value: "type_2_diabetes", options: [{ value: "type_2_diabetes", label: "Type 2 Diabetes" }],
-    onChange: () => {}, searchLabel: "Search diseases and conditions",
+    onChange: () => {}, searchLabel: "Search diseases and health needs",
   })));
   assert.match(html, /<button[^>]*id="indication"/);
   assert.match(html, /aria-labelledby="indication-label [^"]+-value"/);
@@ -143,7 +143,7 @@ test("searchable fields retain the field label, selected value, help and disable
   assert.match(html, />Type 2 Diabetes<\/span>/);
   assert.doesNotMatch(html, /role="combobox"/); // Search input exists only when opened.
   const empty = renderToStaticMarkup(React.createElement(ConfigSelect, {
-    value: undefined, options: [], onChange: () => {}, searchLabel: "Search diseases and conditions",
+    value: undefined, options: [], onChange: () => {}, searchLabel: "Search diseases and health needs",
   }));
   assert.match(empty, /disabled=""/);
 });

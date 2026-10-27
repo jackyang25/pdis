@@ -10,8 +10,8 @@ from unittest.mock import patch
 
 from shared.ai import ResponseRefusedError, ResponseTruncatedError
 from shared.anthropic_client import (
+    QUANTITATIVE_MODEL,
     AnthropicQuantitativeClient,
-    DEFAULT_QUANTITATIVE_MODEL,
 )
 
 _PNG = "data:image/png;base64,iVBORw0KGgo="
@@ -32,24 +32,19 @@ class AnthropicQuantitativeClientTests(unittest.TestCase):
         messages = _Messages(response)
         sdk_client = SimpleNamespace(messages=messages)
         module = SimpleNamespace(Anthropic=lambda **_kwargs: sdk_client)
-        environment = {"ANTHROPIC_API_KEY": "test-key"}
-        if model is not None:
-            environment["ANTHROPIC_QUANTITATIVE_MODEL"] = model
         with patch.dict(sys.modules, {"anthropic": module}), patch.dict(
-            os.environ, environment, clear=False
+            os.environ, {"ANTHROPIC_API_KEY": "test-key"}, clear=False
         ):
-            client = AnthropicQuantitativeClient()
+            client = AnthropicQuantitativeClient(model=model)
         return client, messages
 
     def test_default_model_is_the_server_owned_opus_tier(self) -> None:
         with patch.dict(sys.modules, {
             "anthropic": SimpleNamespace(Anthropic=lambda **_kwargs: object()),
         }), patch.dict(os.environ, {"ANTHROPIC_API_KEY": "test-key"}, clear=False):
-            os.environ.pop("ANTHROPIC_QUANTITATIVE_MODEL", None)
-            os.environ.pop("ANTHROPIC_EXTRACTION_MODEL", None)
             client = AnthropicQuantitativeClient()
 
-        self.assertEqual(client.model, DEFAULT_QUANTITATIVE_MODEL)
+        self.assertEqual(client.model, QUANTITATIVE_MODEL)
 
     def test_structured_mapping_sends_no_sampling_parameters(self) -> None:
         """Current model tiers reject sampling knobs; the request must omit them."""

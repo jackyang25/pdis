@@ -113,9 +113,17 @@ class SourceSpec:
     # became variable when adapters started narrowing by stated facets, so a source
     # declares its own budget beside its other limits. 0 means no bound.
     max_requests_per_intent: int = 0
+    #: Searched when a caller names no sources, wherever this deployment can run it. A
+    #: lane is off by default only when it plans nothing without a named entity.
     default_enabled: bool = True
+    #: The injected connector this lane runs through (`SearchRuntime.integrations`), for a
+    #: provider reached by a client the deployment builds. Empty for a direct lane.
     integration_key: str = ""
-    operations: tuple[str, ...] = ()
+    #: A provider key this lane cannot run without (`SearchRuntime.credentials`). Most keys
+    #: only raise a quota and are optional; one is required where the keyless service does
+    #: not answer in practice, so the lane reports itself unconfigured instead of failing
+    #: every request.
+    required_credential: str = ""
     attribution: SourceAttribution | None = None
     evidence_domains: tuple[str, ...] = ()
     required_entity_types: tuple[str, ...] = ()
@@ -431,8 +439,12 @@ class SearchRuntime:
     """Injected capabilities available to adapters, never global provider state."""
 
     llm_client: "LLMClientProtocol"
-    # Kept out of repr, so a logged runtime never prints the credential.
-    ncbi_api_key: str | None = field(default=None, repr=False)
+    #: Provider API keys, keyed by the provider's rate group (`ncbi`, `openfda`,
+    #: `semantic_scholar`). A key raises that provider's quota; a lane reads its own and
+    #: runs without one unless its spec declares it `required_credential`. Kept out of
+    #: repr, so a logged runtime never prints a credential.
+    credentials: Mapping[str, str] = field(default_factory=dict, repr=False)
+    #: Injected connectors, keyed by `SourceSpec.integration_key`.
     integrations: Mapping[str, Any] = field(default_factory=dict)
     global_worker_limit: int = 48
     #: A deployment's contact address for providers that ask for one (NCBI's `email`,
@@ -441,6 +453,10 @@ class SearchRuntime:
     #: This run's memo of provider answers. A runtime is composed per run, so identical
     #: native calls made by different requests of one run reach the provider once.
     calls: ProviderCalls = field(default_factory=ProviderCalls, repr=False, compare=False)
+
+    def credential(self, provider: str) -> str:
+        """The deployment's key for one provider, or blank when none is configured."""
+        return str(self.credentials.get(provider) or "").strip()
 
 
 @dataclass(frozen=True)

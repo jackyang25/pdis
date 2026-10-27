@@ -12,12 +12,12 @@
 #     at a Docker dry run; this repository has a test suite and a type check, and
 #     a registry that only receives images from a green pipeline is what makes a
 #     build number worth rolling back to.
-#  2. Three images per build, not one: `-api`, `-web`, and `-tooluniverse`.
+#  2. Two images per build, not one: `-api` and `-web`.
 #  3. The web image builds from the repository root rather than `web/`, because
 #     it copies published artifacts out of `shared/`. See web/Dockerfile.
 #
 # The two pipelines that build images run on a large build node (`node: type: large`,
-# as SRE advised): three images, the API's with LibreOffice, outgrew the default node's
+# as SRE advised): the images, the API's with LibreOffice, outgrew the default node's
 # disk and failed with "no space left on device".
 
 kind: pipeline
@@ -105,20 +105,6 @@ steps:
       # hostname to bake in. Passing one would fix it into the browser bundle for
       # the life of the image.
 
-  - name: dry run tooluniverse
-    image: plugins/docker
-    settings:
-      dry_run: true
-      registry: bmgfsre.azurecr.io
-      repo: bmgfsre.azurecr.io/${DRONE_REPO_NAME,,}-tooluniverse
-      username: drone-push
-      password:
-        from_secret: DOCKER_PASSWORD
-      dockerfile: deploy/tooluniverse/Dockerfile
-      context: deploy/tooluniverse
-      tags:
-        - "${DRONE_BUILD_NUMBER}"
-
 trigger:
   branch:
     - main
@@ -171,19 +157,6 @@ steps:
         - "${DRONE_BUILD_NUMBER}"
         - "latest"
 
-  - name: build tooluniverse
-    image: plugins/docker
-    settings:
-      registry: bmgfsre.azurecr.io
-      repo: bmgfsre.azurecr.io/${DRONE_REPO_NAME,,}-tooluniverse
-      username: drone-push
-      password:
-        from_secret: DOCKER_PASSWORD
-      dockerfile: deploy/tooluniverse/Dockerfile
-      context: deploy/tooluniverse
-      tags:
-        - "${DRONE_BUILD_NUMBER}"
-        - "latest"
 
   - name: Deploy to Nomad (acc)
     image: gatesfoundation/nomad-client:latest
@@ -211,10 +184,10 @@ steps:
         from_secret: NCBI_API_KEY
       TAVILY_API_KEY:
         from_secret: TAVILY_API_KEY
-      TOOLUNIVERSE_API_TOKEN:
-        from_secret: TOOLUNIVERSE_API_TOKEN
       SEMANTIC_SCHOLAR_API_KEY:
         from_secret: SEMANTIC_SCHOLAR_API_KEY
+      OPENFDA_API_KEY:
+        from_secret: OPENFDA_API_KEY
     commands:
       - sed -i "s/__REPO__NAME__/${DRONE_REPO_NAME,,}/g" ./jobspec_acc.nomad
       - sed -i "s/__BUILD__NUMBER__/$DRONE_BUILD_NUMBER/g" ./jobspec_acc.nomad
@@ -224,8 +197,8 @@ steps:
       - sed -i "s|__KONG_KEY__|$KONG_KEY|g" ./jobspec_acc.nomad
       - sed -i "s|__NCBI_API_KEY__|$NCBI_API_KEY|g" ./jobspec_acc.nomad
       - sed -i "s|__TAVILY_API_KEY__|$TAVILY_API_KEY|g" ./jobspec_acc.nomad
-      - sed -i "s|__TOOLUNIVERSE_API_TOKEN__|$TOOLUNIVERSE_API_TOKEN|g" ./jobspec_acc.nomad
       - sed -i "s|__SEMANTIC_SCHOLAR_API_KEY__|$SEMANTIC_SCHOLAR_API_KEY|g" ./jobspec_acc.nomad
+      - sed -i "s|__OPENFDA_API_KEY__|$OPENFDA_API_KEY|g" ./jobspec_acc.nomad
       - nomad job run ./jobspec_acc.nomad
 
 trigger:
@@ -272,10 +245,10 @@ steps:
         from_secret: NCBI_API_KEY
       TAVILY_API_KEY:
         from_secret: TAVILY_API_KEY
-      TOOLUNIVERSE_API_TOKEN:
-        from_secret: TOOLUNIVERSE_API_TOKEN
       SEMANTIC_SCHOLAR_API_KEY:
         from_secret: SEMANTIC_SCHOLAR_API_KEY
+      OPENFDA_API_KEY:
+        from_secret: OPENFDA_API_KEY
     commands:
       - sed -i "s/__REPO__NAME__/${DRONE_REPO_NAME,,}/g" ./jobspec_acc.nomad
       - sed -i "s/__BUILD__NUMBER__/$DRONE_BUILD_PARENT/g" ./jobspec_acc.nomad
@@ -285,8 +258,8 @@ steps:
       - sed -i "s|__KONG_KEY__|$KONG_KEY|g" ./jobspec_acc.nomad
       - sed -i "s|__NCBI_API_KEY__|$NCBI_API_KEY|g" ./jobspec_acc.nomad
       - sed -i "s|__TAVILY_API_KEY__|$TAVILY_API_KEY|g" ./jobspec_acc.nomad
-      - sed -i "s|__TOOLUNIVERSE_API_TOKEN__|$TOOLUNIVERSE_API_TOKEN|g" ./jobspec_acc.nomad
       - sed -i "s|__SEMANTIC_SCHOLAR_API_KEY__|$SEMANTIC_SCHOLAR_API_KEY|g" ./jobspec_acc.nomad
+      - sed -i "s|__OPENFDA_API_KEY__|$OPENFDA_API_KEY|g" ./jobspec_acc.nomad
       - nomad job run ./jobspec_acc.nomad
 
 trigger:
@@ -327,10 +300,10 @@ steps:
         from_secret: NCBI_API_KEY
       TAVILY_API_KEY:
         from_secret: TAVILY_API_KEY
-      TOOLUNIVERSE_API_TOKEN:
-        from_secret: TOOLUNIVERSE_API_TOKEN
       SEMANTIC_SCHOLAR_API_KEY:
         from_secret: SEMANTIC_SCHOLAR_API_KEY
+      OPENFDA_API_KEY:
+        from_secret: OPENFDA_API_KEY
     commands:
       - sed -i "s/__REPO__NAME__/${DRONE_REPO_NAME,,}/g" ./jobspec.nomad
       - sed -i "s/__BUILD__NUMBER__/$DRONE_BUILD_PARENT/g" ./jobspec.nomad
@@ -340,8 +313,8 @@ steps:
       - sed -i "s|__KONG_KEY__|$KONG_KEY|g" ./jobspec.nomad
       - sed -i "s|__NCBI_API_KEY__|$NCBI_API_KEY|g" ./jobspec.nomad
       - sed -i "s|__TAVILY_API_KEY__|$TAVILY_API_KEY|g" ./jobspec.nomad
-      - sed -i "s|__TOOLUNIVERSE_API_TOKEN__|$TOOLUNIVERSE_API_TOKEN|g" ./jobspec.nomad
       - sed -i "s|__SEMANTIC_SCHOLAR_API_KEY__|$SEMANTIC_SCHOLAR_API_KEY|g" ./jobspec.nomad
+      - sed -i "s|__OPENFDA_API_KEY__|$OPENFDA_API_KEY|g" ./jobspec.nomad
       - nomad job run ./jobspec.nomad
 
 trigger:

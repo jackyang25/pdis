@@ -85,12 +85,11 @@ class PublicShapeTests(unittest.TestCase):
 
     def test_credentials_never_appear_in_a_repr(self) -> None:
         """A connector or runtime in a log line or a traceback must not print its key."""
-        from services.searcher import TavilyHTTPConnector, ToolUniverseHTTPConnector
+        from services.searcher import TavilyHTTPConnector
 
         for holder in (
             TavilyHTTPConnector(api_key="secret-value"),
-            ToolUniverseHTTPConnector(base_url="https://tu.test", api_token="secret-value"),
-            SearchRuntime(llm_client=None, ncbi_api_key="secret-value"),
+            SearchRuntime(llm_client=None, credentials={"ncbi": "secret-value"}),
         ):
             with self.subTest(holder=type(holder).__name__):
                 self.assertNotIn("secret-value", repr(holder))

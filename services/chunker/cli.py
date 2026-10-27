@@ -14,7 +14,6 @@ from __future__ import annotations
 import argparse
 import csv
 import json
-import os
 import re
 import sys
 from collections import Counter
@@ -26,6 +25,7 @@ if str(ROOT_DIR) not in sys.path:
     sys.path.insert(0, str(ROOT_DIR))
 
 from shared.openai_client import OpenAIClient  # noqa: E402
+from shared import settings  # noqa: E402
 
 from .models import blocks_to_dicts, find_config  # noqa: E402
 from .pipeline import (  # noqa: E402
@@ -86,9 +86,8 @@ def export_chunker_package(
     if not input_path.exists() or not input_path.is_dir():
         raise ValueError(f"input_dir must be an existing directory: {input_path}")
     if map_blocks:
-        api_key = api_key or os.getenv("OPENAI_API_KEY")
-        if not api_key:
-            raise ValueError("OPENAI_API_KEY is required for --map (or pass --api-key).")
+        if not (api_key or settings.text("KONG_KEY") or settings.text("OPENAI_API_KEY")):
+            raise ValueError("KONG_KEY or OPENAI_API_KEY is required for --map (or pass --api-key).")
 
     config = find_config(org, source_type, intervention_class)
     header = _make_header(org, source_type, intervention_class, indication)

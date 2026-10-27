@@ -12,7 +12,6 @@ from __future__ import annotations
 
 import json
 import logging
-import os
 import time
 from typing import Any, Iterable, Iterator, Literal
 
@@ -25,6 +24,7 @@ from shared.ai import (
     log_model_call,
 )
 from shared.chat import ChatDelta, ChatTurn, ToolCall, Usage
+from shared import settings
 from shared.transport import MAX_RETRIES, http_client, structured_timeout
 from shared.visuals import labelled_image_parts
 
@@ -32,8 +32,11 @@ logger = logging.getLogger(__name__)
 
 __all__ = ["ModelTask", "OpenAIClient"]
 
-DEFAULT_FAST_MODEL = "gpt-5.6-luna"
-DEFAULT_REASONING_MODEL = "gpt-6-astra"
+
+#: The model behind each task tier. Code, not configuration: every stage's effort and
+#: token budget is tuned against its tier's model, so changing one is a reviewed change
+#: that re-reads those budgets, never a deployment variable that silently skips them.
+MODELS: dict["ModelTask", str] = {"fast": "gpt-5.6-luna", "reasoning": "gpt-6-astra"}
 
 #: Kong's OpenAI-compatible unified endpoint. Overridable for local/dev use
 #: against OpenAI directly, validated like any other base URL.
@@ -58,8 +61,6 @@ class OpenAIClient:
         api_key: str | None = None,
         *,
         base_url: str | None = None,
-        fast_model: str | None = None,
-        reasoning_model: str | None = None,
         max_retries: int = MAX_RETRIES,
     ):
         from openai import APITimeoutError, OpenAI  # type: ignore[reportMissingImports]
@@ -67,13 +68,12 @@ class OpenAIClient:
         # KONG_KEY, when present, routes through Kong's unified endpoint with
         # Kong's own credential. Otherwise fall back to calling OpenAI directly
         # with OPENAI_API_KEY, as before Kong existed.
-        kong_key = os.environ.get("KONG_KEY", "").strip()
+        kong_key = settings.text("KONG_KEY")
         if api_key is None and kong_key:
             api_key = kong_key
-            base_url = base_url or os.environ.get("OPENAI_BASE_URL", "").strip() or DEFAULT_BASE_URL
+            base_url = base_url or DEFAULT_BASE_URL
         else:
-            api_key = api_key or os.environ.get("OPENAI_API_KEY")
-            base_url = base_url or os.environ.get("OPENAI_BASE_URL", "").strip() or None
+            api_key = api_key or settings.text("OPENAI_API_KEY")
         if not api_key:
             raise ValueError("KONG_KEY or OPENAI_API_KEY is required")
         # The SDK retries connection errors, 429s and 5xx; a read timeout reaches it as
@@ -84,14 +84,7 @@ class OpenAIClient:
             http_client=http_client(lambda request: APITimeoutError(request=request)),
             max_retries=max_retries,
         )
-        self.models: dict[ModelTask, str] = {
-            "fast": fast_model
-            or os.environ.get("OPENAI_MODEL_FAST")
-            or DEFAULT_FAST_MODEL,
-            "reasoning": reasoning_model
-            or os.environ.get("OPENAI_MODEL_REASONING")
-            or DEFAULT_REASONING_MODEL,
-        }
+        self.models: dict[ModelTask, str] = dict(MODELS)
         # Diagnostics expose the load-bearing tier used by Inspector metadata.
         self.model = self.models["reasoning"]
 

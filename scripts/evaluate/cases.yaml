@@ -51,7 +51,7 @@ cases:
     org: bmgf
     gate: lcs
     intervention_class: drug
-    indication: female_contraception
+    indication: contraception
     folder: Contraception Drug
     documents:
       - CDMO Identification Report - INV-074353 30 Sept 2025.pdf

@@ -190,7 +190,7 @@ export default function ScreenerPage() {
                 <ConfigSectionHeading>Run options</ConfigSectionHeading>
                 <ConfigField
                   label="Stage gate"
-                  help="The stage gate selects the question bank; health product type determines applicability. Disease / condition labels the review but does not change the assessment."
+                  help="The stage gate selects the question bank; health product type determines applicability. Disease or health need labels the review but does not change the assessment."
                   disabled={!header.org}
                   note={
                     /*

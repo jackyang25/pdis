@@ -222,7 +222,7 @@ class PromptAndSchemaTests(unittest.TestCase):
                        indication="respiratory_syncytial_virus")
         message = sent[0]["message"]
         self.assertTrue(message.startswith("Review context (user-selected, not evidence):"))
-        self.assertIn("Disease / condition: respiratory syncytial virus", message)
+        self.assertIn("Disease or health need: respiratory syncytial virus", message)
         self.assertIn("Intervention class: vaccine", message)
         self.assertEqual((sent[0]["task"], sent[0]["effort"]), ("reasoning", "low"))
 

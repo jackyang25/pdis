@@ -1,4 +1,4 @@
-"""ChEMBL compound retrieval via ToolUniverse.
+"""ChEMBL compound retrieval, called directly through ChEMBL's molecule search.
 
 Compounds only. The lane also searched ChEMBL targets, but a target record carries no
 development facts - no phase, no approval - so it built no development record, and its
@@ -11,6 +11,8 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from urllib.parse import quote
 
+from ..calls import provider_request
+from ..errors import RetrievalError
 from ..models import (
     DevelopmentRecord,
     Finding,
@@ -22,16 +24,21 @@ from ..models import (
 )
 from .literature import active_tracks
 from .planning import request_lineage
-from .tooluniverse_records import (
-    TOOLUNIVERSE_INTEGRATION,
-    result_records,
-    run_tool,
-    structured_excerpt,
-    text,
-)
+from .records import structured_excerpt, text
 
-DRUG_TOOL = "ChEMBL_search_drugs"
+SEARCH_URL = "https://www.ebi.ac.uk/chembl/api/data/molecule/search.json"
+#: The molecule fields a finding reads, so the search returns those and nothing else.
+FIELDS = (
+    "molecule_chembl_id,pref_name,molecule_type,max_phase,first_approval,"
+    "therapeutic_flag,black_box_warning,oral,parenteral"
+)
 MAX_RESULTS = 10
+#: ChEMBL publishes no rate limit; five calls a second, process-wide.
+MIN_REQUEST_INTERVAL_SECONDS = 0.2
+#: ChEMBL's search is slow when its cache is cold: 36 s for one name live, under a second
+#: once warm. The transport's default would cut the cold call off.
+TIMEOUT_SECONDS = 60.0
+DEADLINE_SECONDS = 150.0
 MAX_ENTITIES = 6
 DRUG_TYPES = ("compound", "drug")
 #: ChEMBL's `max_phase` vocabulary. 0.5 is its early phase 1; -1 means the phase is
@@ -50,10 +57,12 @@ class ChEMBLSource:
     spec = SourceSpec(
         key="chembl",
         label="ChEMBL",
+        # ChEMBL is slow on its side (three seconds a search at the median, fifteen at
+        # the tail, measured), so throughput comes from calls in flight, not pace.
         worker_limit=4,
+        request_interval_seconds=MIN_REQUEST_INTERVAL_SECONDS,
+        # Off by default: it plans nothing until a caller names a product or target.
         default_enabled=False,
-        integration_key=TOOLUNIVERSE_INTEGRATION,
-        operations=(DRUG_TOOL,),
         evidence_domains=("biological",),
         required_entity_types=DRUG_TYPES,
         attribution=SourceAttribution(
@@ -84,8 +93,6 @@ class ChEMBLSource:
                 document_refs=document_refs,
                 intent_ids=intent_ids,
                 input_queries=input_queries,
-                connector=TOOLUNIVERSE_INTEGRATION,
-                operation=DRUG_TOOL,
                 options=(("entity_name", entity.name),),
             )
             for entity in entities[:MAX_ENTITIES]
@@ -98,15 +105,25 @@ class ChEMBLSource:
         *,
         max_tokens: int,
     ) -> list[Finding]:
-        if request.operation != DRUG_TOOL:
-            raise RuntimeError(f"Unsupported ChEMBL operation: {request.operation}")
-        result = run_tool(
+        # ChEMBL's own search, which matches a name against preferred names and
+        # synonyms and ranks the matches: `pref_name__icontains` misses a brand name.
+        payload = provider_request(
             runtime,
             self.spec,
-            DRUG_TOOL,
-            {"query": request.option("entity_name"), "limit": self.spec.max_results},
+            operation="molecule/search",
+            url=SEARCH_URL,
+            query={
+                "q": request.option("entity_name"),
+                "limit": self.spec.max_results,
+                "only": FIELDS,
+            },
+            timeout=TIMEOUT_SECONDS,
+            deadline_seconds=DEADLINE_SECONDS,
         )
-        return _drug_findings(result_records(result, "molecules"), request)
+        molecules = payload.get("molecules") if isinstance(payload, dict) else None
+        if not isinstance(molecules, list):
+            raise RetrievalError("ChEMBL", "invalid_response", "no molecule list")
+        return _drug_findings([item for item in molecules if isinstance(item, dict)], request)
 
 
 def _drug_findings(records: list[dict], request: SearchRequest) -> list[Finding]:

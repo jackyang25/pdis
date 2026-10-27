@@ -52,7 +52,7 @@ _SCOPE_BOUNDARY = """Scope boundary:
   none is not found. Do not round a partial up or down.
 
 Review context and evidence relevance:
-- The selected disease / condition and intervention class describe the intended
+- The selected disease or health need and intervention class describe the intended
   review context, not facts established about every uploaded document. They do
   not identify a unique product and are not an exact-word matching filter.
 - Establish applicability to that review before counting any clause as answered.
@@ -66,7 +66,7 @@ Review context and evidence relevance:
   or product name when its relationship is clear from the supplied material.
 - Background research, comparators, shared methods and evidence from other
   indications may answer a question where that is what the question asks for.
-  Preserve their stated role; do not reject them merely for a different disease
+  Preserve their stated role; do not reject them merely for a different indication
   or intervention class. Their contribution must address what the question asks
   for in this review, with applicability supported by the supplied material.
   A shared method or comparator is not proof that the reviewed program has adopted
@@ -75,7 +75,7 @@ Review context and evidence relevance:
   or add scientific requirements that the question does not ask for.
 - Do not transfer one product's results, properties or completed activities to
   another, or combine unrelated products to make a single product appear fully
-  covered. A shared disease or intervention class alone does not establish that
+  covered. A shared indication or intervention class alone does not establish that
   evidence concerns the same product. Establish the relationship from the supplied
   material, not merely similar filenames or terminology.
 - If the intended subject or a passage's relevance is genuinely ambiguous, do

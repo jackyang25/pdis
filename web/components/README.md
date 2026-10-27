@@ -19,14 +19,14 @@ visual groups.
 controls must name their individual inputs explicitly.
 
 For long option lists, `ConfigSelect.searchLabel` enables the shared searchable
-picker. Disease / condition opts in; short configuration lists keep the standard selector.
+picker. Disease or health need opts in; short configuration lists keep the standard selector.
 Filtering is local to displayed labels and never changes keys or commits typed
 text. Selection, empty results, keyboard navigation and focus restoration live in
 `ui/searchable-select.tsx`, composed with the existing popover primitive.
 
 Organization, health product type, document type and stage gate options reflect
 implemented configurations. Organization is selected automatically and not shown
-while only one is configured. Disease / condition is different: `shared/indications.yaml`
+while only one is configured. Disease or health need is different: `shared/indications.yaml`
 supplies one curated context list for every supported class, not a disease-specific
 support matrix. Add MeSH-aligned canonical keys and reviewed citations following
 the [naming guide](../../docs/indication-vocabulary.md); the same key is stored with

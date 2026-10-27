@@ -246,7 +246,7 @@ def _request_xml(
     endpoint: str,
     params: dict[str, str],
 ) -> ET.Element:
-    api_key = runtime.ncbi_api_key or ""
+    api_key = runtime.credential(NCBI_RATE_GROUP)
     query = dict(params, tool=NCBI_TOOL)
     if runtime.contact_email:
         query["email"] = runtime.contact_email

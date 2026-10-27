@@ -1,11 +1,22 @@
-"""EU Clinical Trials Information System adapter via ToolUniverse."""
+"""EU Clinical Trials Information System, called directly through its public search API.
+
+The API is the one the CTIS public portal itself calls: a JSON POST of search criteria and
+a page. It is undocumented, so this lane asks it one thing - trials for a medical condition
+- and reads only the fields that search returns.
+
+Findings feed insights, not the development landscape. The search names the products a
+trial uses, but as one list of everything administered - investigational product,
+comparator and placebo excipients alike - so a programme read from it could be "Lactose
+Monohydrate".
+"""
 
 from __future__ import annotations
 
 from datetime import datetime, timezone
 
+from ..calls import provider_request
+from ..errors import RetrievalError
 from ..models import (
-    DevelopmentRecord,
     Finding,
     RetrievalIntent,
     SearchRequest,
@@ -15,26 +26,37 @@ from ..models import (
 )
 from .literature import active_tracks
 from .planning import request_lineage
-from .tooluniverse_records import (
-    TOOLUNIVERSE_INTEGRATION,
-    result_records,
-    run_tool,
-    structured_excerpt,
-    text,
-)
+from .records import structured_excerpt, text
 
-SEARCH_TOOL = "CTIS_search_trials_filtered"
+SEARCH_URL = "https://euclinicaltrials.eu/ctis-public-api/search"
 MAX_RESULTS = 10
+#: The portal's own API publishes no limit. Four calls a second, process-wide, answered
+#: cleanly in a measured burst (half a second each); two workers keep that pace.
+MIN_REQUEST_INTERVAL_SECONDS = 0.25
+#: CTIS reports a trial's status as a code. These are the labels its own record view
+#: gives each code (checked against `/retrieve` live); 2 to 5 are all "Authorised".
+_STATUS = {
+    1: "Under evaluation",
+    2: "Authorised",
+    3: "Authorised",
+    4: "Authorised",
+    5: "Authorised",
+    6: "Halted",
+    7: "Suspended",
+    8: "Ended",
+    9: "Expired",
+    10: "Revoked",
+    11: "Not authorised",
+    12: "Cancelled",
+}
 
 
 class CTISSource:
     spec = SourceSpec(
         key="ctis",
         label="EU CTIS",
-        worker_limit=4,
-        default_enabled=False,
-        integration_key=TOOLUNIVERSE_INTEGRATION,
-        operations=(SEARCH_TOOL,),
+        worker_limit=2,
+        request_interval_seconds=MIN_REQUEST_INTERVAL_SECONDS,
         evidence_domains=("clinical", "safety"),
         attribution=SourceAttribution(
             label="EU Clinical Trials Information System",
@@ -44,7 +66,7 @@ class CTISSource:
         evidence_class="registry",
         jurisdiction="eu",
         reads=("text", "condition"),
-        feeds=("insights", "landscape"),
+        feeds=("insights",),
         max_results=MAX_RESULTS,
     )
 
@@ -57,13 +79,11 @@ class CTISSource:
             SearchRequest(
                 scope_ref=intent.scope_ref,
                 source=self.spec.key,
-                query=f"medical_condition:{condition}",
+                query=f"medicalCondition:{condition}",
                 tracks=tuple(active_tracks(intent)),
                 document_refs=document_refs,
                 intent_ids=intent_ids,
                 input_queries=input_queries,
-                connector=TOOLUNIVERSE_INTEGRATION,
-                operation=SEARCH_TOOL,
                 options=(("medical_condition", condition),),
             )
         ]
@@ -75,71 +95,57 @@ class CTISSource:
         *,
         max_tokens: int,
     ) -> list[Finding]:
-        result = run_tool(
+        payload = provider_request(
             runtime,
             self.spec,
-            SEARCH_TOOL,
-            {
-                "medical_condition": request.option("medical_condition"),
-                "limit": self.spec.max_results,
+            operation="search",
+            url=SEARCH_URL,
+            body={
+                "pagination": {"page": 1, "size": self.spec.max_results},
+                "searchCriteria": {"medicalCondition": request.option("medical_condition")},
             },
         )
-        records = result_records(result, "data")
+        records = payload.get("data") if isinstance(payload, dict) else None
+        if not isinstance(records, list):
+            raise RetrievalError("EU CTIS", "invalid_response", "no result list")
         retrieved_at = datetime.now(timezone.utc)
         findings: list[Finding] = []
         for record in records:
-            ct_number = text(record.get("ct_number"))
+            if not isinstance(record, dict):
+                continue
+            ct_number = text(record.get("ctNumber"))
             if not ct_number:
                 continue
-            url = f"https://euclinicaltrials.eu/ctis-public/view/{ct_number}"
             findings.append(
                 Finding(
-                    url=url,
-                    title=text(record.get("title")) or ct_number,
+                    url=f"https://euclinicaltrials.eu/ctis-public/view/{ct_number}",
+                    title=text(record.get("ctTitle")) or ct_number,
                     query=request.query,
                     retrieved_at=retrieved_at,
                     # No publication date: the search returns only the EU start date and
                     # the date of the latest edit, and neither says when the trial was
                     # published. A record with no date is admitted by a window.
                     excerpt=structured_excerpt(
-                        record,
+                        {**record, "status": _STATUS.get(record.get("ctStatus"), "")},
                         (
                             ("conditions", "Conditions"),
-                            ("phase", "Phase"),
-                            ("status", "Status code"),
+                            ("trialPhase", "Phase"),
+                            ("status", "Status"),
+                            ("product", "Products"),
+                            ("primaryEndPoint", "Primary endpoint"),
+                            ("endPoint", "Secondary endpoint"),
                             ("sponsor", "Sponsor"),
-                            ("countries", "Countries"),
-                            ("age_group", "Age group"),
-                            ("total_enrolled", "Enrollment"),
-                            ("results_first_received", "Results posted"),
-                            ("start_date_eu", "EU start date"),
+                            ("trialCountries", "Countries (sites)"),
+                            ("ageGroup", "Age group"),
+                            ("totalNumberEnrolled", "Enrollment"),
+                            ("resultsFirstReceived", "Results posted"),
+                            ("startDateEU", "EU start date"),
                         ),
                     ),
                     excerpt_kind="structured_fields",
                     identifiers={"euct": ct_number},
                     record_key=f"ctis:{ct_number}",
                     source=self.spec.key,
-                    development_records=_development_records(record, ct_number),
                 )
             )
         return findings
-
-
-def _development_records(record: dict, record_id: str) -> list[DevelopmentRecord]:
-    """Use a named investigational product only when CTIS returns one."""
-    names: list[str] = []
-    for key in ("product_name", "intervention_name", "investigational_product"):
-        value = record.get(key)
-        if isinstance(value, str) and value.strip():
-            names.append(value.strip())
-    return [
-        DevelopmentRecord(
-            program_name=name,
-            record_type="clinical_trial",
-            record_id=record_id,
-            sponsor=text(record.get("sponsor")),
-            phase=text(record.get("phase")),
-            status=text(record.get("status")),
-        )
-        for name in dict.fromkeys(names)
-    ]

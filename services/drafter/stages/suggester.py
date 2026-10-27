@@ -194,7 +194,7 @@ def _message(variable, observations, statistics, *, indication, intervention_ter
         for group in statistics
     ]
     return (
-        f"Product type: {intervention_term}. Disease / condition: {indication}.\n"
+        f"Product type: {intervention_term}. Disease or health need: {indication}.\n"
         f"{intended_use_line(intended_use)}"
         f"Variable: {searchable_attribute_phrase(variable.name)}\n"
         f"What it covers: {variable.description.strip()}\n\n"

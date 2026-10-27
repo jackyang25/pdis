@@ -123,7 +123,7 @@ def build_system_prompt(indication: str) -> str:
         "You validate ONE configuration value before evidence retrieval.\n\n"
         f'Configured indication: "{indication}".\n\n'
         "Determine whether the uploaded document is actually about that disease or "
-        "condition. Account for acronyms, pathogens, subtypes, synonyms, and closely "
+        "health need. Account for acronyms, pathogens, subtypes, synonyms, and closely "
         "related clinical terminology. Do not judge the document's claims and do not "
         "infer a different configuration.\n\n"
         "Choose exactly one status:\n"

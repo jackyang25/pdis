@@ -7,16 +7,16 @@ describe it, and a fourth lives in the tenant repository.
 
 | File | Owns |
 | --- | --- |
-| [.drone.yml](../.drone.yml) | Test, build, and push the three images; deploy to acceptance on merge and to production on promote |
-| [jobspec.nomad](../jobspec.nomad) | The production job: two groups (API with its connector, and web), their resources, and the ingress rules |
+| [.drone.yml](../.drone.yml) | Test, build, and push the two images; deploy to acceptance on merge and to production on promote |
+| [jobspec.nomad](../jobspec.nomad) | The production job: two groups (API and web), their resources, and the ingress rules |
 | [jobspec_acc.nomad](../jobspec_acc.nomad) | The acceptance job, identical but for environment naming and hostname |
 | `tf_nomad_tenant_configuration/prod/main` | The `module "aws-pdis"` block that creates the namespace and the CI secrets |
 
 The client and the gateway share one hostname. Traefik routes `/api/*` to the
 gateway and everything else to the client, which is why the client's bundle
-carries no API hostname and why CORS is unset in production. The ToolUniverse
-connector carries no routing tag at all: that absence is the only thing keeping
-it off the public internet, and `tests/test_jobspec_parity.py` asserts it.
+carries no API hostname and needs no cross-origin access. The gateway calls
+every evidence provider itself, so it runs alone in its group;
+`tests/test_jobspec_parity.py` fails if a task reappears beside it.
 
 Onboarding is a pull request to `tf_nomad_tenant_configuration/prod/main`:
 
@@ -38,6 +38,10 @@ expects: `AWS_NOMAD_TOKEN`, `DOCKER_PASSWORD`, `NAMESPACE`,
 `NOMAD_VAR_domain_acc_aws`, and `NOMAD_VAR_domain_prod_aws`. Activate the
 repository at [cicd.bmgf.io](https://cicd.bmgf.io) first.
 
+Provider credentials are the `secret` entries of `shared/settings.py`, which
+says what each is for and where it is issued. Each is a Drone secret of the same
+name, substituted into both jobspecs at deploy.
+
 Acceptance deploys automatically on merge to `main`. Production is a manual
 promote of a build that already passed acceptance:
 
@@ -51,13 +55,13 @@ the entries marked `TODO` are cluster facts this repository cannot know.
 
 ## Analysis capacity
 
-Both environments reserve 6144 MiB of memory and 2000 MHz of CPU for the API
+Both environments reserve 8192 MiB of memory and 2000 MHz of CPU for the API
 task, including its LibreOffice subprocesses. There is no separate burst memory
 limit: the full memory budget is reserved. Nomad's CPU allocation is in MHz, not
 a count of cores. See the [Nomad resource specification](https://developer.hashicorp.com/nomad/docs/job-specification/resources).
 
-Both environments temporarily limit processing to one active analysis; additional
-runs wait for capacity. At most eight runs wait (`MAX_WAITING_RUNS` in
+Both environments limit processing to two active analyses (`MAX_CONCURRENT_RUNS`);
+additional runs wait for capacity. At most eight runs wait (`MAX_WAITING_RUNS` in
 `api/execution.py`); beyond that a run is refused with 503 before it starts. A run
 whose browser disconnects stops at its next progress update, and a waiting one
 leaves the queue without starting. Ask attachments and priority readings take a
@@ -68,11 +72,24 @@ headroom for slide rendering, retained images and parallel model requests; it is
 a starting budget, not a guarantee for every document combination.
 
 Before deployment, confirm cluster capacity and namespace quotas with the platform
-team. The API and its 2048 MiB connector need 7 GiB together on one node, in
-addition to node overhead; web allocations and rolling deployments need further
-capacity. Measure peak memory during image-heavy runs before raising
+team. The API needs 8 GiB on one node, in addition to node overhead; web
+allocations and rolling deployments need further capacity. Measure peak memory during image-heavy runs before raising
 the run limit. Exit status 137 suggests a killed process, but allocation events
 and OOM logs are needed to confirm memory exhaustion.
+
+## Handover
+
+Every provider key is issued to whoever registered it and stops working with their
+account, so a change of owner re-issues them rather than passing them on:
+
+1. Issue each credential in `shared/settings.py` again under an account or team
+   mailbox the next owner controls - one per environment where the provider limits a
+   key, as Semantic Scholar does.
+2. Replace the Drone secrets, redeploy acceptance and promote, then revoke the old
+   keys.
+3. Move what names the previous owner: the Drone repository's admins, the
+   `module "aws-pdis"` tenant entry, and `FEEDBACK_EMAIL` in
+   `web/lib/finding-report.ts`, where reported findings are sent.
 
 ## Product versions and release notes
 

@@ -65,34 +65,14 @@ class JobspecParityTests(unittest.TestCase):
             "ACCEPTANCE_RENAMES; add the difference there if it is deliberate",
         )
 
-    def test_the_connector_is_never_exposed_through_the_ingress(self) -> None:
-        """The connector holds SEMANTIC_SCHOLAR_API_KEY and authenticates with a
-        bearer token only. It runs as a task beside the gateway with no service
-        block at all, so nothing registers it and nothing can route to it.
-
-        Two absences hold that in place - no `service`, no Traefik tag - and an
-        absence is not visible in review the way a rule is, so both are asserted.
-        """
+    def test_the_gateway_reaches_its_providers_without_a_sidecar(self) -> None:
+        """Searcher calls every provider directly. The connector task that once ran
+        beside the gateway held a provider key behind a bearer token and was OOM-killed
+        under load; a task that reappears beside the gateway is that design returning."""
         for path in (PRODUCTION, ACCEPTANCE):
             with self.subTest(jobspec=path.name):
-                text = path.read_text()
-                connector = text[text.index('task "tooluniverse"') :]
-                connector = connector[: connector.index("# ---- Client")]
-                directives = "\n".join(
-                    line
-                    for line in connector.splitlines()
-                    if not line.strip().startswith("#")
-                )
-                self.assertNotIn(
-                    "traefik",
-                    directives,
-                    f"{path.name} tags the connector for the ingress",
-                )
-                self.assertNotIn(
-                    "service {",
-                    directives,
-                    f"{path.name} registers the connector as a service",
-                )
+                tasks = re.findall(r'^\s*task "([^"]+)"', path.read_text(), flags=re.M)
+                self.assertEqual(tasks, ["api", "web"])
 
     def test_no_image_floats_on_a_mutable_tag(self) -> None:
         """Nomad re-pulls on reschedule. A moving tag means an allocation can
@@ -199,19 +179,19 @@ class JobspecParityTests(unittest.TestCase):
                 )
 
     def test_the_gateway_memory_and_run_cap_are_stated_together(self) -> None:
-        """Reserve rendering headroom for two active analyses at 6 GiB.
+        """Reserve rendering headroom for two active analyses at 8 GiB.
 
-        The cap was one until the API's memory was raised to 6 GiB; the two numbers are
-        pinned together so neither is raised without the other. Scope this check to the
-        API: the connector has a separate memory budget.
+        The cap was one until the API's memory was raised to 6 GiB, and memory rose to
+        8 GiB with the cap unchanged when the connector task was removed; the two numbers are
+        pinned together so neither is raised without the other.
         """
         for path in (PRODUCTION, ACCEPTANCE):
             with self.subTest(jobspec=path.name):
                 text = path.read_text()
-                api = text.split('task "api" {', 1)[1].split('task "tooluniverse"', 1)[0]
+                api = text.split('task "api" {', 1)[1].split('group "web"', 1)[0]
                 self.assertRegex(api, r'\bMAX_CONCURRENT_RUNS\s*=\s*"2"')
                 self.assertRegex(api, r"\bcpu\s*=\s*2000\b")
-                self.assertRegex(api, r"\bmemory\s*=\s*6144\b")
+                self.assertRegex(api, r"\bmemory\s*=\s*8192\b")
                 self.assertNotRegex(api, r"\bmemory_max\s*=")
 
 

@@ -24,7 +24,8 @@ from services.searcher import (
 )
 from services.searcher.calls import note_warning, provider_call
 from services.searcher.sources.literature import build_europepmc_query, build_pubmed_query
-from services.searcher.sources.who_guidelines import WHOGuidelinesSource
+import services.searcher.calls as search_calls
+from services.searcher.sources.open_targets import OpenTargetsSource
 
 
 class _Body:
@@ -107,6 +108,36 @@ class RetryTests(unittest.TestCase):
         self.assertEqual(error.status, 503)
         self.assertEqual(sleep.call_count, 2)
 
+    def test_a_rate_limited_call_retries_once(self) -> None:
+        """A second 429 after a paced wait means the quota is spent; more attempts would
+        only queue behind every other call to that provider."""
+        error, sleep = self._fetch(*[_http_error(429)] * 4, b"ok")
+        self.assertEqual(error.code, "rate_limited")
+        self.assertEqual(sleep.call_count, 1)
+
+    def test_a_retry_waits_for_its_providers_pacing_slot(self) -> None:
+        """A retry spends the provider's quota like any call. Retried on the transport's own
+        timer, a 429 from a one-call-a-second provider drew a second call inside that second."""
+        sequence = [_http_error(429), b"ok"]
+
+        def fake_open(request, *, timeout):
+            item = sequence.pop(0)
+            if isinstance(item, BaseException):
+                raise item
+            return _Body(item)
+
+        with (
+            patch.object(transport, "_open", fake_open),
+            patch.object(transport, "pause"),
+            patch("services.searcher.calls.pace") as pace,
+        ):
+            body = provider_call(
+                SearchRuntime(llm_client=None), rate_group="g", interval_seconds=1.1,
+                operation="op", arguments={}, load=lambda: transport.fetch("https://x.test", provider="P"),
+            )
+        self.assertEqual(body, b"ok")
+        self.assertEqual([call.args for call in pace.call_args_list], [("g", 1.1), ("g", 1.1)])
+
     def test_the_providers_message_is_kept_and_its_secret_removed(self) -> None:
         body = json.dumps({"error": "API rate limit exceeded", "api-key": "k-123"}).encode()
         error, _ = self._fetch(
@@ -173,23 +204,21 @@ class RateGroupTests(unittest.TestCase):
         self.assertEqual({group: len(values) for group, values in intervals.items() if len(values) > 1}, {})
 
     def test_every_provider_call_is_paced_not_only_the_first(self) -> None:
-        """WHO reads one page per result, and each page is a call against its quota."""
-
-        class _Connector:
-            def run(self, tool_name, arguments):
-                if tool_name == "WHO_Guidelines_Search":
-                    return {"data": [{"url": f"https://who.int/{i}", "title": str(i)} for i in range(3)]}
-                return {"main_content": "text"}
-
-        request = SearchRequest(scope_ref="q", source="who_guidelines", query="x",
-                                options=(("condition", "malaria"),))
-        with patch("services.searcher.calls.pace") as pace:
-            WHOGuidelinesSource().search(
-                request,
-                SearchRuntime(llm_client=None, integrations={"tooluniverse": _Connector()}),
-                max_tokens=1,
-            )
-        self.assertEqual(pace.call_count, 4)
+        """Open Targets makes three calls for one request, and each spends its quota."""
+        answers = iter([
+            {"data": {"search": {"hits": [{"id": "MONDO_1", "name": "malaria"}]}}},
+            {"data": {"search": {"hits": [{"id": "ENSG1", "name": "CSP"}]}}},
+            {"data": {"disease": {"id": "MONDO_1", "name": "malaria", "evidences": {"rows": []}}}},
+        ])
+        request = SearchRequest(scope_ref="q", source="open_targets", query="x", options=(
+            ("target_name", "CSP"), ("target_identifier", ""), ("disease_name", "malaria"),
+        ))
+        with (
+            patch.object(search_calls, "fetch", lambda *a, **k: json.dumps(next(answers)).encode()),
+            patch("services.searcher.calls.pace") as pace,
+        ):
+            OpenTargetsSource().search(request, SearchRuntime(llm_client=None), max_tokens=1)
+        self.assertEqual(pace.call_count, 3)
 
 
 class PerRunReuseTests(unittest.TestCase):
@@ -204,22 +233,18 @@ class PerRunReuseTests(unittest.TestCase):
         )
 
     def test_identical_native_calls_reach_the_provider_once_and_keep_their_lineage(self) -> None:
-        class _Connector:
-            calls = 0
+        calls: list[str] = []
 
-            def run(self, tool_name, arguments):
-                _Connector.calls += 1
-                return {"data": [{"ct_number": "2024-500001-11-00", "title": "T"}]}
+        def fetch(url, **kwargs):
+            calls.append(url)
+            return json.dumps({"data": [{"ctNumber": "2024-500001-11-00", "ctTitle": "T"}]}).encode()
 
         requests = plan_requests(
             [self._intent("efficacy"), self._intent("safety")], sources=("ctis",)
         )
-        outcomes = run_requests(
-            requests,
-            runtime=SearchRuntime(llm_client=None, integrations={"tooluniverse": _Connector()}),
-            max_tokens=1,
-        )
-        self.assertEqual(_Connector.calls, 1)
+        with patch.object(search_calls, "fetch", fetch), patch("services.searcher.calls.pace"):
+            outcomes = run_requests(requests, runtime=SearchRuntime(llm_client=None), max_tokens=1)
+        self.assertEqual(len(calls), 1)
         self.assertEqual(
             [outcome.request.input_queries for outcome in outcomes],
             [("efficacy query",), ("safety query",)],
@@ -244,37 +269,16 @@ class PerRunReuseTests(unittest.TestCase):
 
 class OutcomeReportingTests(unittest.TestCase):
     def test_a_failure_carries_a_code_beside_the_providers_message(self) -> None:
-        class _Connector:
-            def run(self, tool_name, arguments):
-                raise RetrievalError("ToolUniverse CTIS", "rate_limited", "slow down", status=429)
+        def fetch(url, **kwargs):
+            raise RetrievalError("EU CTIS", "rate_limited", "slow down", status=429)
 
         request = SearchRequest(scope_ref="q", source="ctis", query="x",
                                 options=(("medical_condition", "malaria"),))
-        (outcome,) = run_requests(
-            [request],
-            runtime=SearchRuntime(llm_client=None, integrations={"tooluniverse": _Connector()}),
-            max_tokens=1,
-        )
+        with patch.object(search_calls, "fetch", fetch), patch("services.searcher.calls.pace"):
+            (outcome,) = run_requests([request], runtime=SearchRuntime(llm_client=None), max_tokens=1)
         (row,) = outcomes_to_dicts([outcome])
         self.assertEqual((row["status"], row["error_code"]), ("failed", "rate_limited"))
         self.assertIn("slow down", row["detail"])
-
-    def test_a_page_that_would_not_load_is_reported_on_a_complete_outcome(self) -> None:
-        class _Connector:
-            def run(self, tool_name, arguments):
-                if tool_name == "WHO_Guidelines_Search":
-                    return {"data": [{"url": "https://who.int/1", "title": "G"}]}
-                raise RetrievalError("ToolUniverse", "timeout", "timed out")
-
-        request = SearchRequest(scope_ref="q", source="who_guidelines", query="x",
-                                options=(("condition", "malaria"),))
-        (outcome,) = run_requests(
-            [request],
-            runtime=SearchRuntime(llm_client=None, integrations={"tooluniverse": _Connector()}),
-            max_tokens=1,
-        )
-        self.assertEqual(outcome.status, "complete")
-        self.assertEqual([w.code for w in outcome.warnings], ["content_unavailable"])
 
     def test_pubmeds_own_reading_of_the_query_is_recorded(self) -> None:
         esearch = (

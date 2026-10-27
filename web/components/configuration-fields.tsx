@@ -123,14 +123,14 @@ export function ContextFields() {
       </ConfigField>
 
       <ConfigField
-        label="Disease / condition"
+        label="Disease or health need"
         disabled={!header.intervention_class}
-        help="The disease or condition. Retained as context for documents, results, and Assistant. It does not select a rubric or question bank. Scout also checks it against the document and uses it in evidence searches."
+        help="What the product is for: a disease, or a health need such as contraception. Retained as context for documents, results, and Assistant. It does not select a rubric or question bank. Scout also checks it against the document and uses it in evidence searches."
       >
         <ConfigSelect
           value={header.indication}
-          searchLabel="Search diseases and conditions"
-          options={toOptions(indications)}
+          searchLabel="Search diseases and health needs"
+          options={byLabel(toOptions(indications))}
           loading={indicationsLoading}
           disabled={!header.intervention_class}
           onChange={(value) => setHeader({ indication: value })}
@@ -255,7 +255,7 @@ export function ConfigurationFields({ children }: { children?: React.ReactNode }
 }
 
 // Organization is left out: it is shown only when there is a choice, which is rarer.
-const CONTEXT_LABELS = ["Health product type", "Disease / condition"] as const;
+const CONTEXT_LABELS = ["Health product type", "Disease or health need"] as const;
 
 /** The fields as they will be, each saying it is loading, until the catalog arrives. */
 function FieldPlaceholder({ labels }: { labels: readonly string[] }) {
@@ -272,6 +272,12 @@ function FieldPlaceholder({ labels }: { labels: readonly string[] }) {
 
 function toOptions(values: readonly string[]) {
   return values.map((value) => ({ value, label: displayLabel(value) }));
+}
+
+/** A long list read by scanning, in the order its names make predictable. The catalog's
+ *  authored order carries no meaning a reader could use to find an entry. */
+function byLabel<T extends { label: string }>(options: T[]): T[] {
+  return [...options].sort((a, b) => a.label.localeCompare(b.label));
 }
 
 function unique(values: string[]): string[] {

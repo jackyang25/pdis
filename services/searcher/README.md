@@ -51,8 +51,9 @@ date allows and `published_precision` is `day`, `month` or `year`; a caller appl
 a lower bound uses `Finding.published_before`, which compares the latest day the
 date allows, so a paper dated "2024" is not dropped by a window opening in June 2024.
 A registry record is dated by when it was first posted (ClinicalTrials.gov's
-`studyFirstPostDate`), never by its last edit. CTIS and ISRCTN search results state
-no publication date, so their findings carry none and a window admits them.
+`studyFirstPostDate`, the date ISRCTN assigned the trial its number), never by its
+last edit. CTIS search results state no publication date, so their findings carry
+none and a window admits them.
 
 `entities` are the named subjects a source may address its API by. A source declaring
 `required_entity_types` plans nothing without one, because it has no subject to name,
@@ -103,13 +104,14 @@ keeps them in the provider's order. Lanes used to ask for 50 or 100 and keep the
 10 or 20 by counting query words in the record's flattened JSON; that decided which
 records existed by substring matches over field names and boilerplate.
 
-Every provider call goes through `transport.py`: transient failures (429, 502, 503,
-504, a reset connection, a timeout) are retried with jittered backoff or the
-provider's `Retry-After`, within one total deadline, and failures raise
+Every lane calls its provider directly. A direct lane makes each call through
+`calls.provider_request`, and every call goes through `transport.py`: transient
+failures (429, 502, 503, 504, a reset connection, a timeout) are retried with jittered
+backoff or the provider's `Retry-After`, within one total deadline, and failures raise
 `RetrievalError` with a code and the provider's own message, secrets removed. Calls
 are paced per `SourceSpec.rate_group` - `fda` and `fda_safety` share openFDA's - and
-per call rather than per request, since WHO reads a page per result and PubMed
-fetches after searching. Within a run, identical native calls are made once
+per call rather than per request, a retry taking a paced slot like any other call, since Open Targets resolves its IDs before asking
+for evidence and PubMed fetches after searching. Within a run, identical native calls are made once
 (`SearchRuntime.calls`); each request still yields its own outcome and lineage. The
 transport prefers IPv4 for the connections it opens and leaves the process's name
 resolution alone. The User-Agent names the product, adding a contact only when
@@ -167,7 +169,7 @@ are the authority, and the tests are what keep them honest.
 | Europe PMC | literature | global | same as PubMed | insights |
 | WHO Guidelines | guidance | global | text, condition | insights |
 | ClinicalTrials.gov | registry | us | text, condition, intervention, product, region | insights, landscape |
-| EU CTIS | registry | eu | text, condition | insights, landscape |
+| EU CTIS | registry | eu | text, condition | insights |
 | ISRCTN | registry | uk | text, condition, intervention, product, region | insights, landscape |
 | FDA Regulatory | regulatory | us | text, condition, intervention | insights, landscape |
 | FDA Safety | regulatory | us | subject | safety |
@@ -189,19 +191,20 @@ WHO Guidelines is the only lane in the `guidance` class, which is separate from
 not accept a WHO recommendation, and someone asking what the recommended regimen is would
 not accept an FDA label. Sources in one class have to be alternatives.
 
-It is also the one lane that makes two calls per result. Its search returns a title and a
-URL and no text at all, so a finding built from that alone would be a title - and a lane
-whose findings carry no passage feeds nothing while declaring that it does. `MAX_RESULTS`
-is correspondingly small: WHO's guideline set for one condition is a curated handful
-rather than a corpus. A page that will not load degrades that finding to its title rather
-than failing the request, and the outcome carries a `content_unavailable` warning saying so.
+It searches IRIS, WHO's repository, filtered at the provider by WHO's own `WHO guideline`
+subject tag, and its excerpt is the record's abstract - WHO's summary of the guideline - so
+a guideline costs one call. It once scraped WHO's website, which returned links without
+text and, for a condition with no topic page, the site's list of recent guidelines on any
+subject. `MAX_RESULTS` is small: WHO's guideline set for one condition is a curated
+handful rather than a corpus.
 
 PubMed's excerpt is the abstract followed by the article's Results section where PMC
 holds open-access full text and the article declares the section (JATS
 `sec-type="results"`). It used to append the first characters of the body, which in a
 research article is the Introduction. A section only titled "Results" is not guessed at.
 
-PubMed, Europe PMC and ClinicalTrials.gov (`filter.advanced` on the first-posted date)
+PubMed, Europe PMC, Semantic Scholar (`publicationDateOrYear`), WHO Guidelines
+(`dateIssued`) and ClinicalTrials.gov (`filter.advanced` on the first-posted date)
 declare `honors_date_bound`. The rest have the window applied after retrieval.
 ClinicalTrials.gov requests only the fields the lane reads (`fields=`): 100 full study
 records measured 7 MB against 0.4 MB projected.
@@ -226,10 +229,10 @@ narrowing dimension rather than as a fact about one adapter.
 `region` is run scope, not a per-query facet, for the same reason `condition` is: it
 qualifies every query in a run, so stating it once is what lets an attribute whose own
 text never names a country still be searched in the right one. ClinicalTrials.gov reads
-it through the provider's own `query.locn`, and ISRCTN through `country`, which its tool
-compiles to `recruitmentCountry` - so the narrowed request asks where a trial recruited
-rather than where its text happens to mention a place. CTIS cannot: its `country`
-parameter takes Member State Concerned codes, so the only geographies it can be asked
+it through the provider's own `query.locn`, and ISRCTN through its `recruitmentCountry`
+field - so the narrowed request asks where a trial recruited rather than where its text
+happens to mention a place. CTIS cannot: its country filter takes Member State Concerned
+codes, so the only geographies it can be asked
 about are EU member states, and a programme's region usually is not one. That is a
 difference in kind rather than unfinished work, and it is declared in
 `REGION_UNWIRED_REGISTRIES`.
@@ -247,21 +250,44 @@ classes the Scout configs name as priority institutions, so today those queries 
 only the web lane, whose excerpts are model-written and cannot support a quantitative
 claim. Closing a gap means deleting a line from that test.
 
-ChEMBL searches compounds only; a target record carries no development facts, so its
-`reference` findings reached nothing. Its `max_phase` is read as ChEMBL defines it:
+ChEMBL searches compounds only, through its own molecule search, which matches synonyms
+and brand names; a target record carries no development facts, so its `reference`
+findings reached nothing. Its `max_phase` is read as ChEMBL defines it:
 0.5 is early phase 1, and -1 (unknown) or null states no phase rather than
 "Preclinical". The FDA 510(k) request searches both the trade name and the
 classification name (`device_name` and `openfda.device_name`), since a condition is
-usually only in the second.
+usually only in the second. A label search asks only for labels openFDA has harmonized
+(`_exists_:openfda.generic_name`): an unharmonized label names no product or
+manufacturer, and was most of what a condition matched. openFDA answers a search that
+matched nothing with a 404, which the lane reads as an empty answer.
+
+CTIS feeds insights and not the landscape: its search names the products a trial uses as
+one list of everything administered, comparator and placebo excipients included, so a
+programme read from it could be an excipient. Open Targets accepts a document-stated
+target only as a hit whose approved symbol is the stated name; a name that is not a human
+gene symbol gets no evidence rather than the evidence of whichever gene ranked first.
+
+## Configuration
+
+Provider keys are credentials on `SearchRuntime.credentials`, keyed by rate group, and
+each raises that provider's quota: `NCBI_API_KEY`, `SEMANTIC_SCHOLAR_API_KEY`,
+`OPENFDA_API_KEY`. A lane runs without its key unless it declares
+`required_credential`, which only Semantic Scholar does: its keyless pool is rate-limited
+in practice, so without a key the lane reports itself unconfigured rather than failing
+every request. A connector is for a provider the deployment reaches through a client it
+builds - Tavily, whose paid key and options the API injects through
+`SearchRuntime.integrations`. A lane that is unconfigured on a deployment is not
+searched by default and is left out of Scout's and Drafter's plans.
 
 ## Development
 
-Add a source by implementing and registering one adapter, injecting any optional
-connector through `SearchRuntime.integrations`, preserving input lineage, and
-enabling its key in Scout config. ToolUniverse is a connector, not an autonomous
-router or generic evidence lane. An adapter makes provider calls through
-`calls.provider_call` (or `tooluniverse_records.run_tool`) and `transport.fetch`,
-sets `record_key` and `identifiers`, and asks for `spec.max_results`.
+Add a source by implementing and registering one adapter, preserving input lineage,
+and enabling its key in Scout config. An adapter calls its provider through
+`calls.provider_request` (or `calls.provider_call` around a connector), reads records
+with `sources/records.py`, sets `record_key` and `identifiers`, and asks for
+`spec.max_results`. A provider key goes in `api/deps.get_search_credentials`; a
+connector, only where the deployment must build the client, in
+`get_search_integrations`.
 
 The website and [PDIS MCP server](../../api/mcp/README.md) call the same
 `api/operations/searcher.py` application operation for validation, runtime setup,

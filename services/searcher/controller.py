@@ -46,18 +46,6 @@ def lane_class(source_key: str) -> str:
     return adapter.spec.evidence_class if adapter else "general"
 
 
-def integration_operations(integration_key: str) -> tuple[str, ...]:
-    """Return the stable allowlist declared by adapters using an integration."""
-    return tuple(
-        dict.fromkeys(
-            operation
-            for adapter in SOURCE_REGISTRY.values()
-            if adapter.spec.integration_key == integration_key
-            for operation in adapter.spec.operations
-        )
-    )
-
-
 def validate_source_keys(keys: Iterable[str]) -> tuple[str, ...]:
     selected = tuple(dict.fromkeys(key.strip() for key in keys if key.strip()))
     unknown = [key for key in selected if key not in SOURCE_REGISTRY]
@@ -70,14 +58,19 @@ def unconfigured_source_keys(
     keys: Iterable[str],
     runtime: SearchRuntime,
 ) -> tuple[str, ...]:
-    """Return enabled adapters whose required injected integration is absent."""
+    """Return selected adapters this deployment cannot run.
+
+    A lane cannot run without the connector it is reached through, or without a key its
+    provider does not answer without. Optional keys never make a lane unconfigured.
+    """
     selected = validate_source_keys(keys)
-    return tuple(
-        key
-        for key in selected
-        if (integration := SOURCE_REGISTRY[key].spec.integration_key)
-        and integration not in runtime.integrations
-    )
+    return tuple(key for key in selected if not _configured(SOURCE_REGISTRY[key].spec, runtime))
+
+
+def _configured(spec: SourceSpec, runtime: SearchRuntime) -> bool:
+    if spec.integration_key and spec.integration_key not in runtime.integrations:
+        return False
+    return not spec.required_credential or bool(runtime.credential(spec.required_credential))
 
 
 def plan_requests(

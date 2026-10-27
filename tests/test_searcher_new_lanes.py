@@ -5,14 +5,13 @@ does and adds preprints from bioRxiv and medRxiv plus open-access full text. A t
 result reaches a preprint server before a journal, so a set of lanes that sees only
 journals sees the competitive landscape late.
 
-WHO Guidelines is the only lane in the `guidance` class, and it is the closest thing the
-ToolUniverse catalogue exposes to an LMIC authority: a regulator states what is permitted
-in its own market, while WHO states what should be done, and that is what ministries and
-procurement bodies follow where no national regulator has ruled.
+WHO Guidelines is the only lane in the `guidance` class, and the closest this service has
+to an LMIC authority: a regulator states what is permitted in its own market, while WHO
+states what should be done, and that is what ministries and procurement bodies follow where
+no national regulator has ruled.
 
-Neither lane was chosen for being easy. EMA, WHO ICTRP, Gavi and conference abstracts were
-all looked for and are not in the catalogue, which is why `MISSING_COVERAGE` and
-`MISSING_JURISDICTIONS` still name what they name.
+EMA, WHO ICTRP, Gavi and conference abstracts publish no search API a lane could call, which
+is why `MISSING_COVERAGE` and `MISSING_JURISDICTIONS` still name what they name.
 """
 
 from __future__ import annotations
@@ -90,15 +89,14 @@ class WHOGuidelinesTests(unittest.TestCase):
             _spec("who_guidelines").evidence_class, _spec("fda").evidence_class
         )
 
-    def test_it_reads_only_what_its_tool_accepts(self) -> None:
-        """The tool takes one topic, so declaring more would claim a narrowing it
+    def test_it_reads_only_what_its_search_accepts(self) -> None:
+        """The search takes one topic, so declaring more would claim a narrowing it
         cannot apply."""
         self.assertEqual(sorted(_spec("who_guidelines").reads), ["condition", "text"])
 
     def test_it_asks_about_the_condition(self) -> None:
         (request,) = plan_requests([_intent()], sources=("who_guidelines",))
-        self.assertEqual(dict(request.options)["condition"], "malaria")
-        self.assertEqual(request.query, "condition:malaria")
+        self.assertEqual(request.query, "malaria")
 
     def test_its_findings_are_evidence_not_reference(self) -> None:
         """An earlier draft marked them `reference` by analogy to a press release, and
@@ -115,72 +113,60 @@ class WHOGuidelinesTests(unittest.TestCase):
 class WHOGuidelinesTextTests(unittest.TestCase):
     """A finding with no text is a title, and a title is not a passage.
 
-    The search tool returns `content` and `description` as null, so the first version of
-    this lane produced findings with zero-length excerpts. It declared that it feeds
-    insights while giving the model a title to reason from - the same shape as the lane
-    that fed nothing at all, just harder to see.
+    The lane once scraped WHO's site, whose links carried no text, and fell back to WHO's
+    list of recent guidelines when a condition had no topic page - guidance on any subject,
+    filed under this one. IRIS states both what a record is and what it says.
     """
 
-    class _Connector:
-        def __init__(self, *, fail_text: bool = False) -> None:
-            self.fail_text = fail_text
-            self.calls: list[str] = []
+    def _search(self, objects):
+        import json
+        from unittest.mock import patch
 
-        def run(self, tool, arguments):
-            self.calls.append(tool)
-            if tool == "WHO_Guidelines_Search":
-                return [
-                    {
-                        "title": "Guiding principles for malaria",
-                        "url": "https://www.who.int/publications/i/item/B09790",
-                        "description": None,
-                        "content": None,
-                        "is_guideline": True,
-                    },
-                    {"title": "A publication list", "url": "https://www.who.int/x", "is_guideline": False},
-                ]
-            if self.fail_text:
-                raise RuntimeError("page would not load")
-            return {"main_content": "WHO recommends seasonal chemoprevention.", "overview": ""}
-
-    def _search(self, connector):
+        import services.searcher.calls as search_calls
         from services.searcher import SearchRuntime
         from services.searcher.sources.who_guidelines import WHOGuidelinesSource
 
+        sent: list[str] = []
+
+        def fetch(url, **kwargs):
+            sent.append(url)
+            return json.dumps({"_embedded": {"searchResult": {
+                "page": {"totalElements": len(objects)},
+                "_embedded": {"objects": [{"_embedded": {"indexableObject": item}} for item in objects]},
+            }}}).encode()
+
         source = WHOGuidelinesSource()
         (request,) = source.plan(_intent())
-        return source.search(
-            request,
-            SearchRuntime(llm_client=None, integrations={"tooluniverse": connector}),
-            max_tokens=100,
-        )
+        with patch.object(search_calls, "fetch", fetch), patch.object(search_calls, "pace"):
+            return source.search(request, SearchRuntime(llm_client=None), max_tokens=100), sent
 
-    def test_a_guideline_carries_its_page_text(self) -> None:
-        connector = self._Connector()
-        (finding,) = self._search(connector)
+    def _item(self, handle: str, **metadata):
+        return {"handle": handle, "metadata": {key: [{"value": value}] for key, value in metadata.items()}}
+
+    def test_a_guideline_carries_whos_own_summary(self) -> None:
+        (finding,), sent = self._search([self._item(
+            "10665/1", **{"dc.title": "Guidelines for malaria",
+                          "dc.description.abstract": "WHO recommends seasonal chemoprevention."},
+        )])
         self.assertEqual(finding.excerpt, "WHO recommends seasonal chemoprevention.")
-        self.assertIn("WHO_Guideline_Full_Text", connector.calls)
+        self.assertEqual(len(sent), 1)
 
-    def test_a_page_that_will_not_load_degrades_the_finding_not_the_lane(self) -> None:
-        """The guideline exists and is citable either way; losing the whole request
-        because one page failed would be a worse answer than a thin one."""
-        (finding,) = self._search(self._Connector(fail_text=True))
+    def test_a_guideline_without_a_summary_is_kept_as_a_citable_title(self) -> None:
+        """The guideline exists and is citable either way; dropping it would be a worse
+        answer than a thin one."""
+        (finding,), _ = self._search([self._item("10665/2", **{"dc.title": "Guidelines"})])
         self.assertIsNone(finding.excerpt)
-        self.assertTrue(finding.url)
+        self.assertEqual(finding.url, "https://iris.who.int/handle/10665/2")
 
-    def test_a_publication_list_is_not_a_guideline(self) -> None:
-        """The class is an authority's position, and a list of publications is not one."""
-        findings = self._search(self._Connector())
-        self.assertEqual([f.url for f in findings], ["https://www.who.int/publications/i/item/B09790"])
+    def test_only_records_who_tags_as_guidelines_are_asked_for(self) -> None:
+        """The class is an authority's position, and IRIS's own tag says which records are."""
+        _, sent = self._search([])
+        self.assertIn("f.subject=WHO+guideline%2Cequals", sent[0])
 
-    def test_the_result_cap_is_small_because_each_result_costs_a_second_call(self) -> None:
+    def test_the_result_cap_stays_a_curated_handful(self) -> None:
         from services.searcher.sources.who_guidelines import MAX_RESULTS
 
         self.assertLessEqual(MAX_RESULTS, 5)
-
-    def test_the_full_text_tool_is_allowlisted(self) -> None:
-        """Its operations drive the connector allowlist, so an unlisted tool is refused."""
-        self.assertIn("WHO_Guideline_Full_Text", _spec("who_guidelines").operations)
 
 
 class LaneBalanceTests(unittest.TestCase):
@@ -193,13 +179,13 @@ class LaneBalanceTests(unittest.TestCase):
         self.assertEqual(counts["literature"], 3)
         self.assertGreaterEqual(counts["literature"], counts["molecular"])
 
-    def test_every_new_lane_is_off_by_default(self) -> None:
-        """Both need the ToolUniverse connector, so enabling them by default would make
-        an unconfigured deployment report two failed lanes on every run."""
-        for key in ("europepmc", "who_guidelines"):
-            with self.subTest(lane=key):
-                self.assertFalse(_spec(key).default_enabled)
-                self.assertTrue(_spec(key).integration_key)
+    def test_a_lane_is_off_by_default_only_when_it_needs_a_named_entity(self) -> None:
+        """Off by default once meant "needs the ToolUniverse connector". Every lane is now
+        called directly, so the one remaining reason is a lane that plans nothing until a
+        caller names a product or a target."""
+        for spec in source_specs():
+            with self.subTest(lane=spec.key):
+                self.assertEqual(spec.default_enabled, not spec.required_entity_types)
 
 
 if __name__ == "__main__":

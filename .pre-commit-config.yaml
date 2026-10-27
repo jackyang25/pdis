@@ -14,7 +14,7 @@ repos:
   # follows a `.env.<integration>` pattern, so a new integration means a new
   # file whose name no existing ignore rule anticipated. `.gitignore` covers
   # `.env.*` today, and this is the check for the day someone adds
-  # `tooluniverse.env` or `secrets.local.yaml` instead.
+  # `tavily.env` or `secrets.local.yaml` instead.
   - repo: https://github.com/gitleaks/gitleaks
     rev: v8.21.2
     hooks:

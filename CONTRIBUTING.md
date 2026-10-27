@@ -28,11 +28,12 @@ change. Background lives in the linked READMEs and is not repeated here.
 | Fixed TPP attributes | `shared/attributes.yaml` | [Scout](services/scout/README.md) |
 | Drafter sources and search guidance | `services/drafter/configs/bmgf_itpp_<class>.yaml` | [Drafter](services/drafter/README.md#configuration) |
 | Which documents Aligner compares | `services/aligner/configs/alignment.yaml` | [Aligner](services/aligner/README.md#configuration-is-the-whole-design) |
-| The disease / condition list | `shared/indications.yaml` | [Indication naming](docs/indication-vocabulary.md) |
+| The disease or health need list | `shared/indications.yaml` | [Indication naming](docs/indication-vocabulary.md) |
 | Product documentation and FAQ | `shared/product_knowledge.json` | [README](README.md#configuration) |
 | Assistant skills | `services/assistant/skills/*.md` | [Assistant](services/assistant/README.md) |
 | Release notes | `web/lib/releases.ts` | [Deployment](docs/deployment.md#product-versions-and-release-notes) |
-| Credentials | `.env` locally, Drone secrets when deployed | [.env.example](.env.example) |
+| Environment settings: names, defaults, descriptions | `shared/settings.py` (generates `.env.example`) | [.env.example](.env.example) |
+| Credentials' values | `.env` locally, Drone secrets when deployed | [Deployment](docs/deployment.md) |
 
 ## Common tasks
 
@@ -80,7 +81,7 @@ change. Background lives in the linked READMEs and is not repeated here.
    adapter — and belongs to the [Searcher README](services/searcher/README.md#development).
 3. Check: `uv run pytest tests -q -k scout`.
 
-### Add or rename a disease / condition
+### Add or rename a disease or health need
 
 Follow [Updating and verifying](docs/indication-vocabulary.md#updating-and-verifying). Each
 entry cites a reviewed MeSH descriptor, and the offline check verifies it.
@@ -109,13 +110,16 @@ This touches several services that must agree on the same
 `CONFIG_TEMPLATE.yaml`. `tests/test_config_identity.py` fails when they disagree; read
 its docstring first, and ask before merging a first attempt.
 
-### Add a credential
+### Add a setting or a credential
 
-1. Add the variable, without its value, to `.env.example`. `tests/test_env_var_parity.py`
-   fails otherwise.
-2. Never commit a value. Deployed values are Drone secrets, bound through `__NAME__`
-   placeholders in both jobspecs; `tests/test_deploy_secrets.py` and
-   `tests/test_jobspec_parity.py` check both.
+1. Declare it once in `shared/settings.py` - name, group, default, description, and
+   `secret=True` for a credential - and read it through that module's accessors. Then run
+   `uv run python scripts/generate_env_example.py`. `tests/test_env_var_parity.py` fails
+   on a setting read but not declared, declared but not read, or an example file that was
+   not regenerated.
+2. Never commit a credential's value. Deployed values are Drone secrets, bound through
+   `__NAME__` placeholders in both jobspecs; `tests/test_deploy_secrets.py` takes the list
+   of credentials from the table and checks both.
 
 ## Checking a change
 
@@ -143,17 +147,15 @@ about an hour in all, most of it Scout (about 33 minutes) and Screener (about 15
    `--documents`. In the `pdis-diag` image, which has LibreOffice:
 
    ```sh
-   docker run --rm --env-file .env --network pdis_default \
-     -e TOOLUNIVERSE_BASE_URL=http://pdis-tooluniverse:8080 -e PYTHONPATH=/app \
+   docker run --rm --env-file .env -e PYTHONPATH=/app \
      -v $PWD/services:/app/services -v $PWD/shared:/app/shared \
      -v $PWD/api:/app/api -v $PWD/scripts:/app/scripts \
      -v "<documents>":/docs:ro -v "<runs>":/out -w /app \
      pdis-diag python -m scripts.evaluate --documents /docs --out /out/before
    ```
 
-   `--network` and `TOOLUNIVERSE_BASE_URL` reach the ToolUniverse container that
-   `docker compose up` starts, for Scout's and Drafter's sources; without them those
-   lanes fail and the run says so.
+   `.env` carries the provider keys Scout's and Drafter's sources use; a lane whose
+   required key is missing is left out of the run.
 2. Make the change, then run again with `--out /out/after --baseline /out/before/report.json`.
    `--only scout,rsv-inspector` limits a run to some tools or cases.
 3. Read `summary.md`. Agreement below 100% is expected, since models vary between runs;

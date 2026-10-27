@@ -39,7 +39,7 @@ Call once per conversation, before the first search. Free: runs no search.
 
 Each source reports its `key` (pass it in `sources`), whether it is `configured`
 on this server, whether it is `default_enabled` (searched when `sources` is
-empty), its `evidence_class` and `jurisdiction` (what it covers and for where),
+empty and it is configured), its `evidence_class` and `jurisdiction` (what it covers and for where),
 the search fields it `reads`, any `required_entity_types`, and whether it
 `honors_date_bound`.
 """

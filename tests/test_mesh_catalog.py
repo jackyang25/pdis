@@ -9,19 +9,20 @@ from shared.vocabulary import indication_definitions, search_term
 
 
 class CatalogTests(unittest.TestCase):
-    def test_female_contraception_uses_its_specific_mesh_concept(self):
+    def test_contraception_is_the_descriptor_registries_index(self):
         from shared.vocabulary import intervention_classes
 
         for intervention_class in intervention_classes():
             with self.subTest(intervention_class=intervention_class):
                 entries = {entry.key: entry for entry in indication_definitions(intervention_class)}
-                self.assertIn("female_contraception", entries)
-                entry = entries["female_contraception"]
+                self.assertIn("contraception", entries)
+                self.assertNotIn("female_contraception", entries)
+                entry = entries["contraception"]
                 self.assertEqual(entry.mesh_descriptor, "D003267")
-                self.assertEqual(entry.mesh_concept, "M0005088")
-                self.assertEqual(entry.mesh_term, "Female Contraception")
+                self.assertEqual(entry.mesh_concept, "M0005076")
+                self.assertEqual(entry.mesh_term, "Contraception")
                 self.assertEqual(entry.match, "exact")
-                self.assertEqual(search_term(entry.key), "female contraception")
+                self.assertEqual(search_term(entry.key), "contraception")
 
     def test_citation_metadata_is_not_a_synonym_expander(self):
         # A key's search text is derived from the key alone; its MeSH citation never

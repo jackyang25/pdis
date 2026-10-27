@@ -25,9 +25,8 @@ try:
 except ImportError:
     pass
 
-import os
 
-from api.deps import ConfigurationError, validate_configuration
+from api.deps import validate_configuration
 from api.logging_config import RequestIdMiddleware, configure_logging
 
 # Both run before the routers are imported, so a malformed setting stops the
@@ -78,41 +77,16 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
-def _cors_origins() -> list[str]:
-    """Resolve explicit browser origins allowed to call this gateway.
-
-    Deployments that serve the client and this gateway from one hostname make
-    every browser call same-origin, so nothing here is consulted and no value
-    needs to be set. The variable matters for split-origin deployments and for
-    local development, where the client is on :3000 and this gateway on :8000.
-
-    One variable, holding full origins. A second that took bare hostnames and
-    assumed https existed to consume a hostname a platform injected; a
-    deployment that sets both gets whichever this function reads first, which is
-    not a thing a reader can see from either value.
-
-    Never `*`. Credentials are allowed, and Starlette answers a credentialed request
-    under `*` by echoing whatever origin asked, so every site on the web could call
-    this gateway as the signed-in reader.
-    """
-    explicit = os.getenv("CORS_ALLOW_ORIGINS", "").strip()
-    if not explicit:
-        return ["http://localhost:3000"]
-    origins = [origin.strip() for origin in explicit.split(",") if origin.strip()]
-    if "*" in origins:
-        raise ConfigurationError(
-            "CORS_ALLOW_ORIGINS must list explicit origins; '*' would admit any site "
-            "with the reader's credentials."
-        )
-    return origins
-
-
-allow_origins = _cors_origins()
+#: Browser origins allowed to call this gateway across origins: the local client, on :3000
+#: while the gateway is on :8000. A deployment serves both from one hostname, so its calls
+#: are same-origin and need no entry. Never `*`: credentials are allowed, and Starlette
+#: answers a credentialed request under `*` by echoing whatever origin asked.
+LOCAL_CLIENT_ORIGINS = ["http://localhost:3000"]
 
 app.add_middleware(
     GatewayCORSMiddleware,
     mcp_origins=mcp_settings.allowed_origins if mcp_settings else [],
-    allow_origins=allow_origins,
+    allow_origins=LOCAL_CLIENT_ORIGINS,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],

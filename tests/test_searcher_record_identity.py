@@ -2,9 +2,13 @@
 
 from __future__ import annotations
 
+import json
 import unittest
+import urllib.parse
 from datetime import date, datetime, timezone
 from unittest.mock import patch
+
+import services.searcher.calls as search_calls
 
 from services.searcher import (
     Finding,
@@ -24,24 +28,32 @@ from services.searcher.sources.europepmc import EuropePMCSource
 from services.searcher.sources.fda import FDASource
 from services.searcher.sources.fda_safety import FDASafetySource
 from services.searcher.sources.isrctn import ISRCTNSource
-from services.searcher.sources.tooluniverse_records import structured_excerpt
+from services.searcher.sources.records import structured_excerpt
 from services.searcher.stages.clinicaltrials import clinicaltrial_to_finding
 
 NOW = datetime(2026, 1, 1, tzinfo=timezone.utc)
 
 
-class _Connector:
-    def __init__(self, responses: dict):
-        self.responses = responses
-        self.calls: list[tuple[str, dict]] = []
+class _Provider:
+    """A fake transport: each call is answered by the first address fragment it contains."""
 
-    def run(self, tool_name: str, arguments: dict):
-        self.calls.append((tool_name, dict(arguments)))
-        return self.responses[tool_name]
+    def __init__(self, answers: dict[str, object]):
+        self.answers = answers
+        self.sent: list[tuple[str, dict]] = []
 
+    def fetch(self, url, *, data=None, **_):
+        parameters = dict(urllib.parse.parse_qsl(urllib.parse.urlsplit(url).query))
+        self.sent.append((url, json.loads(data) if data else parameters))
+        answer = next(value for fragment, value in self.answers.items() if fragment in url)
+        return answer if isinstance(answer, bytes) else json.dumps(answer).encode("utf-8")
 
-def _runtime(connector) -> SearchRuntime:
-    return SearchRuntime(llm_client=None, integrations={"tooluniverse": connector})
+    def search(self, adapter, request):
+        with patch.object(search_calls, "fetch", self.fetch), patch.object(search_calls, "pace"):
+            return adapter.search(request, SearchRuntime(llm_client=None), max_tokens=1)
+
+    def run(self, requests):
+        with patch.object(search_calls, "fetch", self.fetch), patch.object(search_calls, "pace"):
+            return run_requests(requests, runtime=SearchRuntime(llm_client=None), max_tokens=1)
 
 
 def _finding(**kwargs) -> Finding:
@@ -66,18 +78,16 @@ def _safety_intent() -> RetrievalIntent:
 class DistinctRecordsStayDistinctTests(unittest.TestCase):
     def test_two_faers_reactions_are_two_records(self) -> None:
         """They shared a URL told apart by a fragment, which canonical URLs drop."""
-        connector = _Connector(
+        provider = _Provider(
             {
-                "FDA_get_warnings_by_drug_name": {"results": []},
-                "FAERS_count_reactions_by_drug_event": [
+                "drug/label.json": {"results": []},
+                "drug/event.json": {"results": [
                     {"term": "NAUSEA", "count": 12},
                     {"term": "HEADACHE", "count": 7},
-                ],
+                ]},
             }
         )
-        requests = plan_requests([_safety_intent()], sources=("fda_safety",))
-        with patch("services.searcher.calls.pace"):
-            outcomes = run_requests(requests, runtime=_runtime(connector), max_tokens=1)
+        outcomes = provider.run(plan_requests([_safety_intent()], sources=("fda_safety",)))
         findings = dedupe_findings(f for outcome in outcomes for f in outcome.findings)
 
         self.assertEqual(
@@ -86,13 +96,13 @@ class DistinctRecordsStayDistinctTests(unittest.TestCase):
         self.assertEqual(len({f.url for f in findings}), 2)
 
     def test_a_label_warning_without_a_set_id_is_not_kept(self) -> None:
-        connector = _Connector(
+        provider = _Provider(
             {
-                "FDA_get_warnings_by_drug_name": {
+                "drug/label.json": {
                     "results": [
-                        {"openfda.brand_name": ["A"], "warnings": ["Warning one."]},
+                        {"openfda": {"brand_name": ["A"]}, "warnings": ["Warning one."]},
                         {
-                            "openfda.brand_name": ["B"],
+                            "openfda": {"brand_name": ["B"]},
                             "set_id": "00000000-0000-0000-0000-0000000000a1",
                             "warnings": ["Warning two."],
                         },
@@ -103,11 +113,11 @@ class DistinctRecordsStayDistinctTests(unittest.TestCase):
         request = SearchRequest(
             scope_ref="safety",
             source="fda_safety",
-            query="label_warnings:chloroquine",
-            operation="FDA_get_warnings_by_drug_name",
+            query='openfda.brand_name:"chloroquine"',
+            operation="label_warnings",
             options=(("product_name", "chloroquine"),),
         )
-        findings = FDASafetySource().search(request, _runtime(connector), max_tokens=1)
+        findings = provider.search(FDASafetySource(), request)
 
         self.assertEqual(len(findings), 1)
         self.assertEqual(
@@ -120,14 +130,15 @@ class DistinctRecordsStayDistinctTests(unittest.TestCase):
         )
 
     def test_a_drug_label_is_addressed_by_its_own_document_id(self) -> None:
-        """The tool's `spl_id` is a version id; DailyMed's `setid` answers it with nothing."""
+        """`id` is a version id; DailyMed's `setid` answers it with nothing."""
         spl_id = "5431bb85-f36f-4286-9597-9ff0049588d8"
-        connector = _Connector(
+        provider = _Provider(
             {
-                "FDA_search_drug_labels": {
-                    "data": [
-                        {"brand_name": "No id", "indications_and_usage": "Malaria."},
-                        {"brand_name": "Doxy", "spl_id": spl_id, "indications_and_usage": "Malaria."},
+                "drug/label.json": {
+                    "results": [
+                        {"openfda": {"brand_name": ["No id"]}, "indications_and_usage": ["Malaria."]},
+                        {"openfda": {"brand_name": ["Doxy"]}, "id": spl_id,
+                         "indications_and_usage": ["Malaria."]},
                     ]
                 }
             }
@@ -145,7 +156,7 @@ class DistinctRecordsStayDistinctTests(unittest.TestCase):
             ],
             sources=("fda",),
         )[0]
-        findings = FDASource().search(request, _runtime(connector), max_tokens=1)
+        findings = provider.search(FDASource(), request)
 
         self.assertEqual(len(findings), 1)
         self.assertEqual(
@@ -156,21 +167,21 @@ class DistinctRecordsStayDistinctTests(unittest.TestCase):
 
     def test_a_registry_placeholder_is_not_an_identifier(self) -> None:
         """"Nil known" read as a trial number would make every such record one record."""
-        connector = _Connector(
+        trial = (
+            "<fullTrial><trial><isrctn>{}</isrctn><externalRefs>"
+            "<clinicalTrialsGovNumber>Nil known</clinicalTrialsGovNumber></externalRefs>"
+            "</trial></fullTrial>"
+        )
+        provider = _Provider(
             {
-                "ISRCTN_search_trials_fielded": {
-                    "data": [
-                        {"isrctn_id": "ISRCTN11111111", "clinicaltrials_gov_number": "Nil known"},
-                        {"isrctn_id": "ISRCTN22222222", "clinicaltrials_gov_number": "Nil known"},
-                    ]
-                }
+                "isrctn": (
+                    '<allTrials xmlns="http://www.67bricks.com/isrctn">'
+                    + trial.format("11111111") + trial.format("22222222") + "</allTrials>"
+                ).encode()
             }
         )
-        request = SearchRequest(
-            scope_ref="q", source="isrctn", query="condition:malaria",
-            options=(("condition", "malaria"),),
-        )
-        findings = ISRCTNSource().search(request, _runtime(connector), max_tokens=1)
+        request = SearchRequest(scope_ref="q", source="isrctn", query="condition:malaria")
+        findings = provider.search(ISRCTNSource(), request)
 
         self.assertEqual([f.identifiers for f in findings], [
             {"isrctn": "ISRCTN11111111"}, {"isrctn": "ISRCTN22222222"},
@@ -261,36 +272,32 @@ class TitlesAreTitlesTests(unittest.TestCase):
 class ProviderOrderTests(unittest.TestCase):
     """A request asks for what it keeps, and keeps it in the provider's order."""
 
-    def test_every_tooluniverse_lane_asks_for_its_declared_count(self) -> None:
-        limits = {"limit", "size"}
-        for adapter, request, response in (
+    def test_every_structured_lane_asks_for_its_declared_count(self) -> None:
+        for adapter, request, answer, count in (
             (CTISSource(), SearchRequest(scope_ref="q", source="ctis", query="x",
                                          options=(("medical_condition", "malaria"),)),
-             {"CTIS_search_trials_filtered": {"data": []}}),
-            (ISRCTNSource(), SearchRequest(scope_ref="q", source="isrctn", query="x",
-                                           options=(("condition", "malaria"),)),
-             {"ISRCTN_search_trials_fielded": {"data": []}}),
+             {"data": []}, lambda sent: sent["pagination"]["size"]),
+            (ISRCTNSource(), SearchRequest(scope_ref="q", source="isrctn", query="condition:malaria"),
+             b'<allTrials xmlns="http://www.67bricks.com/isrctn"/>', lambda sent: sent["limit"]),
             (EuropePMCSource(), SearchRequest(scope_ref="q", source="europepmc", query="x"),
-             {"EuropePMC_search_articles": {"data": []}}),
+             {"resultList": {"result": []}}, lambda sent: sent["pageSize"]),
             (ChEMBLSource(), SearchRequest(scope_ref="q", source="chembl", query="x",
-                                           operation="ChEMBL_search_drugs",
                                            options=(("entity_name", "chloroquine"),)),
-             {"ChEMBL_search_drugs": {"data": {"molecules": []}}}),
+             {"molecules": []}, lambda sent: sent["limit"]),
         ):
             with self.subTest(lane=adapter.spec.key):
-                connector = _Connector(response)
-                adapter.search(request, _runtime(connector), max_tokens=1)
-                (_, arguments), = connector.calls
-                (limit,) = [arguments[key] for key in limits if key in arguments]
-                self.assertEqual(limit, adapter.spec.max_results)
+                provider = _Provider({"": answer})
+                provider.search(adapter, request)
+                ((_, sent),) = provider.sent
+                self.assertEqual(int(count(sent)), adapter.spec.max_results)
 
     def test_records_keep_the_providers_order(self) -> None:
-        connector = _Connector(
+        provider = _Provider(
             {
-                "CTIS_search_trials_filtered": {
+                "ctis": {
                     "data": [
-                        {"ct_number": "2024-500001-11-00", "title": "Unrelated"},
-                        {"ct_number": "2024-500002-11-00", "title": "Malaria vaccine efficacy"},
+                        {"ctNumber": "2024-500001-11-00", "ctTitle": "Unrelated"},
+                        {"ctNumber": "2024-500002-11-00", "ctTitle": "Malaria vaccine efficacy"},
                     ]
                 }
             }
@@ -300,7 +307,7 @@ class ProviderOrderTests(unittest.TestCase):
             input_queries=("malaria vaccine efficacy",),
             options=(("medical_condition", "malaria"),),
         )
-        findings = CTISSource().search(request, _runtime(connector), max_tokens=1)
+        findings = provider.search(CTISSource(), request)
         self.assertEqual([f.title for f in findings], ["Unrelated", "Malaria vaccine efficacy"])
 
     def test_a_records_excerpt_does_not_depend_on_who_asked(self) -> None:
@@ -343,16 +350,13 @@ class RegistryDatesTests(unittest.TestCase):
 
     def test_ctis_states_no_publication_date(self) -> None:
         """Its search returns only the latest edit and the EU start, neither a publication."""
-        connector = _Connector(
-            {
-                "CTIS_search_trials_filtered": {
-                    "data": [{"ct_number": "2024-500001-11-00", "last_updated": "01/07/2026"}]
-                }
-            }
+        provider = _Provider(
+            {"ctis": {"data": [{"ctNumber": "2024-500001-11-00", "lastUpdated": "01/07/2026",
+                                "startDateEU": "05/04/2024"}]}}
         )
         request = SearchRequest(scope_ref="q", source="ctis", query="x",
                                 options=(("medical_condition", "malaria"),))
-        (finding,) = CTISSource().search(request, _runtime(connector), max_tokens=1)
+        (finding,) = provider.search(CTISSource(), request)
         self.assertIsNone(finding.published_at)
         self.assertEqual(finding.identifiers, {"euct": "2024-500001-11-00"})
 
@@ -369,34 +373,29 @@ class PartialDateTests(unittest.TestCase):
         self.assertFalse(_finding().published_before(date(2999, 1, 1)))
 
     def test_europe_pmc_keeps_a_bare_year_as_a_year(self) -> None:
-        connector = _Connector(
+        provider = _Provider(
             {
-                "EuropePMC_search_articles": {
-                    "data": [
-                        {"title": "A", "url": "https://europepmc.org/article/MED/1",
-                         "source_db": "MED", "article_id": "1", "pmid": "1", "year": "2024"},
-                        {"title": "B", "url": "https://europepmc.org/article/MED/2",
-                         "source_db": "MED", "article_id": "2",
-                         "first_publication_date": "2024-09-30", "year": "2024"},
-                    ]
+                "europepmc": {
+                    "resultList": {"result": [
+                        {"title": "A", "source": "MED", "id": "1", "pmid": "1", "pubYear": "2024"},
+                        {"title": "B", "source": "MED", "id": "2",
+                         "firstPublicationDate": "2024-09-30", "pubYear": "2024"},
+                    ]}
                 }
             }
         )
         request = SearchRequest(scope_ref="q", source="europepmc", query="x")
-        a, b = EuropePMCSource().search(request, _runtime(connector), max_tokens=1)
+        a, b = provider.search(EuropePMCSource(), request)
         self.assertEqual((a.published_precision, b.published_precision), ("year", "day"))
         self.assertEqual(a.record_key, "europepmc:MED/1")
+        self.assertEqual(a.url, "https://europepmc.org/article/MED/1")
 
-    def test_a_europe_pmc_error_record_is_a_failure(self) -> None:
-        """The tool reports an upstream failure as an article titled "Error"."""
-        connector = _Connector(
-            {"EuropePMC_search_articles": {"status": "success", "data": [
-                {"title": "Error", "error": "Europe PMC API error 503"}
-            ]}}
-        )
+    def test_a_europe_pmc_answer_without_a_result_list_is_a_failure(self) -> None:
+        """An answer missing its list is not one that matched nothing."""
+        provider = _Provider({"europepmc": {"errCode": 500, "errMsg": "temporarily unavailable"}})
         request = SearchRequest(scope_ref="q", source="europepmc", query="x")
-        with self.assertRaisesRegex(RuntimeError, "503"):
-            EuropePMCSource().search(request, _runtime(connector), max_tokens=1)
+        with self.assertRaisesRegex(RuntimeError, "no result list"):
+            provider.search(EuropePMCSource(), request)
 
 
 class ChEMBLTests(unittest.TestCase):
@@ -407,8 +406,8 @@ class ChEMBLTests(unittest.TestCase):
         self.assertEqual(_phase_label("4"), "Phase 4")
 
     def test_targets_are_not_searched_because_nothing_reads_them(self) -> None:
-        self.assertEqual(ChEMBLSource.spec.operations, ("ChEMBL_search_drugs",))
         self.assertNotIn("protein", ChEMBLSource.spec.required_entity_types)
+        self.assertNotIn("gene", ChEMBLSource.spec.required_entity_types)
 
 
 if __name__ == "__main__":

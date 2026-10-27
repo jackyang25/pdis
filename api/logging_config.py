@@ -22,11 +22,12 @@ from __future__ import annotations
 import contextvars
 import json
 import logging
-import os
 import uuid
 from typing import Any
 
 from starlette.middleware.base import BaseHTTPMiddleware
+
+from shared import settings
 
 REQUEST_ID_HEADER = "X-Request-ID"
 
@@ -96,10 +97,10 @@ def configure_logging() -> None:
     LOG_FORMAT=text keeps human-readable output for local development, where a
     JSON line per request is harder to read than the thing it replaced.
     """
-    level = os.environ.get("LOG_LEVEL", "INFO").upper()
+    level = settings.text("LOG_LEVEL").upper()
     handler = logging.StreamHandler()
 
-    if os.environ.get("LOG_FORMAT", "json").strip().lower() == "text":
+    if settings.text("LOG_FORMAT").lower() == "text":
         handler.setFormatter(
             logging.Formatter("%(asctime)s %(levelname)-8s %(name)s: %(message)s")
         )

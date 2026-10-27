@@ -1,4 +1,4 @@
-"""Conditional FDA safety-signal retrieval through ToolUniverse.
+"""Conditional FDA safety-signal retrieval from openFDA.
 
 This lane uses only document-stated product names. It keeps official label
 warnings, spontaneous-report counts, device adverse-event reports, and recalls
@@ -10,7 +10,6 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from urllib.parse import urlencode
 
-from ..errors import RetrievalError
 from ..models import (
     Finding,
     RetrievalIntent,
@@ -20,21 +19,15 @@ from ..models import (
     SourceAttribution,
     SourceSpec,
 )
-from .fda import MIN_REQUEST_INTERVAL_SECONDS, OPENFDA_RATE_GROUP
 from .literature import active_tracks
+from .openfda import MIN_REQUEST_INTERVAL_SECONDS, OPENFDA, first, openfda_search, phrase, strings
 from .planning import request_lineage
-from .tooluniverse_records import (
-    TOOLUNIVERSE_INTEGRATION,
-    parse_datetime,
-    result_records,
-    run_tool,
-    text,
-)
+from .records import parse_datetime, text
 
-DRUG_WARNING_TOOL = "FDA_get_warnings_by_drug_name"
-FAERS_REACTION_TOOL = "FAERS_count_reactions_by_drug_event"
-DEVICE_EVENT_TOOL = "OpenFDA_search_device_adverse_events"
-DEVICE_RECALL_TOOL = "OpenFDA_search_device_recalls"
+LABEL_WARNINGS = "label_warnings"
+REPORTED_EVENTS = "reported_events"
+DEVICE_EVENTS = "device_events"
+DEVICE_RECALLS = "device_recalls"
 DRUG_ENTITY_TYPES = {"drug", "compound", "vaccine"}
 DEVICE_ENTITY_TYPES = {"device"}
 PRODUCT_ENTITY_TYPES = tuple(sorted(DRUG_ENTITY_TYPES | DEVICE_ENTITY_TYPES))
@@ -56,15 +49,9 @@ class FDASafetySource:
         worker_limit=4,
         # openFDA's quota, shared with the `fda` lane.
         request_interval_seconds=MIN_REQUEST_INTERVAL_SECONDS,
-        rate_group=OPENFDA_RATE_GROUP,
+        rate_group=OPENFDA,
+        # Off by default: it plans nothing until a caller names a product or target.
         default_enabled=False,
-        integration_key=TOOLUNIVERSE_INTEGRATION,
-        operations=(
-            DRUG_WARNING_TOOL,
-            FAERS_REACTION_TOOL,
-            DEVICE_EVENT_TOOL,
-            DEVICE_RECALL_TOOL,
-        ),
         evidence_domains=("safety",),
         required_entity_types=PRODUCT_ENTITY_TYPES,
         attribution=SourceAttribution(
@@ -92,23 +79,20 @@ class FDASafetySource:
         requests: list[SearchRequest] = []
         for product in products:
             operations = (
-                (DRUG_WARNING_TOOL, f"label_warnings:{product.name}"),
-                (FAERS_REACTION_TOOL, f"reported_events:{product.name}"),
-            ) if product.entity_type in DRUG_ENTITY_TYPES else (
-                (DEVICE_EVENT_TOOL, f"device_events:{product.name}"),
-                (DEVICE_RECALL_TOOL, f"device_recalls:{product.name}"),
+                (LABEL_WARNINGS, REPORTED_EVENTS)
+                if product.entity_type in DRUG_ENTITY_TYPES
+                else (DEVICE_EVENTS, DEVICE_RECALLS)
             )
-            for operation, native_query in operations:
+            for operation in operations:
                 requests.append(
                     SearchRequest(
                         scope_ref=intent.scope_ref,
                         source=self.spec.key,
-                        query=native_query,
+                        query=_SEARCHES[operation](product.name),
                         tracks=tuple(active_tracks(intent)),
                         document_refs=document_refs,
                         intent_ids=intent_ids,
                         input_queries=input_queries,
-                        connector=TOOLUNIVERSE_INTEGRATION,
                         operation=operation,
                         options=(("product_name", product.name),),
                     )
@@ -122,42 +106,56 @@ class FDASafetySource:
         *,
         max_tokens: int,
     ) -> list[Finding]:
-        if request.operation == DRUG_WARNING_TOOL:
-            return _drug_warnings(request, runtime)
-        if request.operation == FAERS_REACTION_TOOL:
-            return _faers_reactions(request, runtime)
-        if request.operation == DEVICE_EVENT_TOOL:
-            return _device_events(request, runtime)
-        if request.operation == DEVICE_RECALL_TOOL:
-            return _device_recalls(request, runtime)
-        raise RuntimeError(f"Unsupported FDA safety operation: {request.operation}")
+        read = _READERS.get(request.operation)
+        if read is None:
+            raise RuntimeError(f"Unsupported FDA safety operation: {request.operation}")
+        return read(request, runtime)
+
+
+def _drug_search(product: str) -> str:
+    """A product as FAERS reports name it: as reported, or by openFDA's generic or brand."""
+    name = phrase(product)
+    return (
+        f"patient.drug.medicinalproduct:{name} "
+        f"patient.drug.openfda.generic_name:{name} "
+        f"patient.drug.openfda.brand_name:{name}"
+    )
+
+
+_SEARCHES = {
+    LABEL_WARNINGS: lambda product: (
+        f"openfda.brand_name:{phrase(product)} openfda.generic_name:{phrase(product)}"
+    ),
+    REPORTED_EVENTS: _drug_search,
+    DEVICE_EVENTS: lambda product: f"device.generic_name:{phrase(product)}",
+    DEVICE_RECALLS: lambda product: f"product_description:{phrase(product)}",
+}
 
 
 def _drug_warnings(request: SearchRequest, runtime: SearchRuntime) -> list[Finding]:
     product = request.option("product_name")
-    result = run_tool(
-        runtime,
-        FDASafetySource.spec,
-        DRUG_WARNING_TOOL,
-        {"drug_name": product, "limit": FDASafetySource.spec.max_results, "skip": 0},
+    records = openfda_search(
+        runtime, FDASafetySource.spec, "drug/label.json", request.query,
+        limit=FDASafetySource.spec.max_results,
     )
     retrieved_at = datetime.now(timezone.utc)
     findings: list[Finding] = []
-    for record in result_records(result, "results"):
-        # The label's set id names it across revisions; the tool returns it with every
-        # name-searched record. A record without one is not a label anyone can open, so
-        # it is not kept - its URL used to be a search for the product with a fragment.
-        set_id = _first(record.get("set_id"))
+    for record in records:
+        # The label's set id names it across revisions. A record without one is not a
+        # label anyone can open, so it is not kept.
+        set_id = text(record.get("set_id"))
         if not set_id:
             continue
-        boxed = _strings(record.get("boxed_warning"))
-        warnings = _strings(record.get("warnings"))
+        boxed = strings(record.get("boxed_warning"))
+        # The current label format states warnings as `warnings_and_cautions`, the older
+        # one as `warnings`; reading only the second missed every current-format label
+        # without a boxed warning.
+        warnings = strings(record.get("warnings_and_cautions")) or strings(record.get("warnings"))
         details = [*boxed, *warnings]
         if not details:
             continue
-        brand = _first(record.get("openfda.brand_name"))
-        generic = _first(record.get("openfda.generic_name"))
-        product_name = brand or generic or product
+        names = record.get("openfda") if isinstance(record.get("openfda"), dict) else {}
+        product_name = first(names.get("brand_name")) or first(names.get("generic_name")) or product
         signal = "Boxed warning" if boxed else "Official label warning"
         detail = " ".join(details)
         findings.append(
@@ -170,7 +168,7 @@ def _drug_warnings(request: SearchRequest, runtime: SearchRuntime) -> list[Findi
                 query=request.query,
                 retrieved_at=retrieved_at,
                 excerpt=detail[:16_000],
-                identifiers={"setid": set_id, "spl_id": _first(record.get("id"))},
+                identifiers={"setid": set_id, "spl_id": text(record.get("id"))},
                 record_key=f"fda_safety:label_warning:{set_id}",
                 source="fda_safety",
                 safety_observations=[
@@ -190,38 +188,28 @@ def _drug_warnings(request: SearchRequest, runtime: SearchRuntime) -> list[Findi
 
 def _faers_reactions(request: SearchRequest, runtime: SearchRuntime) -> list[Finding]:
     product = request.option("product_name")
-    result = run_tool(
-        runtime,
-        FDASafetySource.spec,
-        FAERS_REACTION_TOOL,
-        {"medicinalproduct": product},
+    counts = openfda_search(
+        runtime, FDASafetySource.spec, "drug/event.json", request.query,
+        limit=FDASafetySource.spec.max_results,
+        count="patient.reaction.reactionmeddrapt.exact",
     )
-    if isinstance(result, dict) and (result.get("error") or result.get("status") == "error"):
-        raise RetrievalError(
-            "FAERS", "tool_error", str(result.get("error") or "retrieval failed")
-        )
-    records = result if isinstance(result, list) else []
     retrieved_at = datetime.now(timezone.utc)
     findings: list[Finding] = []
-    for record in records[: FDASafetySource.spec.max_results]:
-        if not isinstance(record, dict):
-            continue
+    for record in counts:
         signal = text(record.get("term"))
         count = _integer(record.get("count"))
         if not signal or count is None:
             continue
         findings.append(
             Finding(
-                # A query that returns this reaction's reports for this product, so the
-                # count can be checked: its total is the count shown. Two reactions used
-                # to share one URL told apart only by a fragment, which canonical URLs
-                # drop, so deduplication merged every reaction into one record.
+                # A query returning this reaction's reports for this product, so the count
+                # can be checked: its total is the count shown.
                 url="https://api.fda.gov/drug/event.json?"
                 + urlencode(
                     {
                         "search": (
-                            f"patient.drug.medicinalproduct:{product} AND "
-                            f'patient.reaction.reactionmeddrapt.exact:"{signal}"'
+                            f"({request.query}) AND "
+                            f"patient.reaction.reactionmeddrapt.exact:{phrase(signal)}"
                         ),
                         "limit": 1,
                     }
@@ -254,16 +242,13 @@ def _faers_reactions(request: SearchRequest, runtime: SearchRuntime) -> list[Fin
 
 def _device_events(request: SearchRequest, runtime: SearchRuntime) -> list[Finding]:
     product = request.option("product_name")
-    search = f'device.generic_name:"{_lucene_phrase(product)}"'
-    result = run_tool(
-        runtime,
-        FDASafetySource.spec,
-        DEVICE_EVENT_TOOL,
-        {"search": search, "limit": FDASafetySource.spec.max_results, "skip": 0},
+    records = openfda_search(
+        runtime, FDASafetySource.spec, "device/event.json", request.query,
+        limit=FDASafetySource.spec.max_results,
     )
     retrieved_at = datetime.now(timezone.utc)
     findings: list[Finding] = []
-    for record in result_records(result, "results"):
+    for record in records:
         report_number = text(record.get("report_number"))
         if not report_number:
             continue
@@ -308,16 +293,13 @@ def _device_events(request: SearchRequest, runtime: SearchRuntime) -> list[Findi
 
 def _device_recalls(request: SearchRequest, runtime: SearchRuntime) -> list[Finding]:
     product = request.option("product_name")
-    search = f'product_description:"{_lucene_phrase(product)}"'
-    result = run_tool(
-        runtime,
-        FDASafetySource.spec,
-        DEVICE_RECALL_TOOL,
-        {"search": search, "limit": FDASafetySource.spec.max_results, "skip": 0},
+    records = openfda_search(
+        runtime, FDASafetySource.spec, "device/recall.json", request.query,
+        limit=FDASafetySource.spec.max_results,
     )
     retrieved_at = datetime.now(timezone.utc)
     findings: list[Finding] = []
-    for record in result_records(result, "results"):
+    for record in records:
         recall_id = text(record.get("product_res_number"))
         if not recall_id:
             continue
@@ -325,17 +307,18 @@ def _device_recalls(request: SearchRequest, runtime: SearchRuntime) -> list[Find
         classification = text(record.get("classification"))
         status = text(record.get("recall_status"))
         signal = classification or "Device recall"
-        detail_parts = [
+        firm = text(record.get("recalling_firm"))
+        reason = text(record.get("reason_for_recall"))
+        detail = "\n".join(
             value
             for value in (
                 f"Status: {status}" if status else "",
-                f"Firm: {text(record.get('recalling_firm'))}" if text(record.get("recalling_firm")) else "",
-                f"Reason: {text(record.get('reason_for_recall'))}" if text(record.get("reason_for_recall")) else "",
+                f"Firm: {firm}" if firm else "",
+                f"Reason: {reason}" if reason else "",
                 f"Product: {description}",
             )
             if value
-        ]
-        detail = "\n".join(detail_parts)
+        )
         url = "https://api.fda.gov/device/recall.json?" + urlencode(
             {"search": f'product_res_number:"{recall_id}"', "limit": 1}
         )
@@ -367,17 +350,12 @@ def _device_recalls(request: SearchRequest, runtime: SearchRuntime) -> list[Find
     return findings
 
 
-def _strings(value: object) -> list[str]:
-    if isinstance(value, str):
-        return [value.strip()] if value.strip() else []
-    if isinstance(value, list):
-        return [str(item).strip() for item in value if str(item).strip()]
-    return []
-
-
-def _first(value: object) -> str:
-    values = _strings(value)
-    return values[0] if values else ""
+_READERS = {
+    LABEL_WARNINGS: _drug_warnings,
+    REPORTED_EVENTS: _faers_reactions,
+    DEVICE_EVENTS: _device_events,
+    DEVICE_RECALLS: _device_recalls,
+}
 
 
 def _integer(value: object) -> int | None:
@@ -387,16 +365,12 @@ def _integer(value: object) -> int | None:
         return None
 
 
-def _lucene_phrase(value: str) -> str:
-    return value.replace("\\", " ").replace('"', " ").strip()
-
-
 def _device_event_detail(record: dict, device: dict) -> str:
     parts: list[str] = []
     manufacturer = text(device.get("manufacturer_d_name"))
     if manufacturer:
         parts.append(f"Manufacturer: {manufacturer}")
-    problems = _strings(record.get("product_problems"))
+    problems = strings(record.get("product_problems"))
     if problems:
         parts.append("Product problems: " + ", ".join(problems[:8]))
     narratives = record.get("mdr_text")

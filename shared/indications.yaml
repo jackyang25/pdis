@@ -201,9 +201,14 @@ vaccine: &indication_contexts
   - key: preterm_birth
     mesh: {descriptor: D047928, concept: M0012118, term: "Preterm Birth"}
     match: exact
-  - key: female_contraception
-    mesh: {descriptor: D003267, concept: M0005088, term: "Female Contraception"}
+  - key: contraception
+    mesh: {descriptor: D003267, concept: M0005076, term: "Contraception"}
     match: exact
+    note: >-
+      The descriptor, not its Female Contraception or Male Contraception concepts:
+      registries and labels index this need as contraception (ISRCTN found 0 trials
+      for "female contraception" and 27 for "contraception"), and the document
+      states which methods it concerns.
   - key: neonatal_respiratory_distress_syndrome
     mesh: {descriptor: D012127, concept: M0018890, term: "Neonatal Respiratory Distress Syndrome"}
     match: exact

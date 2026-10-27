@@ -631,7 +631,7 @@ class AssessorTests(unittest.TestCase):
         ]
         message = build_user_message(evidence,
                                      indication="hiv", intervention_class="monoclonal_antibody")
-        self.assertIn("Disease / condition: hiv", message)
+        self.assertIn("Disease or health need: hiv", message)
         self.assertIn("Intervention class: monoclonal antibody", message)
         for item in evidence:
             self.assertIn(item.content, message)

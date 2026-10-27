@@ -2,16 +2,17 @@
 
 from __future__ import annotations
 
-import os
 import threading
 from contextlib import contextmanager
 from collections.abc import Callable, Iterator
+
+from shared import settings
 
 
 # Sized against instance memory in the deployment jobspec, not just throughput.
 # Shared by HTTP and MCP; a second worker would multiply this process-local cap.
 # tests/test_streaming.py pins the single-worker image command.
-MAX_CONCURRENT_RUNS = max(1, int(os.getenv("MAX_CONCURRENT_RUNS", "2")))
+MAX_CONCURRENT_RUNS = settings.positive_int("MAX_CONCURRENT_RUNS")
 _run_slots = threading.Semaphore(MAX_CONCURRENT_RUNS)
 
 # Runs allowed to wait for a slot. A waiting run already holds its uploaded bytes,

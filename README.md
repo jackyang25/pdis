@@ -44,12 +44,12 @@ make dev
 docker compose up --build
 ```
 
-`make dev` copies the three example environment files and installs
+`make dev` copies the two example environment files and installs
 dependencies; `make help` lists every target.
 
-Set `OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, and a shared
-`TOOLUNIVERSE_API_TOKEN` in `.env`. Set `SEMANTIC_SCHOLAR_API_KEY` in
-`.env.tooluniverse` when that source is enabled.
+Set `KONG_KEY` (or `OPENAI_API_KEY` and `ANTHROPIC_API_KEY`) in `.env`, and the
+retrieval keys `.env.example` lists: each raises a provider's quota, and Semantic
+Scholar's lane runs only with its key.
 
 Open the application at [http://localhost:3000](http://localhost:3000). The API health endpoint and
 OpenAPI reference are available at [http://localhost:8000/api/health](http://localhost:8000/api/health) and
@@ -61,14 +61,11 @@ Searcher to compatible clients. It is disabled until explicitly configured.
 ### Native development
 
 Native development requires Python 3.11 and Node.js 22, and [uv](https://docs.astral.sh/uv/)
-to install from the lockfile. ToolUniverse can remain in Docker while the API and
-web application run locally.
+to install from the lockfile.
 
 Use Python 3.11 to match the deployed image.
 
 ```sh
-docker compose up -d tooluniverse
-
 uv sync --frozen --all-groups
 uv run uvicorn api.main:app --reload --port 8000
 ```

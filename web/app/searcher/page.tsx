@@ -82,7 +82,7 @@ export default function SearcherPage() {
         );
         setSelected(
           new Set(
-            (runnable.length ? runnable : available.filter((source) => source.default_enabled))
+            (runnable.length ? runnable : available.filter((source) => source.default_enabled && source.configured))
               .map((source) => source.key),
           ),
         );
@@ -348,7 +348,7 @@ export default function SearcherPage() {
                   disabled={busy || !source.configured || unreachable}
                   title={
                     !source.configured
-                      ? "Backend connector not configured"
+                      ? "Not configured on this server"
                       : unreachable
                         ? `Name a ${source.required_entity_types.join(" or ")} below to reach this source.`
                         : undefined

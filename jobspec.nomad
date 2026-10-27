@@ -8,11 +8,10 @@
 # Three deviations from that template, each because PDIS is not a one-container
 # app. Flag these to SRE when they review:
 #
-#  1. Two groups. The gateway and the private ToolUniverse connector run as two
-#     tasks in one group, because they must always be reachable to each other;
-#     the Next.js client is its own group because it is independent of both.
-#  2. Three images from one repository, named `__REPO__NAME__-api`, `-web`, and
-#     `-tooluniverse`. The template assumes one image per repo.
+#  1. Two groups: the API gateway, and the Next.js client, which is independent
+#     of it.
+#  2. Two images from one repository, named `__REPO__NAME__-api` and `-web`. The
+#     template assumes one image per repo.
 #  3. Path routing on the single production domain. The module grants one
 #     hostname, and every backend route is under `/api`, so one prefix rule
 #     splits gateway from client. This is also what keeps browser calls
@@ -54,29 +53,15 @@ job "__REPO__NAME__" {
     progress_deadline = "15m"
   }
 
-  # ---- Gateway and its connector -------------------------------------------
+  # ---- Gateway --------------------------------------------------------------
   #
-  # One group, two tasks, because the gateway is useless without the connector
-  # and the connector is used by nothing else. Tasks in a group share a network
-  # namespace, which is what lets the gateway address the connector at a fixed
-  # loopback port instead of discovering it.
-  #
-  # That is the whole reason they are grouped. Render injected the connector's
-  # address at deploy time, so it was always correct; resolving it at runtime
-  # through service discovery introduced a startup race Render never had, where
-  # a gateway rendering its template before the connector registered came up
-  # pointing at nothing and failed every Scout run. Co-location removes the race
-  # rather than tolerating it.
-  #
-  # count is 1, matching the topology this app ran on before. Raising it
-  # multiplies the whole allocation, connector included, so raise it only after
+  # count is 1, matching the topology this app ran on before. Raise it only after
   # watching one allocation's memory under load.
   group "api" {
     count = 1
 
     network {
       port "http" { to = 8000 }
-      port "tooluniverse" { to = 8080 }
     }
 
     service {
@@ -118,8 +103,10 @@ job "__REPO__NAME__" {
     # This is a starting allocation, not a measured worst-case requirement.
     # Reserve the full memory budget rather than relying on oversubscription.
     # MAX_CONCURRENT_RUNS is two, raised from one when memory went to 6 GiB;
-    # further runs queue. Measure peak memory under two concurrent image-heavy
-    # runs before raising either number again.
+    # further runs queue. Memory rose to 8 GiB, with runs still two, when the
+    # 2 GiB ToolUniverse task beside it was removed: the job's footprint is
+    # unchanged and both runs gain headroom. Measure peak memory under two
+    # concurrent image-heavy runs before raising the run cap.
     task "api" {
       driver = "docker"
 
@@ -130,22 +117,14 @@ job "__REPO__NAME__" {
 
       resources {
         cpu    = 2000
-        memory = 6144
+        memory = 8192
       }
 
       env {
         PORT                = "${NOMAD_PORT_http}"
+        # Stated here although it is the default, because it is sized against the
+        # memory above: the two are read, and changed, together.
         MAX_CONCURRENT_RUNS = "2"
-
-        # Allocation stdout is read by an aggregator, not a person.
-        LOG_FORMAT = "json"
-        LOG_LEVEL  = "INFO"
-
-        # The connector shares this group's network namespace, so its address is
-        # a fixed fact rather than something to look up. 127.0.0.1 rather than
-        # localhost because services/searcher/net.py documents this stack
-        # resolving to an unroutable IPv6 address inside containers.
-        TOOLUNIVERSE_BASE_URL = "http://127.0.0.1:8080"
 
         # Credentials, substituted by .drone.yml from Drone secrets, the same
         # mechanism as the repo name and build number.
@@ -153,48 +132,13 @@ job "__REPO__NAME__" {
         # A consequence worth knowing: the substituted values land in the job
         # definition Nomad stores, so `nomad job inspect` in this namespace
         # shows them. Namespace access is what protects them.
-        OPENAI_API_KEY         = "__OPENAI_API_KEY__"
-        ANTHROPIC_API_KEY      = "__ANTHROPIC_API_KEY__"
-        KONG_KEY               = "__KONG_KEY__"
-        NCBI_API_KEY           = "__NCBI_API_KEY__"
-        TAVILY_API_KEY         = "__TAVILY_API_KEY__"
-        TOOLUNIVERSE_API_TOKEN = "__TOOLUNIVERSE_API_TOKEN__"
-      }
-    }
-
-    # ---- Private connector -------------------------------------------------
-    #
-    # A task beside the gateway rather than a group of its own, and deliberately
-    # without a `service` block: nothing registers it and nothing routes to it,
-    # so it is reachable only over this group's loopback. It holds
-    # SEMANTIC_SCHOLAR_API_KEY and authenticates with a bearer token only, so
-    # giving it a service with Traefik tags would publish it. Review any change
-    # that adds one as a security change.
-    #
-    # Retrieval fans out to searcher's global_worker_limit (48) concurrent calls
-    # per run. Keep the connector's 2 GiB budget: the previous 512 MB allocation
-    # was killed under load. Raising MAX_CONCURRENT_RUNS also increases the
-    # number of requests and responses this single-worker process can hold.
-    task "tooluniverse" {
-      driver = "docker"
-
-      config {
-        image = "bmgfsre.azurecr.io/__REPO__NAME__-tooluniverse:__BUILD__NUMBER__"
-        ports = ["tooluniverse"]
-      }
-
-      resources {
-        cpu    = 1000
-        memory = 2048
-      }
-
-      env {
-        PORT = "8080"
-
-        # The same token the gateway is given, so the two authenticate to each
-        # other, plus the connector's own provider key.
-        TOOLUNIVERSE_API_TOKEN   = "__TOOLUNIVERSE_API_TOKEN__"
+        OPENAI_API_KEY           = "__OPENAI_API_KEY__"
+        ANTHROPIC_API_KEY        = "__ANTHROPIC_API_KEY__"
+        KONG_KEY                 = "__KONG_KEY__"
+        NCBI_API_KEY             = "__NCBI_API_KEY__"
+        TAVILY_API_KEY           = "__TAVILY_API_KEY__"
         SEMANTIC_SCHOLAR_API_KEY = "__SEMANTIC_SCHOLAR_API_KEY__"
+        OPENFDA_API_KEY          = "__OPENFDA_API_KEY__"
       }
     }
   }

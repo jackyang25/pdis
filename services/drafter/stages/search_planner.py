@@ -64,7 +64,8 @@ def build_system_prompt(query_guidance: str, programme_context: str) -> str:
         "You plan literature, registry and guidance searches for ONE variable of an intervention "
         "target product profile (iTPP) that a team is drafting.\n\n"
         f"Write up to {QUERIES_PER_VARIABLE} short search queries. Each has a purpose:\n"
-        "- comparable: finds what existing or late-stage products for this disease achieved or "
+        "- comparable: finds what existing or late-stage products for this disease or health need "
+        "achieved or "
         "specify for this variable.\n"
         "- guidance: finds what a published target profile, guideline or programme requirement asks "
         "of a new product for this variable.\n"
@@ -90,7 +91,7 @@ def plan_searches(
     intended_use: str = "",
 ) -> RetrievalIntent:
     message = (
-        f"Product type: {intervention_term}. Disease / condition: {indication}.\n"
+        f"Product type: {intervention_term}. Disease or health need: {indication}.\n"
         f"{intended_use_line(intended_use)}"
         f"Variable: {variable.name} ({searchable_attribute_phrase(variable.name)})\n"
         f"What it covers: {variable.description.strip()}"

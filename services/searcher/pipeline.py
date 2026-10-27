@@ -29,7 +29,7 @@ SEARCH_TEXT_FIELDS: dict[str, str] = {
         "vaccine efficacy phase 3'. Not a question or an instruction."
     ),
     "condition": (
-        "Disease or condition as a search term, e.g. 'respiratory syncytial virus'. Anchors "
+        "Disease or health need as a search term, e.g. 'respiratory syncytial virus'. Anchors "
         "structured sources such as trial registries."
     ),
     "intervention": "Intervention class in one or two words, e.g. 'vaccine', 'monoclonal antibody', 'drug'.",

@@ -1,116 +1,117 @@
-"""Every environment variable the backend reads is documented in `.env.example`.
+"""Every environment setting is declared once, in `shared/settings.py`.
 
-Configuration is stated in two places that drift apart silently: the code that
-reads a variable, and the file a developer copies to find out what to set. When
-they disagree the failure is invisible - the lane that needed the variable turns
-itself off, or a default takes over, and nothing reports that a value was
-missing. Tavily reached production configured in the deploy manifest and absent
-from `.env.example`, so no local environment ever ran that lane.
+A setting used to be stated in up to four places - the code that read it with its own
+default, `.env.example` restating that default, a validation table, and a deployment
+manifest - and only the names were checked, so a changed default went on being documented
+at its old value. Now the table holds the name, default and description; code reads only
+through it; and `.env.example` is generated from it. These tests hold all three.
 
-The scan reads the code rather than a hand-kept list. A list would be a third
-place to drift, and the point of this test is that there are only two.
-
-Reads through `api.deps._positive_int` and `_positive_float` are counted too:
-they take the variable name as their first argument, so a grep for `os.getenv`
-misses them and a reviewer reading such a grep concludes the variable is unused.
+The scan reads the code rather than a hand-kept list: a list would be another place to
+drift.
 """
 
 from __future__ import annotations
 
 import ast
 import pathlib
-import re
 import unittest
 
+from shared import settings
+
 ROOT = pathlib.Path(__file__).resolve().parents[1]
-SCANNED_PACKAGES = ("api", "services", "shared")
-ENV_EXAMPLE = ROOT / ".env.example"
-
-# These take the variable name as their first positional argument.
-NAME_IN_FIRST_ARG = frozenset({"_positive_int", "_positive_float"})
-
-# `# NAME=` counts as documented: some variables are supplied by the host or are
-# correct at their default, and this file records them without inviting a value.
-DOCUMENTED = re.compile(r"^\s*#?\s*([A-Z][A-Z0-9_]*)=")
+SCANNED = ("api", "services", "shared", "scripts")
+SETTINGS_MODULE = ROOT / "shared" / "settings.py"
+ACCESSORS = frozenset({"text", "positive_int", "flag", "listed", "default"})
 
 
-def _env_names_read_in_code() -> dict[str, set[str]]:
-    """Map each variable name to the files that read it."""
-    found: dict[str, set[str]] = {}
-
-    def record(name: str, path: pathlib.Path) -> None:
-        if name.isupper():
-            found.setdefault(name, set()).add(str(path.relative_to(ROOT)))
-
-    for package in SCANNED_PACKAGES:
-        for path in sorted((ROOT / package).rglob("*.py")):
-            tree = ast.parse(path.read_text())
-            for node in ast.walk(tree):
-                if isinstance(node, ast.Call):
-                    func = node.func
-                    attr = getattr(func, "attr", None) or getattr(func, "id", "")
-                    source = ast.unparse(func)
-                    reads_env = (
-                        attr in NAME_IN_FIRST_ARG
-                        or "getenv" in source
-                        or ("environ" in source and attr == "get")
-                    )
-                    first = node.args[0] if node.args else None
-                    if reads_env and isinstance(first, ast.Constant):
-                        if isinstance(first.value, str):
-                            record(first.value, path)
-                elif isinstance(node, ast.Subscript):
-                    if "environ" in ast.unparse(node.value):
-                        index = node.slice
-                        if isinstance(index, ast.Constant) and isinstance(
-                            index.value, str
-                        ):
-                            record(index.value, path)
-    return found
+def _python_files():
+    for package in SCANNED:
+        yield from sorted((ROOT / package).rglob("*.py"))
 
 
-def _documented_names() -> set[str]:
-    return {
-        match.group(1)
-        for line in ENV_EXAMPLE.read_text().splitlines()
-        if (match := DOCUMENTED.match(line))
-    }
+def _direct_environment_reads() -> list[str]:
+    """Places outside the settings module that read the environment themselves."""
+    found = []
+    for path in _python_files():
+        if path == SETTINGS_MODULE:
+            continue
+        for node in ast.walk(ast.parse(path.read_text())):
+            if isinstance(node, (ast.Attribute, ast.Name)):
+                source = ast.unparse(node)
+                if source in {"os.environ", "os.getenv", "environ", "getenv"}:
+                    found.append(f"{path.relative_to(ROOT)}:{node.lineno}")
+    return sorted(set(found))
 
 
-class EnvVarParityTests(unittest.TestCase):
-    def test_every_variable_read_by_the_backend_is_documented(self) -> None:
-        read = _env_names_read_in_code()
-        undocumented = sorted(set(read) - _documented_names())
+def _names_read() -> set[str]:
+    """Every setting named in a call to one of the settings accessors."""
+    names = set()
+    for path in _python_files():
+        for node in ast.walk(ast.parse(path.read_text())):
+            if (
+                isinstance(node, ast.Call)
+                and isinstance(node.func, ast.Attribute)
+                and node.func.attr in ACCESSORS
+                and ast.unparse(node.func.value) == "settings"
+                and node.args
+                and isinstance(node.args[0], ast.Constant)
+            ):
+                names.add(node.args[0].value)
+    return names
+
+
+class SettingsTableTests(unittest.TestCase):
+    def test_only_the_settings_module_reads_the_environment(self) -> None:
         self.assertEqual(
-            undocumented,
-            [],
-            "read in code but absent from .env.example: "
-            + "; ".join(f"{name} ({', '.join(sorted(read[name]))})" for name in undocumented),
+            _direct_environment_reads(), [],
+            "read the environment through shared.settings, so the setting is declared once",
         )
 
-    def test_the_scan_finds_the_variables_it_is_supposed_to_find(self) -> None:
-        """Guards the scan itself.
+    def test_every_setting_read_is_declared(self) -> None:
+        undeclared = sorted(_names_read() - set(settings.BY_NAME))
+        self.assertEqual(undeclared, [], f"read but not in shared/settings.py: {undeclared}")
 
-        A parity test that silently stops finding anything passes forever. These
-        three are read through the three different shapes the scan has to
-        understand - `os.environ.get`, `os.getenv`, and a name passed to a helper
-        - so losing any one of them breaks this before it breaks the check above.
-        """
-        read = _env_names_read_in_code()
-        for name in ("OPENAI_API_KEY", "MAX_CONCURRENT_RUNS", "TOOLUNIVERSE_TIMEOUT_SECONDS"):
+    def test_every_declared_setting_is_read(self) -> None:
+        """A declared setting nothing reads sends someone to set a value with no effect."""
+        unread = sorted(set(settings.BY_NAME) - _names_read())
+        self.assertEqual(unread, [], f"declared in shared/settings.py but read nowhere: {unread}")
+
+    def test_the_scan_finds_what_it_must(self) -> None:
+        """A parity scan that silently stops finding anything passes forever."""
+        read = _names_read()
+        for name in ("KONG_KEY", "MAX_CONCURRENT_RUNS", "PDIS_MCP_BROWSER_ORIGINS"):
             with self.subTest(name=name):
                 self.assertIn(name, read)
 
-    def test_documented_variables_are_not_stale(self) -> None:
-        """A name in `.env.example` that nothing reads sends a developer to set a
-        value with no effect, which is the same drift in the other direction."""
-        documented = _documented_names()
-        unread = sorted(documented - set(_env_names_read_in_code()))
+    def test_the_example_file_is_generated_from_the_table(self) -> None:
         self.assertEqual(
-            unread,
-            [],
-            f"documented in .env.example but read nowhere in the backend: {unread}",
+            (ROOT / ".env.example").read_text(),
+            settings.render_example(),
+            ".env.example differs from shared/settings.py; run scripts/generate_env_example.py",
         )
+
+    def test_a_group_documented_elsewhere_names_every_one_of_its_settings(self) -> None:
+        """The example file points to the group's README instead of listing its settings,
+        so the README is where each one has to be found."""
+        for group, doc in settings.GROUP_DOCS.items():
+            text = (ROOT / doc).read_text()
+            for setting in settings.SETTINGS:
+                if setting.group == group:
+                    with self.subTest(setting=setting.name):
+                        self.assertIn(setting.name, text)
+
+    def test_a_credential_has_no_default_and_no_local_value(self) -> None:
+        for setting in settings.SETTINGS:
+            if setting.secret:
+                with self.subTest(name=setting.name):
+                    self.assertEqual((setting.default, setting.local), ("", ""))
+
+    def test_a_malformed_number_stops_startup_naming_the_setting(self) -> None:
+        from unittest.mock import patch
+
+        with patch.dict("os.environ", {"MAX_CONCURRENT_RUNS": "two"}):
+            with self.assertRaisesRegex(settings.ConfigurationError, "MAX_CONCURRENT_RUNS"):
+                settings.validate()
 
 
 if __name__ == "__main__":

@@ -54,18 +54,3 @@ class CORSTests(unittest.TestCase):
                 headers={**preflight, "Origin": "https://unapproved.example"},
             )
             self.assertEqual(unknown.status_code, 400)
-
-
-class WebOriginTests(unittest.TestCase):
-    def test_a_wildcard_origin_is_refused_because_credentials_are_allowed(self):
-        import os
-        from unittest.mock import patch
-
-        from api.deps import ConfigurationError
-        from api.main import _cors_origins
-
-        with patch.dict(os.environ, {"CORS_ALLOW_ORIGINS": "https://pdis.example, *"}):
-            with self.assertRaises(ConfigurationError):
-                _cors_origins()
-        with patch.dict(os.environ, {"CORS_ALLOW_ORIGINS": "https://a.example,https://b.example"}):
-            self.assertEqual(_cors_origins(), ["https://a.example", "https://b.example"])

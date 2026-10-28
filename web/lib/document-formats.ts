@@ -27,7 +27,7 @@ function documentFormats(suffixes: readonly string[]): DocumentFormats {
 
 export const DOCUMENT_FORMATS: DocumentFormats = {
   ...documentFormats(DOCUMENT_SUFFIXES),
-  note: "Word, PowerPoint and Excel files keep their structure (older DOC, PPT and XLS files are converted first), so findings point to the exact passage, slide or row. PDFs are read as page text with an image of each page: tables and columns may be out of order and findings point to the page, so upload the original file when you have it. PDFs must be unlocked, up to 20 MB and 200 pages, with selectable text on every page; scans are not supported. Workbooks may be up to 20 MB and 2,000 filled rows.",
+  note: "Word, PowerPoint and Excel files keep their structure, so findings point to the exact passage, slide or row; older DOC, PPT and XLS files are converted first. PDFs are read page by page, so tables may come out of order and findings point only to the page: upload the original file when you have it. Limits: PDFs up to 20 MB and 200 pages, unlocked, with selectable text on every page (no scans); workbooks up to 20 MB and 2,000 filled rows.",
 };
 
 /** Reader-facing format list, e.g. `DOCX, DOC, PPTX, PPT, XLSX, XLS, PDF`. */

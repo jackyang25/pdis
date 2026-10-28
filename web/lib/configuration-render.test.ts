@@ -168,9 +168,9 @@ test("every tool's upload accepts the same formats and states the PDF limit", ()
   const html = renderToStaticMarkup(React.createElement(RunPanel, { onRun: () => {} }));
   assert.match(html, /accept="\.docx,\.doc,\.pptx,\.ppt,\.xlsx,\.xls,\.pdf"/);
   assert.match(html, /DOCX, DOC, PPTX, PPT, XLSX, XLS, PDF/);
-  assert.match(html, /PDFs are read as page text with an image of each page/);
-  assert.match(html, /findings point to the page/);
-  assert.match(html, /20 MB and 200 pages, with selectable text on every page/);
+  assert.match(html, /PDFs are read page by page/);
+  assert.match(html, /findings point only to the page/);
+  assert.match(html, /PDFs up to 20 MB and 200 pages, unlocked, with selectable text on every page/);
   assert.match(html, /2,000 filled rows/);
 });
 

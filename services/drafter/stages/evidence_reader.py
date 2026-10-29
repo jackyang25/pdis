@@ -31,8 +31,11 @@ from shared.vocabulary import AttributeDefinition, searchable_attribute_phrase
 from ..models import BASES, LLMClientProtocol, ObservedValue
 
 FINDINGS_PER_REQUEST = 1
-#: Sources read per variable, in the order retrieval ranked them.
-MAX_FINDINGS_PER_VARIABLE = 8
+#: Sources read per variable, in the order retrieval ranked them. At 8 an RSV run read
+#: adult-vaccine papers for severe-disease efficacy and never reached the maternal trial,
+#: and only 25 of 36 variables kept their outcome between two runs: which sources fit
+#: under the cut decided the draft more than the evidence did.
+MAX_FINDINGS_PER_VARIABLE = 16
 MAX_EXCERPT_CHARS = 8000
 #: The fast tier, as Scout's insight extraction is: this copies quotes and values out of
 #: one excerpt, code checks every quote, and the suggestion that weighs them stays on the

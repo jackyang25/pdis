@@ -295,8 +295,9 @@ Scope boundary:
 - Do not assume external facts or evidence that are absent from the supplied document and rubric.
 
 Return exactly one verdict for this unit. One question, one answer: if more than one
-label could apply, choose the one that names the unit's condition best. They are
-listed worst-first, so prefer the earlier of two that fit equally.
+label could apply, choose the one that names the unit's condition best. Choose
+specified only when no other label fits. The others are listed worst-first: when two
+of them fit equally, prefer the earlier.
 
 Verdicts:
 {verdicts}

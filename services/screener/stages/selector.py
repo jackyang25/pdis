@@ -20,8 +20,10 @@ DOCUMENTS_PER_REQUEST = 1
 #: that follows reads every selected block and owns the verdict, on the reasoning
 #: tier. This stage is one call per question per document, most of a run's calls.
 TASK: ModelTask = "fast"
-#: Low: recall over a document it is handed whole, with no verdict to weigh. Effort
-#: spent here buys no accuracy the assessment does not re-derive.
+#: Low: recall over a document it is handed whole, with no verdict to weigh. A missed
+#: block is lost to the assessment, so this was measured rather than assumed: across 10
+#: questions and 3 documents medium selected about 8% more blocks, and assessing each
+#: effort's selections gave the same state for all 10 questions.
 EFFORT: Effort = "low"
 #: The answer is a list of IDs; a dense document selected generously is a few thousand
 #: tokens of them, and reasoning at low effort is small.

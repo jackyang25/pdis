@@ -48,7 +48,8 @@ from ..models import (
 REQUIREMENTS_PER_REQUEST = 1
 #: The reasoning tier at medium effort: `exceeds` against `falls_short` against
 #: `not_comparable` is a reading of units, populations and endpoints across two
-#: documents, and the verdict a PPL takes back to the document's author.
+#: documents, and the verdict a PPL takes back to the document's author. Measured on 30
+#: RSV requirements asked three times each: medium agreed with itself on 28, low on 23.
 TASK: ModelTask = "reasoning"
 EFFORT: Effort = "medium"
 #: One verdict, one sentence of at most 25 words and a few line ranges; the rest is
@@ -80,6 +81,12 @@ requirement; judge it by that test and no other.
 Judge presence, never sufficiency. Whether stated work is enough to reach a target, or
 whether a target is achievable at all, is not answerable from these two documents and
 is not what you are being asked.
+
+Presence is about what the requirement names. Where it names a specific subject - a
+vaccine, a population, a market, a test - content about that subject can meet it. Content
+about a broader subject that may include it without naming it, such as co-administration
+studies that name no vaccine, honours only part of it and falls short; content about a
+different subject is not comparable.
 
 Verdicts:
 - meets: this document honours the requirement, in the way the message says a

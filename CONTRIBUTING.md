@@ -140,18 +140,20 @@ tool's pipeline and reports three things: quality signals read from result field
 state and grounding distributions; unit-by-unit and question-by-question maps), what changed
 against an earlier run, and wall time and tokens per stage from the `model_call` and
 `model_retry` log lines. It calls the providers, so it costs a full run of every tool:
-about an hour in all, most of it Scout (about 33 minutes) and Screener (about 15).
+about an hour and a quarter in all, most of it the two Scout cases (about 23 minutes each)
+and Screener (about 15).
 
 1. Run it before your change, into a new directory, and keep that `report.json` as the
    baseline. The documents are not in the repository; the manifest names them relative to
-   `--documents`. In the `pdis-diag` image, which has LibreOffice:
+   `--documents`. In the API image, which has LibreOffice and every reader's dependencies
+   (`docker compose build api` builds it as `pdis-api`; rebuild it when `uv.lock` changes):
 
    ```sh
    docker run --rm --env-file .env -e PYTHONPATH=/app \
      -v $PWD/services:/app/services -v $PWD/shared:/app/shared \
      -v $PWD/api:/app/api -v $PWD/scripts:/app/scripts \
      -v "<documents>":/docs:ro -v "<runs>":/out -w /app \
-     pdis-diag python -m scripts.evaluate --documents /docs --out /out/before
+     pdis-api python -m scripts.evaluate --documents /docs --out /out/before
    ```
 
    `.env` carries the provider keys Scout's and Drafter's sources use; a lane whose
@@ -163,8 +165,9 @@ about an hour in all, most of it Scout (about 33 minutes) and Screener (about 15
    Each `<case>.json` beside the report is the full result, for inspecting what moved.
 4. Keep runs worth comparing against beside the documents, one dated folder each, so the
    cases and their results stay in one place: `<documents>/Baselines/<date> <label>/`, holding
-   `report.json`, `summary.md` and the `<case>.json` files. The next run's `--baseline` is the
-   newest kept `report.json`; older folders can be deleted once nothing compares against them.
+   `report.json`, `summary.md` and the `<case>.json` files. A folder may hold only the cases it
+   ran; the next run's `--baseline` is the newest kept `report.json` holding the cases you run,
+   and older folders can be deleted once nothing compares against them.
 
 Scout's target review is settled by a fixed policy (`runners.settle_target_review`), so
 runs compare. Scout's result is what the server publishes after it, often the evidence-review

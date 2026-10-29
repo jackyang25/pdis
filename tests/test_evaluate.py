@@ -73,7 +73,7 @@ cases:
 
 def test_select_and_missing_documents(tmp_path):
     cases = load_manifest(MANIFEST)
-    assert [case.name for case in select(cases, ["scout"])] == ["rsv-scout"]
+    assert [case.name for case in select(cases, ["scout"])] == ["rsv-scout", "contraception-scout"]
     assert {case.tool for case in select(cases, ["rsv-drafter", "aligner"])} == {"drafter", "aligner"}
     assert select(cases, [""]) == cases
     with pytest.raises(ManifestError):

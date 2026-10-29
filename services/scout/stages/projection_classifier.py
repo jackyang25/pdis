@@ -32,9 +32,13 @@ logger = logging.getLogger(__name__)
 # Per-item scope: one relationship per projection, so an unrelated program or
 # safety observation can never sit in this decision's prompt.
 PROJECTIONS_PER_REQUEST = 1
-#: The fast tier at low effort: a display-only label no other axis reads.
+#: The fast tier: a display-only label no other axis reads. Medium effort, because the
+#: label turns on whether a record contradicts a characteristic the claims make defining:
+#: at low, the same eight contraception records asked three times agreed 16 of 24 times
+#: (one hormonal pill analogous, its generic adjacent); at medium 21 of 24, for the same
+#: median 2.7 s and about 150 tokens a call.
 TASK: ModelTask = "fast"
-EFFORT: Effort = "low"
+EFFORT: Effort = "medium"
 PROJECTION_WORKERS = 8
 MAX_TOKENS = 5000
 #: How many of a projection's records are shown. The label is about what the records
@@ -172,24 +176,47 @@ def _finding_context(findings) -> list[dict[str, str]]:
 
 
 def build_system_prompt(*, indication: str, intervention_class: str) -> str:
+    # `direct` once read "the same product represented by the uploaded document". A
+    # profile written for any candidate names no product, so the model stretched it to
+    # "also about this indication": a live contraception iTPP labelled a copper IUD, an
+    # antiprogestin and a screening study direct, one of them with a reason saying it was
+    # not the product. Whether a document names its product is read from its claims, so
+    # one definition serves every document type without a branch. A registry arm is named
+    # for what it holds, so an RSV run also filed "Control", "Questionnaire" and a buffer
+    # as direct: the label is about the named subject, never the trial around it.
     return (
-        "Classify how each structured source projection relates to the product "
-        "described by the canonical document claims. This is a display-only "
-        "relationship label; do not assess evidence quality, precedent, safety "
-        "causality, or whether a numeric target is met.\n\n"
+        "Classify what each structured source projection is about, relative to the "
+        "product the canonical document claims describe. The label is for display: do "
+        "not assess evidence quality, precedent, safety causality, or whether a numeric "
+        "target is met.\n\n"
         f"Configured product class: {intervention_class}. Indication: {indication}.\n\n"
-        "target_relationship meanings:\n"
-        "- direct: the record or signal concerns the same product/intervention "
-        "represented by the uploaded document.\n"
-        "- analogous: it concerns a different named candidate or product in the "
-        "same relevant intervention class or product archetype.\n"
-        "- adjacent: it is relevant contextual work, a complementary intervention, "
-        "or another product class, but is not a same-class analogue.\n"
-        "- unrelated: it has no meaningful relationship to the document product.\n"
-        "- unknown: the supplied canonical claims or source context are insufficient.\n\n"
-        "Source-study role is an independent provider fact. Experimental, comparator, "
-        "or control does not by itself determine target relationship. Return one "
-        "schema-bound decision for every supplied projection ID and a short reason."
+        "First read from the claims what the document describes. Either it names its "
+        "own product - a specific candidate identified by a name or code - or it "
+        "describes a profile that any candidate could meet, naming none.\n\n"
+        "target_relationship, from closest to furthest:\n"
+        "- direct: the projection concerns the document's own named product, identified "
+        "by that name, that code, or a synonym the source states for it. Only a document "
+        "that names its product can have direct projections. Sharing the indication, the "
+        "product class or the profile never makes a projection direct.\n"
+        "- analogous: it concerns a different product or candidate that matches what the "
+        "claims describe: the same product class, contradicting none of the "
+        "characteristics the claims make defining. For a document that names no product, "
+        "a product matching its profile is analogous.\n"
+        "- adjacent: it is relevant context but not such a product: a product of another "
+        "class, a product that departs from a characteristic the claims make defining, a "
+        "complementary intervention, or other work on the indication.\n"
+        "- unrelated: it has no meaningful relationship to the document's product or "
+        "indication.\n"
+        "- unknown: the claims or the source context are insufficient to decide.\n\n"
+        "Label the projection's named subject, not the study it was taken from. A "
+        "subject that is not a product - a placebo, a vehicle or buffer, a procedure, a "
+        "questionnaire - is never direct or analogous, whatever the study tested.\n\n"
+        "The source-study role (experimental, comparator, control) is a provider fact "
+        "and does not decide the label: a comparator arm is labelled by the product it "
+        "is, like any other.\n\n"
+        "Return one schema-bound decision for every supplied projection ID. Its reason "
+        "names the subject the projection concerns and the fact that decides the label, "
+        "and agrees with the label."
     )
 
 

@@ -2675,8 +2675,10 @@ class ReasoningLineageTests(unittest.TestCase):
         self.assertIn("canonical fields", prompt.lower())
         self.assertIn("Copy the short exact excerpt", prompt)
         self.assertIn("without reinterpreting its numeric meaning", prompt)
-        self.assertIn("Conditions includes only settings", prompt)
-        self.assertIn("change numeric interpretation", prompt)
+        self.assertIn("Conditions holds only a setting", prompt)
+        self.assertIn("changes numeric interpretation", prompt)
+        self.assertIn("it never restates another dimension", prompt)
+        self.assertIn("A requirement is enforced by one rule", prompt)
         self.assertIn("unknown means its required scope cannot be established", prompt)
         self.assertIn("Separate three things:", prompt)
 

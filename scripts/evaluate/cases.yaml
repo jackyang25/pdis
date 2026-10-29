@@ -38,6 +38,18 @@ cases:
     documents:
       - RSV Maternal Vaccine iTPP 13 May 2022.docx
 
+  # The harder Scout case: a PDF rather than structured Word, a drug rather than a
+  # vaccine, and a profile that names no product, which the landscape labels must respect.
+  - name: contraception-scout
+    tool: scout
+    org: bmgf
+    source_type: itpp
+    intervention_class: drug
+    indication: contraception
+    folder: Contraception Drug - Bayer
+    documents:
+      - Non-Hormonal Continuous Use iTPP_v1.1 Public 13Oct2022 1.pdf
+
   - name: rsv-drafter
     tool: drafter
     org: bmgf

@@ -32,16 +32,23 @@ ATOMIC_TARGET_PRIMITIVE = (
     "rejected alternative, study-design detail, or contextual number into a separate target."
 )
 
+# A qualifier stated in two dimensions is required twice: an RSV run's efficacy targets
+# restated the endpoint's SpO2 case definition as an exact condition, and 248 of 388 source
+# measurements were then excluded for not stating a condition that was only the endpoint.
 SEMANTIC_DIMENSIONS_PRIMITIVE = (
     "Use semantic dimensions consistently: measure is the exact construct represented by the "
     "number; endpoint is the event or outcome measured; intervention is what is administered, "
     "built, or evaluated; population is who or what the result describes; regimen is the dose, "
     "schedule, configuration, or operating pattern; time_horizon is when or for how long; "
-    "statistic is the reported estimand or summary form. Conditions includes only settings or "
-    "circumstances that change numeric interpretation and are not already represented by another "
-    "dimension; minimum/optimal ambition belongs in target role, not conditions. Shared numbers or units do not make two measures the "
-    "same. Record only meaning supported by the supplied context, and preserve genuine absence "
-    "or ambiguity rather than filling it from background knowledge."
+    "statistic is the reported estimand or summary form. Each qualifier belongs to exactly one "
+    "dimension: an outcome's case definition is endpoint, an age band or subgroup is "
+    "population, a dose or schedule is regimen, a window is time_horizon. Conditions holds only "
+    "a setting or circumstance that changes numeric interpretation and that no other dimension "
+    "carries; it never restates another dimension, and when nothing remains it is "
+    "not_specified. Minimum/optimal ambition belongs in target role, not conditions. Shared numbers "
+    "or units do not make two measures the same. Record only meaning supported by the supplied "
+    "context, and preserve genuine absence or ambiguity rather than filling it from background "
+    "knowledge."
 )
 
 COMPARATOR_POLICY_PRIMITIVE = (
@@ -58,7 +65,9 @@ COMPARATOR_POLICY_PRIMITIVE = (
     "numeric outcomes; measure is always exact by construct, not merely by unit. Compatible permits "
     "only variation within a stated, justified scope that preserves interpretation. Unconstrained "
     "means the dimension does not control admission; unknown means its required scope cannot be "
-    "established. Missing support for a required qualifier stays unknown, never unconstrained.\n"
+    "established. Missing support for a required qualifier stays unknown, never unconstrained. "
+    "A requirement is enforced by one rule: a qualifier one dimension already requires is never "
+    "required again by another, because evidence would then have to state it twice to count.\n"
     "Scope authority: preserve material endpoint definitions, populations, regimens, observation "
     "windows, statistical forms, and operating conditions. Do not widen them merely because two "
     "document targets or columns differ, because evidence is scarce, or because two outcomes are "

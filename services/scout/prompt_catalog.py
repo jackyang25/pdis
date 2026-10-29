@@ -412,14 +412,17 @@ PROMPT_CATALOG: tuple[CatalogEntry, ...] = (
         tool=TOOL,
         id="projection_classifier.classify",
         stage="projection_classifier",
-        title="Projection role classification",
+        title="Record relationship classification",
         builder_name="build_system_prompt",
         render=lambda: projection_classifier.build_system_prompt(
             indication=INDICATION,
             intervention_class=INTERVENTION_CLASS,
         ),
         framing_slots=(),
-        result_fields=("development_landscape[].role",),
+        result_fields=(
+            "development_landscape[].target_relationship",
+            "safety_observations[].target_relationship",
+        ),
         ui_labels=(),
     ),
 )

@@ -197,7 +197,7 @@ drug:
   evidence_domain: product
   description: |
     Target formulation, route of administration, dose strengths, and regimen. Specify rationale and reference supporting data.
-- name: drug.stability_shelf_life
+- name: drug.stability_and_shelf_life
   evidence_domain: manufacturing
   description: |
     Target duration of stability and storage conditions. Quantitative target like 'X months at 2-8 C, Y months at 25 C.' Specify cold chain tolerance.
@@ -205,7 +205,7 @@ drug:
   evidence_domain: product
   description: |
     How the product is presented (tablet, vial, etc.). Address registration requirements and access considerations.
-- name: drug.product_registration_pathway_s
+- name: drug.product_registration_pathway
   evidence_domain: regulatory
   description: |
     Regulatory pathway: country focus, intended path (Fast to POC, Launch, Experimental), anticipated challenges.
@@ -221,7 +221,7 @@ drug:
   evidence_domain: delivery
   description: |
     Intended delivery channels - direct to consumer, health care facility, public/private funding, campaign mode.
-- name: drug.target_affordable_pricing_procurement
+- name: drug.target_affordable_pricing_and_procurement
   evidence_domain: commercial_access
   description: |
     Fixed costs and country for manufacturing. Pricing rationale and regulatory considerations.
@@ -233,7 +233,7 @@ drug:
   evidence_domain: clinical
   description: |
     Considerations for pregnancy, immunocompromised, elderly, pediatric subgroups.
-- name: drug.population_segment_unlikely_to_be_treated_i_e_ddi
+- name: drug.population_segment_unlikely_to_be_treated
   evidence_domain: safety
   description: |
     Patient populations or segments unlikely to be treated, including drug-drug interactions and contraindications (renal/hepatic dysfunction).
@@ -241,7 +241,7 @@ drug:
   evidence_domain: delivery
   description: |
     Minimally acceptable and optimistic treatment adherence risks. How adherence affects safety and efficacy.
-- name: drug.is_companion_diagnostic_needed_for_use
+- name: drug.companion_diagnostic
   evidence_domain: product
   description: |
     Whether use is conditional on a companion diagnostic test or follow-up testing.
@@ -308,7 +308,7 @@ diagnostic:
   evidence_domain: clinical
   description: |
     Quantitative target for clinical specificity. Reference WHO benchmarks where applicable.
-- name: diagnostic.analytical_specificity_cross_reactivity
+- name: diagnostic.analytical_specificity_and_cross_reactivity
   evidence_domain: biological
   description: |
     Target for analytical specificity and cross-reactivity with related organisms.
@@ -336,7 +336,7 @@ diagnostic:
   evidence_domain: commercial_access
   description: |
     Permitted promotional, educational, marketing, and sales materials.
-- name: diagnostic.environment_location_of_use
+- name: diagnostic.environment_and_location_of_use
   evidence_domain: delivery
   description: |
     Where the test is performed - health care level, environmental conditions.
@@ -356,7 +356,7 @@ diagnostic:
   evidence_domain: product
   description: |
     Specimen tracking, sample types and volumes, collection and transport, sample preparation.
-- name: diagnostic.distribution_service_support_training
+- name: diagnostic.distribution_service_support_and_training
   evidence_domain: delivery
   description: |
     Who runs the test, training and support, quality control system, instrument and supply reliability, service response time.
@@ -415,7 +415,7 @@ device:
   evidence_domain: product
   description: |
     How the product is presented. Registration and access considerations.
-- name: device.product_registration_pathway_s
+- name: device.product_registration_pathway
   evidence_domain: regulatory
   description: |
     Regulatory pathway: country focus, intended path, anticipated challenges.
@@ -431,7 +431,7 @@ device:
   evidence_domain: delivery
   description: |
     Intended delivery channels - direct to consumer, health care facility, public/private funding.
-- name: device.target_affordable_pricing_procurement
+- name: device.target_affordable_pricing_and_procurement
   evidence_domain: commercial_access
   description: |
     Affordable price for the end user in target countries.
@@ -471,7 +471,7 @@ device:
   evidence_domain: product
   description: |
     Physical format of the device.
-- name: device.is_companion_diagnostic_needed_for_use
+- name: device.companion_diagnostic
   evidence_domain: product
   description: |
     Whether use is conditional on a companion diagnostic test.
@@ -527,7 +527,7 @@ device:
   evidence_domain: product
   description: |
     Power source, battery life, charging time, digital requirements.
-- name: device.size_weight
+- name: device.size_and_weight
   evidence_domain: product
   description: |
     Size and weight relative to comparable devices.
@@ -539,7 +539,7 @@ device:
   evidence_domain: product
   description: |
     Device performance impact due to changes in orientation.
-- name: device.shelf_life_device_specific_performance
+- name: device.device_performance_over_shelf_life
   evidence_domain: manufacturing
   description: |
     Sterilization requirements and product property retention through storage and use.

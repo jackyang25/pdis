@@ -28,8 +28,8 @@ class SearchableAttributePhraseTests(unittest.TestCase):
 
     def test_underscores_become_spaces(self):
         self.assertEqual(
-            searchable_attribute_phrase("drug.target_affordable_pricing_procurement"),
-            "target affordable pricing procurement",
+            searchable_attribute_phrase("drug.target_affordable_pricing_and_procurement"),
+            "target affordable pricing and procurement",
         )
 
     def test_a_hyphen_is_a_separator_too(self):

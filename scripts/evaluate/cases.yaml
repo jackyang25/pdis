@@ -13,7 +13,7 @@ cases:
     indication: respiratory_syncytial_virus
     applicability_facts:
       public_sector_vaccine: "yes"
-    folder: RSV Vaccine
+    folder: RSV Vaccine - Maxvax
     documents:
       - RSV Maternal Vaccine iTPP 13 May 2022.docx
 
@@ -22,7 +22,7 @@ cases:
     org: bmgf
     intervention_class: vaccine
     indication: respiratory_syncytial_virus
-    folder: RSV Vaccine
+    folder: RSV Vaccine - Maxvax
     documents:
       itpp: RSV Maternal Vaccine iTPP 13 May 2022.docx
       ctpp: INV096779_2025_cTPP_MaxvaxRSVMaternalVaccine.docx
@@ -34,7 +34,7 @@ cases:
     source_type: itpp
     intervention_class: vaccine
     indication: respiratory_syncytial_virus
-    folder: RSV Vaccine
+    folder: RSV Vaccine - Maxvax
     documents:
       - RSV Maternal Vaccine iTPP 13 May 2022.docx
 
@@ -52,7 +52,7 @@ cases:
     gate: lcs
     intervention_class: drug
     indication: contraception
-    folder: Contraception Drug
+    folder: Contraception Drug - Dare
     documents:
       - CDMO Identification Report - INV-074353 30 Sept 2025.pdf
       - COGs_BDO-Kroll_BMGF_Dare Slides_10October2025_v2.pptx

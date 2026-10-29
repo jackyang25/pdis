@@ -42,7 +42,7 @@ def test_checked_in_manifest_covers_every_tool():
     assert {case.tool for case in cases} == set(TOOLS)
     aligner = next(case for case in cases if case.tool == "aligner")
     assert [role for role, _ in aligner.documents] == ["itpp", "ctpp", "ipdp"]
-    assert all(path.startswith("RSV Vaccine/") for _, path in aligner.documents)
+    assert all(path.startswith("RSV Vaccine - Maxvax/") for _, path in aligner.documents)
     screener = next(case for case in cases if case.tool == "screener")
     assert len(screener.documents) == 12 and screener.gate == "lcs"
 
@@ -78,12 +78,12 @@ def test_select_and_missing_documents(tmp_path):
     assert select(cases, [""]) == cases
     with pytest.raises(ManifestError):
         select(cases, ["nothing"])
-    (tmp_path / "RSV Vaccine").mkdir()
-    (tmp_path / "RSV Vaccine" / "RSV Maternal Vaccine iTPP 13 May 2022.docx").write_bytes(b"")
+    (tmp_path / "RSV Vaccine - Maxvax").mkdir()
+    (tmp_path / "RSV Vaccine - Maxvax" / "RSV Maternal Vaccine iTPP 13 May 2022.docx").write_bytes(b"")
     missing = missing_documents(select(cases, ["inspector", "aligner"]), tmp_path)
     assert missing == [
-        "rsv-aligner: RSV Vaccine/INV096779_2025_cTPP_MaxvaxRSVMaternalVaccine.docx",
-        "rsv-aligner: RSV Vaccine/INV096779__2025_IPDP_Vaccine_Maxvax.docx",
+        "rsv-aligner: RSV Vaccine - Maxvax/INV096779_2025_cTPP_MaxvaxRSVMaternalVaccine.docx",
+        "rsv-aligner: RSV Vaccine - Maxvax/INV096779__2025_IPDP_Vaccine_Maxvax.docx",
     ]
 
 

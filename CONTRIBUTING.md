@@ -162,7 +162,7 @@ about an hour in all, most of it Scout (about 33 minutes) and Screener (about 15
    compare it with the agreement of two baseline runs before reading a drop as a regression.
    Each `<case>.json` beside the report is the full result, for inspecting what moved.
 4. Keep runs worth comparing against beside the documents, one dated folder each, so the
-   cases and their results stay in one place: `<documents>/Results/<date> <label>/`, holding
+   cases and their results stay in one place: `<documents>/Baselines/<date> <label>/`, holding
    `report.json`, `summary.md` and the `<case>.json` files. The next run's `--baseline` is the
    newest kept `report.json`; older folders can be deleted once nothing compares against them.
 

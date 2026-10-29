@@ -59,11 +59,11 @@ from .models import (
     IndicatorReading,
     safety_observations_to_dicts,
 )
-from .export import export_docx
+from .export import export_report
 from .pipeline import continue_pipeline, run_pipeline
 
 __all__ = [
-    "export_docx",
+    "export_report",
     "available_configs",
     "FieldSelectionError",
     "result_from_target_review",

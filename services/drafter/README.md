@@ -11,7 +11,7 @@ share evidence machinery and never a run: a Scout result is a finding about a do
 claim; a Drafter result is a set of suggestions for a team to check and edit.
 
 Drafter judges nothing. It has no priority card, no verdicts and no scores, and every
-target it produces is labelled a suggestion, on the page and in the Word export.
+target it produces is labelled a suggestion, on the page and in the Word and Excel exports.
 
 ## Usage
 
@@ -99,7 +99,7 @@ treats, such as maternal immunization to protect infants - in an optional field.
 input, not configuration: searches are planned for that use and a target rests on evidence
 for it, with evidence from another population used only when nothing for the stated use
 speaks to the variable. It is never evidence and never a target value, and the result keeps
-it (`intended_use`) so the page and the Word file say what steered the draft. Without it, an
+it (`intended_use`) so the page and the exported file say what steered the draft. Without it, an
 "RSV vaccine" draft mixed older-adult and maternal products.
 
 Published guidance - a WHO preferred product profile, a treatment guideline - is found by

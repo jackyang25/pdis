@@ -1,4 +1,4 @@
-"""A final evidence review as Word tables: one row per searched field, then the numeric targets.
+"""A final evidence review as export tables: one row per searched field, then the numeric targets.
 
 Each field keeps its grounding and its precedent with the reason the model gave, and the
 records the grounding cites, so the row carries what its verdict rests on. The numbers are the
@@ -16,7 +16,7 @@ from typing import Any
 import re
 
 from shared.vocabulary import attribute_label, display_label
-from shared.word_export import Table, WordReport, count_summary, document_name, word_document
+from shared.report_export import ExportReport, Table, count_summary, document_name
 
 #: `GROUNDING_LABEL`, `PRECEDENT_LABEL`, `OUTCOME_LABEL` and `CALIBRATION_BASIS_LABEL` in the
 #: web's `lib/scout-labels.ts`.
@@ -54,7 +54,7 @@ CODE_NOTE = {
 }
 
 
-def export_docx(result: dict[str, Any]) -> bytes:
+def export_report(result: dict[str, Any]) -> ExportReport:
     if result["phase"] != "final":
         raise ValueError("Only a final Scout result exports; finish the review first.")
     precedents = {signal["attribute_ref"]: signal for signal in result["precedents"]}
@@ -89,7 +89,7 @@ def export_docx(result: dict[str, Any]) -> bytes:
             widths=(4, 1.5, 2, 1.5, 1.5),
             rows=[_calibration(score) for score in result["conformity"]],
         ))
-    return word_document(WordReport(
+    return ExportReport(
         title="Evidence review: " + (", ".join(map(document_name, doc_ids)) or "Scout result"),
         context=" · ".join(display_label(result[key]) for key in ("indication", "intervention_class", "source_type")),
         about=(
@@ -104,7 +104,7 @@ def export_docx(result: dict[str, Any]) -> bytes:
         )),
         notes=[f"Evidence published since {result['published_since']}."] if result.get("published_since") else [],
         tables=tables,
-    ))
+    )
 
 
 def _target(spans: list[dict[str, Any]], blocks: dict[str, dict[str, Any]]) -> str:

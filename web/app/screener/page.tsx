@@ -375,7 +375,7 @@ const ReviewView = memo(function ReviewView({
               filename: runFilename("screener"),
               data: () => packScreenerResult(result, held),
             }}
-            word={{
+            fileExport={{
               tool: "screener",
               result: result.review,
               onError: (message) => useScreenerSession.getState().setError(message),

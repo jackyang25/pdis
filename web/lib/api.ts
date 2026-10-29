@@ -1767,31 +1767,36 @@ export async function runDrafter(
 /** The longest intended use a team may state, as the server enforces it. */
 export const MAX_INTENDED_USE_CHARS = 600;
 
-/** The tools whose final result exports to Word, each at `/api/<tool>/export`. */
-export type WordExportTool = "inspector" | "aligner" | "screener" | "scout" | "drafter";
+/** The tools whose final result exports to a file, each at `/api/<tool>/export`. */
+export type ExportTool = "inspector" | "aligner" | "screener" | "scout" | "drafter";
+
+/** The files a result exports to. Both are written from the one report the tool's export decides. */
+export type ExportFormat = "docx" | "xlsx";
 
 /**
- * A final result as a Word file, built by the server from the result held here. The server
- * names the file and refuses a result it will not export, such as a Scout review checkpoint.
+ * A final result as a Word or Excel file, built by the server from the result held here. The
+ * server names the file and refuses a result it will not export, such as a Scout review
+ * checkpoint.
  *
  * Sent without its retained images: the file names where each passage sits and quotes no
  * picture, and an image-bearing result is many megabytes it does not need.
  */
-export async function exportWordDocument(
-  tool: WordExportTool,
+export async function exportResultFile(
+  tool: ExportTool,
   result: { blocks?: ContentBlock[] } | DraftResult,
+  format: ExportFormat,
 ): Promise<{ blob: Blob; filename: string }> {
   const body = "blocks" in result && Array.isArray(result.blocks)
     ? { ...result, blocks: result.blocks.map((block) => ({ ...block, image: null })) }
     : result;
-  const res = await reach(`${API_BASE}/api/${tool}/export`, {
+  const res = await reach(`${API_BASE}/api/${tool}/export?format=${format}`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ result: body }),
   });
   if (!res.ok) throw await responseError(res, "Export failed");
   const named = /filename="([^"]+)"/.exec(res.headers.get("Content-Disposition") ?? "");
-  return { blob: await res.blob(), filename: named?.[1] ?? `pdis-${tool}.docx` };
+  return { blob: await res.blob(), filename: named?.[1] ?? `pdis-${tool}.${format}` };
 }
 
 // --- Ask: read-only, grounded chat over any result object ---

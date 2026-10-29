@@ -33,11 +33,11 @@ from .models import (
     load_config,
     resolve_questions,
 )
-from .export import export_docx
+from .export import export_report
 from .pipeline import run_pipeline
 
 __all__ = [
-    "export_docx",
+    "export_report",
     "DisciplineReview",
     "DisciplineSpec",
     "DocumentInput",

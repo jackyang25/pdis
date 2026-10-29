@@ -1,4 +1,4 @@
-"""A gate review as Word tables, for a PPL to take back to the grantee.
+"""A gate review as export tables, for a PPL to take back to the grantee.
 
 The page's panels in its order - partly answered first, the one state with a specific ask
 attached, then not found, then answered - each grouped by discipline with the questions the
@@ -11,7 +11,7 @@ from __future__ import annotations
 from typing import Any
 
 from shared.vocabulary import display_label
-from shared.word_export import Table, WordReport, count_summary, passage_sources, word_document
+from shared.report_export import ExportReport, Table, count_summary, passage_sources
 
 COLUMNS = ("Discipline", "Question", "Requirement", "What the documents say", "Sources")
 
@@ -28,7 +28,7 @@ STATE_LABEL = {"answered": "Answered", "partly_answered": "Partly answered", "no
 REQUIREMENT_LABEL = {"required": "Required", "anticipatory": "Anticipatory"}
 
 
-def export_docx(review: dict[str, Any]) -> bytes:
+def export_report(review: dict[str, Any]) -> ExportReport:
     blocks = {block["id"]: block for block in review.get("blocks") or []}
     several = len(review["documents"]) > 1
     # Disciplines as the bank lists them, each question kept with its discipline.
@@ -62,7 +62,7 @@ def export_docx(review: dict[str, Any]) -> bytes:
             for discipline, question in in_state
         ]
 
-    return word_document(WordReport(
+    return ExportReport(
         title=f"Stage gate screen: {review['gate_label']}",
         context=" · ".join((
             display_label(review["indication"]), display_label(review["intervention_class"]),
@@ -82,7 +82,7 @@ def export_docx(review: dict[str, Any]) -> bytes:
             for state, title, description in PANELS
             if count[state]
         ],
-    ))
+    )
 
 
 def _answer(question: dict[str, Any]) -> str:

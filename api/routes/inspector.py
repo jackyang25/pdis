@@ -6,10 +6,10 @@ import os
 import tempfile
 import json
 
-from fastapi import APIRouter, File, Form, HTTPException, UploadFile
+from fastapi import APIRouter, File, Form, HTTPException, Query, UploadFile
 from fastapi.responses import Response, StreamingResponse
 
-from services.inspector import export_docx
+from services.inspector import export_report
 
 from api.operations.inspector import execute_inspection, prepare_inspection
 
@@ -17,7 +17,7 @@ from api.deps import MissingCredentialError, get_openai_client
 from api.schemas import InspectorExportRequest
 from api.streaming import run_with_progress
 from api.uploads import document_upload_parts, read_uploads
-from api.word_export import word_export
+from api.result_export import ExportFormat, export_response
 
 router = APIRouter()
 
@@ -78,6 +78,6 @@ async def run_inspector(
 
 
 @router.post("/export")
-def export_inspector(request: InspectorExportRequest) -> Response:
-    """A review as Word tables, one per rubric, built from the result the browser holds."""
-    return word_export("inspector", export_docx, request.result.model_dump())
+def export_inspector(request: InspectorExportRequest, file_format: ExportFormat = Query("docx", alias="format")) -> Response:
+    """A review as a Word or Excel file, one table per rubric, from the result the browser holds."""
+    return export_response("inspector", export_report, request.result.model_dump(), file_format)

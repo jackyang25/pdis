@@ -1,4 +1,4 @@
-"""A draft as a Word table, for the team to edit into their iTPP.
+"""A draft as an export table, for the team to edit into their iTPP.
 
 Every target in it is a suggestion and the document says so; every row names the sources it
 rests on, so the table carries its provenance into the document it ends up in.
@@ -9,7 +9,7 @@ from __future__ import annotations
 from typing import Any
 
 from shared.vocabulary import display_label
-from shared.word_export import Table, WordReport, count_summary, word_document
+from shared.report_export import ExportReport, Table, count_summary
 
 from .contract import validate_result_contract
 
@@ -17,7 +17,7 @@ COLUMNS = ("Variable", "Suggested target", "Based on", "Sources")
 NOT_SET = "Not set"
 
 
-def export_docx(result: dict[str, Any]) -> bytes:
+def export_report(result: dict[str, Any]) -> ExportReport:
     validate_result_contract(result)
     variables = result["variables"]
     rows = [(variable["label"], *_row(variable)) for variable in variables]
@@ -25,7 +25,7 @@ def export_docx(result: dict[str, Any]) -> bytes:
     insufficient = sum(
         variable["status"] != "failed" and variable["suggestion"]["kind"] == "insufficient" for variable in variables
     )
-    return word_document(WordReport(
+    return ExportReport(
         title="Draft iTPP targets",
         context=f"{result['display_name']} · {display_label(result['indication'])}",
         # Beside the draft it aimed, so a reader of the file sees what steered it.
@@ -41,7 +41,7 @@ def export_docx(result: dict[str, Any]) -> bytes:
             *([(failed, "Could not be suggested")] if failed else []),
         )),
         tables=[Table(columns=COLUMNS, rows=rows, widths=(2, 3, 2, 4))],
-    ))
+    )
 
 
 LEANS_ON_LABEL = {

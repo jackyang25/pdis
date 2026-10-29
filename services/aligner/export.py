@@ -1,4 +1,4 @@
-"""An alignment as Word tables: one per comparison, in the order the run made them.
+"""An alignment as export tables: one per comparison, in the order the run made them.
 
 Each requirement the reference document sets, its verdict, and what the document measured
 against it says, grouped by verdict in the page's reading order - shortfalls first. Both
@@ -15,7 +15,7 @@ from __future__ import annotations
 from typing import Any
 
 from shared.vocabulary import display_label
-from shared.word_export import Table, WordReport, count_summary, passage_sources, word_document
+from shared.report_export import ExportReport, Table, count_summary, passage_sources
 
 #: `VERDICT_LABELS` in the web's `lib/api.ts`, in the page's `VERDICT_ORDER`.
 VERDICT_LABEL = {
@@ -28,7 +28,7 @@ VERDICT_LABEL = {
 ORDER = tuple(VERDICT_LABEL)
 
 
-def export_docx(alignment: dict[str, Any]) -> bytes:
+def export_report(alignment: dict[str, Any]) -> ExportReport:
     blocks = {block["id"]: block for block in alignment.get("blocks") or []}
     documents = {document["doc_id"]: document for document in alignment["documents"]}
     tables = []
@@ -59,7 +59,7 @@ def export_docx(alignment: dict[str, Any]) -> bytes:
             rows=rows,
             widths=(4, 1.3, 4, 3),
         ))
-    return word_document(WordReport(
+    return ExportReport(
         title="Alignment: " + " · ".join(display_label(document["source_type"]) for document in alignment["documents"]),
         context=f"{display_label(alignment['indication'])} · {display_label(alignment['intervention_class'])}",
         about=(
@@ -67,7 +67,7 @@ def export_docx(alignment: dict[str, Any]) -> bytes:
             "document measured against it meets it."
         ),
         tables=tables,
-    ))
+    )
 
 
 def _blocks(spans: list[dict[str, Any]]) -> list[str]:

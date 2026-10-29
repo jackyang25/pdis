@@ -12,16 +12,21 @@ from fastapi.testclient import TestClient
 
 from api import schemas
 from services import aligner, inspector, scout, screener
-from shared.word_export import (
+from shared.report_export import (
+    ExportReport,
     Table,
-    WordReport,
     count_summary,
     passage_location,
     passage_sources,
-    word_document,
 )
+from shared.word_export import word_document
 
 WEB = Path(__file__).resolve().parents[1] / "web"
+
+
+def export_docx(tool, result: dict) -> bytes:
+    """A tool's report written as Word, as the export route writes it."""
+    return word_document(tool.export_report(result))
 
 
 def read(data: bytes) -> tuple[list[str], list[list[list[str]]]]:
@@ -39,7 +44,7 @@ def block(block_id: str, doc_id: str = "plan", **meta) -> dict:
 
 class LayoutTests(unittest.TestCase):
     def test_every_export_shares_one_page_and_one_caveat(self) -> None:
-        data = word_document(WordReport(
+        data = word_document(ExportReport(
             title="T", context="C", about="A", summary="S",
             tables=[Table(heading="Empty", note="Nothing here.", columns=("A",), rows=[]),
                     Table(columns=("A", "B"), rows=[("1", "")], widths=(1, 3))],
@@ -92,7 +97,7 @@ class ScreenerExportTests(unittest.TestCase):
         }).model_dump()
 
     def test_the_page_panels_in_order_with_required_questions_first(self) -> None:
-        paragraphs, tables = read(screener.export_docx(self.review()))
+        paragraphs, tables = read(export_docx(screener, self.review()))
         self.assertIn("3 questions: 0 answered, 2 partly answered, 1 not found.", paragraphs)
         self.assertIn("2 questions this gate requires are still unanswered.", paragraphs)
         self.assertIn("1 question does not apply to this product and is not listed.", paragraphs)
@@ -103,23 +108,27 @@ class ScreenerExportTests(unittest.TestCase):
         self.assertEqual(not_found[1][:4], ["Regulatory", "Question REG.1? (REG.1)", "Required", "—"])
 
 
+def alignment_result() -> dict:
+    finding = lambda rid, verdict, statement="It says so.": {
+        "requirement_id": rid, "edge_id": "itpp-to-ctpp", "requirement": f"Requirement {rid}.",
+        "reference_spans": [{"quote": "q", "block_ids": ["r1"]}], "verdict": verdict,
+        "statement": statement, "comparison_spans": [{"quote": "q", "block_ids": ["c1"]}] if statement else [],
+    }
+    return schemas.AlignmentResultOut.model_validate({
+        "documents": [{"doc_id": "profile", "source_type": "itpp", "display_name": "Intervention TPP"},
+                      {"doc_id": "candidate", "source_type": "ctpp", "display_name": "Candidate TPP"}],
+        "edges": [{"edge_id": "itpp-to-ctpp", "reference_doc_id": "profile",
+                   "comparison_doc_id": "candidate", "question": "Does it meet the bar?"}],
+        "org": "bmgf", "intervention_class": "vaccine", "indication": "malaria",
+        "blocks": [block("r1", "profile", section="Efficacy"), block("c1", "candidate", page=3)],
+        "findings": [finding("r1", "meets"), finding("r2", "not_addressed", ""), finding("r3", "falls_short")],
+    }).model_dump()
+
+
 class AlignerExportTests(unittest.TestCase):
     def test_each_comparison_lists_shortfalls_first_with_both_documents_cited(self) -> None:
-        finding = lambda rid, verdict, statement="It says so.": {
-            "requirement_id": rid, "edge_id": "itpp-to-ctpp", "requirement": f"Requirement {rid}.",
-            "reference_spans": [{"quote": "q", "block_ids": ["r1"]}], "verdict": verdict,
-            "statement": statement, "comparison_spans": [{"quote": "q", "block_ids": ["c1"]}] if statement else [],
-        }
-        alignment = schemas.AlignmentResultOut.model_validate({
-            "documents": [{"doc_id": "profile", "source_type": "itpp", "display_name": "Intervention TPP"},
-                          {"doc_id": "candidate", "source_type": "ctpp", "display_name": "Candidate TPP"}],
-            "edges": [{"edge_id": "itpp-to-ctpp", "reference_doc_id": "profile",
-                       "comparison_doc_id": "candidate", "question": "Does it meet the bar?"}],
-            "org": "bmgf", "intervention_class": "vaccine", "indication": "malaria",
-            "blocks": [block("r1", "profile", section="Efficacy"), block("c1", "candidate", page=3)],
-            "findings": [finding("r1", "meets"), finding("r2", "not_addressed", ""), finding("r3", "falls_short")],
-        }).model_dump()
-        paragraphs, (table,) = read(aligner.export_docx(alignment))
+        alignment = alignment_result()
+        paragraphs, (table,) = read(export_docx(aligner, alignment))
         self.assertIn("Intervention TPP → Candidate TPP", paragraphs)
         self.assertEqual(table[0], ["Requirement", "Verdict", "What the cTPP says", "Sources"])
         self.assertEqual([row[1] for row in table[1:]], ["Falls short", "Not addressed", "Meets"])
@@ -157,7 +166,7 @@ class InspectorExportTests(unittest.TestCase):
         return schemas.InspectionResultOut.model_validate(payload).model_dump()
 
     def test_every_requirement_keeps_its_row_and_unrun_rubrics_say_why(self) -> None:
-        paragraphs, (review,) = read(inspector.export_docx(self.inspection()))
+        paragraphs, (review,) = read(export_docx(inspector, self.inspection()))
         self.assertIn("WHO presentation was not run: Whether the vaccine is multi-dose is not known.", paragraphs)
         self.assertIn("Revision 1.0. 2 requirements: 1 specified, 0 not present, 0 placeholder, 1 insufficient, 0 vague.",
                       paragraphs)
@@ -166,7 +175,7 @@ class InspectorExportTests(unittest.TestCase):
         self.assertIn("No conflicts between sections were found.", paragraphs)
 
     def test_a_failed_consistency_check_is_not_read_as_no_conflict(self) -> None:
-        paragraphs, _ = read(inspector.export_docx(self.inspection(
+        paragraphs, _ = read(export_docx(inspector, self.inspection(
             consistency_status="failed", consistency_failure_code="response_truncated")))
         self.assertTrue(any("did not complete" in paragraph for paragraph in paragraphs))
         self.assertNotIn("No conflicts between sections were found.", paragraphs)
@@ -217,7 +226,7 @@ class ScoutExportTests(unittest.TestCase):
         return schemas.ScoutRunResponse.model_validate(payload).model_dump()
 
     def test_each_field_keeps_its_verdicts_reasons_and_sources(self) -> None:
-        paragraphs, (fields, numbers) = read(scout.export_docx(self.result()))
+        paragraphs, (fields, numbers) = read(export_docx(scout, self.result()))
         self.assertIn("Evidence review: rsv itpp", paragraphs)
         efficacy, safety, cogs = fields[1:]
         # A table row by its cells, each under its heading's own title line.
@@ -233,7 +242,7 @@ class ScoutExportTests(unittest.TestCase):
 
     def test_a_review_still_being_decided_does_not_export(self) -> None:
         with self.assertRaisesRegex(ValueError, "final"):
-            scout.export_docx(self.result(phase="evidence_review"))
+            export_docx(scout, self.result(phase="evidence_review"))
 
 
 class RouteTests(unittest.TestCase):

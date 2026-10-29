@@ -6,13 +6,13 @@ import os
 import tempfile
 from dataclasses import asdict
 
-from fastapi import APIRouter, File, Form, HTTPException, UploadFile
+from fastapi import APIRouter, File, Form, HTTPException, Query, UploadFile
 from fastapi.responses import Response, StreamingResponse
 
 from services.screener import (
     DocumentInput,
     available_gates,
-    export_docx,
+    export_report,
     find_config,
     resolve_questions,
     run_pipeline,
@@ -28,7 +28,7 @@ from api.schemas import (
 )
 from api.streaming import run_with_progress
 from api.uploads import document_upload_parts, read_uploads, require_distinct_doc_ids
-from api.word_export import word_export
+from api.result_export import ExportFormat, export_response
 
 router = APIRouter()
 
@@ -129,6 +129,6 @@ async def run_screener(
 
 
 @router.post("/export")
-def export_screener(request: ScreenerExportRequest) -> Response:
-    """A gate review as Word tables, by state and discipline, built from the result the browser holds."""
-    return word_export("screener", export_docx, request.result.model_dump())
+def export_screener(request: ScreenerExportRequest, file_format: ExportFormat = Query("docx", alias="format")) -> Response:
+    """A gate review as a Word or Excel file, by state and discipline, from the result the browser holds."""
+    return export_response("screener", export_report, request.result.model_dump(), file_format)

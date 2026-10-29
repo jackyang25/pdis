@@ -13,7 +13,7 @@ from .models import (
     inspection_result_to_dict,
 )
 __all__ = [
-    "export_docx",
+    "export_report",
     "available_configs",
     "LLMClientProtocol",
     "InspectionConfig",
@@ -35,7 +35,7 @@ from .configuration import (
     resolve_profile,
     validate_product_facts,
 )
-from .export import export_docx
+from .export import export_report
 from .pipeline import inspect_blocks_with_profile, run_profile_pipeline
 
 __all__ += [

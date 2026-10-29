@@ -2316,7 +2316,7 @@ const FieldGrid = memo(function FieldGrid({
                   data: () => packScoutResult(result, held),
                 }}
                 // A review checkpoint is still being decided, so only a final result exports.
-                word={result.phase === "final" ? {
+                fileExport={result.phase === "final" ? {
                   tool: "scout",
                   result,
                   onError: (message) => useScoutSession.getState().setError(message),

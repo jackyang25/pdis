@@ -12,13 +12,13 @@ import os
 import tempfile
 from dataclasses import asdict
 
-from fastapi import APIRouter, File, Form, HTTPException, UploadFile
+from fastapi import APIRouter, File, Form, HTTPException, Query, UploadFile
 from fastapi.responses import Response, StreamingResponse
 
 from services.aligner import (
     AlignmentDocument,
     DocumentInput,
-    export_docx,
+    export_report,
     load_config,
     resolve_edges,
     run_pipeline,
@@ -35,7 +35,7 @@ from api.schemas import (
 )
 from api.streaming import run_with_progress
 from api.uploads import document_upload_parts, read_uploads, require_distinct_doc_ids
-from api.word_export import word_export
+from api.result_export import ExportFormat, export_response
 
 router = APIRouter()
 
@@ -153,6 +153,6 @@ async def run_aligner(
 
 
 @router.post("/export")
-def export_aligner(request: AlignerExportRequest) -> Response:
-    """An alignment as Word tables, one per comparison, built from the result the browser holds."""
-    return word_export("aligner", export_docx, request.result.model_dump())
+def export_aligner(request: AlignerExportRequest, file_format: ExportFormat = Query("docx", alias="format")) -> Response:
+    """An alignment as a Word or Excel file, one table per comparison, from the result the browser holds."""
+    return export_response("aligner", export_report, request.result.model_dump(), file_format)

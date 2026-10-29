@@ -1,4 +1,4 @@
-"""A document review as Word tables: one per rubric, in the rubric's own order.
+"""A document review as export tables: one per rubric, in the rubric's own order.
 
 Every requirement keeps its row, sound ones included, so a reader can see what was checked
 as well as what needs work; a sound requirement's finding is empty, as on the page. Rubrics
@@ -11,7 +11,7 @@ from __future__ import annotations
 from typing import Any
 
 from shared.vocabulary import display_label
-from shared.word_export import Table, WordReport, count_summary, document_name, passage_sources, word_document
+from shared.report_export import ExportReport, Table, count_summary, document_name, passage_sources
 
 #: `VERDICT_LABEL` in the web's `lib/api.ts`, in the order of `VERDICTS`.
 VERDICT_LABEL = {
@@ -33,11 +33,11 @@ CONSISTENCY_NOTE = {
 COLUMNS = ("Requirement", "Verdict", "Finding", "Sources")
 
 
-def export_docx(inspection: dict[str, Any]) -> bytes:
+def export_report(inspection: dict[str, Any]) -> ExportReport:
     blocks = {block["id"]: block for block in inspection.get("blocks") or []}
     tables = [_review(review, blocks) for review in inspection["reviews"]]
     tables.append(_consistency(inspection, blocks))
-    return word_document(WordReport(
+    return ExportReport(
         title=f"Document review: {document_name(inspection['doc_id'])}",
         context=" · ".join(display_label(inspection[key]) for key in ("indication", "intervention_class", "source_type")),
         about=(
@@ -50,7 +50,7 @@ def export_docx(inspection: dict[str, Any]) -> bytes:
             if resolution["status"] != "included"
         ],
         tables=tables,
-    ))
+    )
 
 
 def _review(review: dict[str, Any], blocks: dict[str, dict[str, Any]]) -> Table:

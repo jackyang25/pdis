@@ -54,7 +54,7 @@ export const RELEASES: readonly Release[] = [
           "Every tool and Ask accept the same files: Word, PowerPoint, Excel and PDF, including older DOC, PPT and XLS files. Excel rows are read with their sheet, table title and column headers and cited to the exact cells; PDFs are read as page text, and every tool states that limit the same way.",
           "“Disease / condition” is now “Disease or health need”, and Contraception replaces Female contraception in its list, so searches use the word registries and labels index.",
           "Report a problem with any finding: an email opens with the finding’s details filled in.",
-          "Export to Word from Inspector, Aligner, Screener and Scout, as Drafter already could: one layout for every tool, with each finding, its status and where it was read from.",
+          "Export any final result to Word or Excel, from every tool: one layout for each, with every finding, its status and where it was read from. The workbook puts each table on its own sheet, ready to sort and filter.",
           "Clicking a highlighted passage in a PDF opens its details, and each tool’s Documents view opens on a layer with marks.",
           "The Documents view reads more cleanly: tables show every column without scrolling sideways, and each cited passage names its document and section in full.",
           "Clearer error messages, a visible keyboard focus, and one consistent look for buttons, counts and lists.",

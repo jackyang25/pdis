@@ -2,16 +2,16 @@
 
 from __future__ import annotations
 
-from fastapi import APIRouter, Form, HTTPException
+from fastapi import APIRouter, Form, HTTPException, Query
 from fastapi.responses import Response, StreamingResponse
 
-from services.drafter import MAX_INTENDED_USE_CHARS, export_docx, find_config, run_pipeline
+from services.drafter import MAX_INTENDED_USE_CHARS, export_report, find_config, run_pipeline
 from shared.vocabulary import indications_for
 
 from api.deps import MissingCredentialError, get_openai_client, get_search_runtime
 from api.schemas import DrafterExportRequest, DrafterRunResponse, DraftResultOut
 from api.streaming import run_with_progress
-from api.word_export import word_export
+from api.result_export import ExportFormat, export_response
 
 router = APIRouter()
 
@@ -53,6 +53,6 @@ async def run_drafter(
 
 
 @router.post("/export")
-def export_drafter(request: DrafterExportRequest) -> Response:
-    """A draft as a Word table, each target marked as a suggestion with its sources."""
-    return word_export("drafter", export_docx, request.result.model_dump())
+def export_drafter(request: DrafterExportRequest, file_format: ExportFormat = Query("docx", alias="format")) -> Response:
+    """A draft as a Word or Excel file, each target marked as a suggestion with its sources."""
+    return export_response("drafter", export_report, request.result.model_dump(), file_format)

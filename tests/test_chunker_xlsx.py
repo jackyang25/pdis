@@ -23,7 +23,7 @@ from services.chunker import run_pipeline
 from services.chunker.pipeline import parse_context_file
 from services.chunker.stages import parser, parser_xlsx
 from shared.document_metadata import extraction_context
-from shared.word_export import passage_location
+from shared.report_export import passage_location
 
 
 class XlsxReaderTests(unittest.TestCase):

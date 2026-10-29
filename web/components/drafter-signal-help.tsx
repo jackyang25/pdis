@@ -37,7 +37,7 @@ export function DrafterSignalHelp() {
   return (
     <SignalHelp
       title="How to read this draft"
-      intro="Drafter suggests a target for each iTPP variable of the product type. Every suggestion cites what comparable products achieved and what published guidance asks; export them to Word and edit them into your iTPP."
+      intro="Drafter suggests a target for each iTPP variable of the product type. Every suggestion cites what comparable products achieved and what published guidance asks; export them to Word or Excel and edit them into your iTPP."
       topics={DRAFTER_TOPIC_LIST as SignalTopic[]}
     />
   );

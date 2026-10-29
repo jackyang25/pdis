@@ -190,7 +190,7 @@ const DraftView = memo(function DraftView({
           <FinalResultActions
             onNewAnalysis={onNewAnalysis}
             download={held && { filename: runFilename("drafter"), data: () => packDrafterResult(result, held) }}
-            word={{ tool: "drafter", result, onError }}
+            fileExport={{ tool: "drafter", result, onError }}
           />
         </>
       }
@@ -222,7 +222,7 @@ function DraftNotices({ result, counts }: { result: DraftResult; counts: ReturnT
       {counts.failed > 0 && (
         <WarningNotice label="Variables not suggested">
           {countLabel(counts.failed, "variable")} could not be suggested because of an error.
-          Run the draft again, or fill in {counts.failed === 1 ? "that row" : "those rows"} in the exported Word table.
+          Run the draft again, or fill in {counts.failed === 1 ? "that row" : "those rows"} in the exported table.
         </WarningNotice>
       )}
       {/* A source that failed is missing from every suggestion, which changes what the draft

@@ -736,7 +736,7 @@ no priority card, no verdicts and no score, and reads no other tool's output.
   product's intended use; it aims the searches and suggestions, is never evidence or a target
   value, and is carried on the result (`intended_use`) so every reader sees what steered it.
 - A run is final when it finishes and is exported as it is, every target labelled a
-  suggestion with its sources; the Word table is built by the server from the result. There
+  suggestion with its sources; the exported table is built by the server from the result. There
   is no review step: a checkpoint earns its place only before something it controls, and
   nothing in a Drafter run follows its suggestions.
 - Quote matching (`shared/quotes.py`) and descriptive statistics (`shared/statistics.py`)
@@ -778,10 +778,13 @@ no priority card, no verdicts and no score, and reads no other tool's output.
   site: `AddResultOutcome` is a return value a page may discard, and four of six did, so a
   fifth run finished, cost its time, and then silently failed to appear. A page may still
   check the limit *before* running, which saves the run, but the message is the store's.
-- Every final result exports to Word the same way: the browser sends it to
-  `/api/<tool>/export`, the tool's `export.py` decides the rows - in its page's order and
-  words, labels pinned to the web's by `test_word_exports.py` - and `shared/word_export.py`
-  decides the layout, once. An export flattens only what the result carries; a reading the
+- Every final result exports to Word or Excel the same way: the browser sends it to
+  `/api/<tool>/export?format=docx|xlsx`, the tool's `export.py` decides what the file says as
+  one `ExportReport` (`shared/report_export.py`) - its rows in its page's order and words,
+  labels pinned to the web's by `test_word_exports.py` - and a writer decides only the layout,
+  once per format: `shared/word_export.py` and `shared/xlsx_export.py`. One report behind both
+  is what keeps a workbook from saying something its Word twin does not, and
+  `test_xlsx_export.py` holds every tool's tables equal across the two. An export flattens only what the result carries; a reading the
   page derives on read, such as Aligner's chain warnings, is not re-implemented server-side.
   A Scout review checkpoint does not export.
 - Review drafts are portable client state but are not downloadable final results.

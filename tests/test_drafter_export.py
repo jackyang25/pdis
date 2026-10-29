@@ -7,8 +7,13 @@ import unittest
 
 from docx import Document
 
-from services.drafter import export_docx
+from services.drafter import export_report
+from shared.word_export import word_document
 from tests.test_drafter_contract import result, suggested
+
+
+def export_docx(draft: dict) -> bytes:
+    return word_document(export_report(draft))
 
 
 def table_rows(data: bytes) -> list[list[str]]:

@@ -295,7 +295,7 @@ const InspectionResultView = memo(function InspectionResultView({
                   }
                 : undefined
             }
-            word={final ? {
+            fileExport={final ? {
               tool: "inspector",
               result: result.inspection,
               onError: (message) => useInspectorSession.getState().setError(message),
